@@ -1,53 +1,46 @@
-import { useEffect } from "react";
-import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import React from "react";
+import "./App.css";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./lib/auth";
+import { ToastProvider } from "./lib/toast";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import Landing from "./pages/Landing";
+import Auth from "./pages/Auth";
+import Search from "./pages/Search";
+import ArtistProfile from "./pages/ArtistProfile";
+import BookingFlow from "./pages/BookingFlow";
+import CustomerDashboard from "./pages/CustomerDashboard";
+import ArtistDashboard from "./pages/ArtistDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+function Protected({ children, roles }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="loading"><div className="spinner" /></div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+  return children;
+}
 
 function App() {
   return (
     <div className="App">
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
+        <AuthProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Auth mode="signin" />} />
+              <Route path="/signup" element={<Auth mode="signup" />} />
+              <Route path="/search" element={<Search />} />
+              <Route path="/artist/:id" element={<ArtistProfile />} />
+              <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
+              <Route path="/customer" element={<Protected roles={["customer", "agency", "corporate"]}><CustomerDashboard /></Protected>} />
+              <Route path="/artist" element={<Protected roles={["artist"]}><ArtistDashboard /></Protected>} />
+              <Route path="/admin" element={<Protected roles={["admin"]}><AdminDashboard /></Protected>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </ToastProvider>
+        </AuthProvider>
       </BrowserRouter>
     </div>
   );
