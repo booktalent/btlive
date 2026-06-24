@@ -12,8 +12,11 @@ import uuid
 import logging
 import base64
 import io
+import hmac
+import hashlib
 import bcrypt
 import jwt
+import razorpay
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List, Literal, Any, Dict
 
@@ -22,6 +25,8 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+from pdf_service import generate_contract_pdf, generate_invoice_pdf
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -33,6 +38,20 @@ JWT_ALGORITHM = "HS256"
 PLATFORM_FEE_PCT = float(os.environ.get("PLATFORM_FEE_PCT", 5))
 GST_PCT = float(os.environ.get("GST_PCT", 18))
 TOKEN_PCT = float(os.environ.get("TOKEN_PCT", 5))
+
+# Razorpay setup
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "").strip()
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
+RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "").strip()
+RAZORPAY_ENABLED = bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
+razorpay_client = None
+if RAZORPAY_ENABLED:
+    try:
+        razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+        razorpay_client.set_app_details({"title": "BookTalent", "version": "1.0.0"})
+    except Exception as _e:
+        RAZORPAY_ENABLED = False
+        razorpay_client = None
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -238,7 +257,12 @@ class PaymentInitBody(BaseModel):
 class PaymentVerifyBody(BaseModel):
     booking_id: str
     payment_id: str
-    mock_otp: str = "123456"
+    # mock-mode fields
+    mock_otp: Optional[str] = "123456"
+    # Razorpay live fields
+    razorpay_order_id: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
 
 
 class ReviewBody(BaseModel):
@@ -1005,27 +1029,92 @@ async def _release_payment_to_artist(booking: dict):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAYMENTS (simulated gateway: Razorpay/Stripe mock)
+# PAYMENTS — Razorpay live (with safe mock fallback when keys absent)
 # ─────────────────────────────────────────────────────────────────────────────
+@api.get("/payments/config")
+async def payment_config():
+    """Public config so frontend knows whether to use real Razorpay or mock."""
+    return {
+        "razorpay_enabled": RAZORPAY_ENABLED,
+        "razorpay_key_id": RAZORPAY_KEY_ID if RAZORPAY_ENABLED else None,
+        "currency": "INR",
+    }
+
+
 @api.post("/payments/init")
 async def payment_init(body: PaymentInitBody, user: dict = Depends(get_current_user)):
     doc = await db.bookings.find_one({"id": body.booking_id})
     if not doc or doc["customer_id"] != user["id"]:
         raise HTTPException(404, "Booking not found")
-    amount = doc["pricing"]["token_amount"]
+    amount = float(doc["pricing"]["token_amount"])
     pid = new_id()
-    await db.payments.insert_one({
+
+    pay_doc = {
         "id": pid, "booking_id": body.booking_id, "user_id": user["id"],
         "amount": amount, "method": body.method, "status": "pending",
-        "gateway": "razorpay_mock", "created_at": utcnow(),
-    })
-    return {"payment_id": pid, "amount": amount, "gateway": "razorpay_mock"}
+        "created_at": utcnow(),
+    }
+
+    if RAZORPAY_ENABLED:
+        # Razorpay amounts are in paise (INR * 100)
+        amount_paise = int(round(amount * 100))
+        # receipt ≤ 40 chars
+        receipt = f"BT-{doc['ref'][-12:]}-{pid[:6]}"
+        try:
+            order = razorpay_client.order.create({
+                "amount": amount_paise,
+                "currency": "INR",
+                "receipt": receipt,
+                "payment_capture": 1,
+                "notes": {
+                    "booking_id": body.booking_id,
+                    "booking_ref": doc["ref"],
+                    "customer_id": user["id"],
+                    "artist_id": doc["artist_id"],
+                },
+            })
+        except Exception as e:
+            log.error(f"Razorpay order error: {e}")
+            raise HTTPException(502, f"Payment gateway error: {e}")
+
+        pay_doc.update({
+            "gateway": "razorpay",
+            "razorpay_order_id": order["id"],
+            "amount_paise": amount_paise,
+        })
+        await db.payments.insert_one(pay_doc)
+        return {
+            "payment_id": pid,
+            "amount": amount,
+            "amount_paise": amount_paise,
+            "gateway": "razorpay",
+            "razorpay": {
+                "order_id": order["id"],
+                "key_id": RAZORPAY_KEY_ID,
+                "currency": "INR",
+                "name": "BookTalent",
+                "description": f"Booking {doc['ref']}",
+                "prefill": {
+                    "name": doc.get("customer_name") or "",
+                    "email": doc.get("customer_email") or "",
+                    "contact": doc.get("customer_phone") or "",
+                },
+                "notes": {"booking_id": body.booking_id, "booking_ref": doc["ref"]},
+            },
+        }
+
+    # Mock fallback
+    pay_doc["gateway"] = "razorpay_mock"
+    await db.payments.insert_one(pay_doc)
+    return {
+        "payment_id": pid,
+        "amount": amount,
+        "gateway": "razorpay_mock",
+    }
 
 
 @api.post("/payments/verify")
 async def payment_verify(body: PaymentVerifyBody, user: dict = Depends(get_current_user)):
-    if body.mock_otp != "123456":
-        raise HTTPException(400, "Invalid OTP (use 123456 in test mode)")
     pay = await db.payments.find_one({"id": body.payment_id})
     if not pay:
         raise HTTPException(404, "Payment not found")
@@ -1033,25 +1122,56 @@ async def payment_verify(body: PaymentVerifyBody, user: dict = Depends(get_curre
     if not booking:
         raise HTTPException(404, "Booking not found")
 
-    await db.payments.update_one({"id": body.payment_id}, {"$set": {"status": "completed", "verified_at": utcnow()}})
+    is_live = pay.get("gateway") == "razorpay"
+    if is_live:
+        if not (body.razorpay_order_id and body.razorpay_payment_id and body.razorpay_signature):
+            raise HTTPException(400, "Missing Razorpay verification params")
+        # Verify signature: HMAC SHA256 of order_id|payment_id with key_secret
+        try:
+            razorpay_client.utility.verify_payment_signature({
+                "razorpay_order_id": body.razorpay_order_id,
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_signature": body.razorpay_signature,
+            })
+        except razorpay.errors.SignatureVerificationError:
+            await db.payments.update_one({"id": body.payment_id}, {"$set": {"status": "failed", "failure_reason": "signature_mismatch"}})
+            raise HTTPException(400, "Signature verification failed")
+        await db.payments.update_one(
+            {"id": body.payment_id},
+            {"$set": {
+                "status": "completed",
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_signature": body.razorpay_signature,
+                "verified_at": utcnow(),
+            }},
+        )
+    else:
+        # mock mode: accept OTP 123456
+        if body.mock_otp != "123456":
+            raise HTTPException(400, "Invalid OTP (use 123456 in test mode)")
+        await db.payments.update_one(
+            {"id": body.payment_id},
+            {"$set": {"status": "completed", "verified_at": utcnow()}},
+        )
+
+    # Update booking
     new_amount_paid = booking.get("amount_paid", 0) + pay["amount"]
     await db.bookings.update_one(
         {"id": body.booking_id},
         {"$set": {"payment_status": "token_paid", "amount_paid": new_amount_paid, "status": "pending_artist"},
-         "$push": {"history": {"at": utcnow(), "action": "paid_token", "by": user["id"], "amount": pay["amount"]}}},
+         "$push": {"history": {"at": utcnow(), "action": "paid_token", "by": user["id"], "amount": pay["amount"], "gateway": pay.get("gateway")}}},
     )
-
-    # add pending to artist wallet (escrow)
+    # Escrow: pending on artist wallet
     await db.wallets.update_one({"user_id": booking["artist_id"]}, {"$inc": {"pending": pay["amount"]}})
-
+    # Customer ledger
     await db.transactions.insert_one({
         "id": new_id(), "user_id": user["id"], "type": "payment",
         "amount": -pay["amount"], "status": "completed",
         "description": f"Token paid for booking {booking['ref']}",
-        "booking_id": booking["id"], "created_at": utcnow(),
+        "booking_id": booking["id"], "gateway": pay.get("gateway"),
+        "created_at": utcnow(),
     })
-
-    # notify artist
+    # Notify artist
     await db.notifications.insert_one({
         "id": new_id(), "user_id": booking["artist_id"], "type": "booking_request",
         "title": "New paid booking request",
@@ -1059,7 +1179,76 @@ async def payment_verify(body: PaymentVerifyBody, user: dict = Depends(get_curre
         "read": False, "created_at": utcnow(),
         "link": f"/dashboard/bookings/{booking['id']}",
     })
-    return {"ok": True, "status": "pending_artist", "booking_ref": booking["ref"]}
+    return {"ok": True, "status": "pending_artist", "booking_ref": booking["ref"], "gateway": pay.get("gateway")}
+
+
+@api.post("/payments/webhook")
+async def razorpay_webhook(request: Request):
+    """Razorpay webhook handler. Verifies signature and updates booking state."""
+    body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+    if not RAZORPAY_ENABLED:
+        return {"ok": False, "reason": "razorpay_disabled"}
+    if not RAZORPAY_WEBHOOK_SECRET:
+        return {"ok": False, "reason": "webhook_secret_missing"}
+
+    expected = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode(), body, hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        raise HTTPException(400, "Invalid signature")
+
+    import json
+    try:
+        payload = json.loads(body.decode())
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+
+    event = payload.get("event")
+    entity = payload.get("payload", {})
+    log.info(f"Razorpay webhook: {event}")
+
+    if event == "payment.captured":
+        payment_entity = entity.get("payment", {}).get("entity", {})
+        order_id = payment_entity.get("order_id")
+        if order_id:
+            await db.payments.update_one(
+                {"razorpay_order_id": order_id},
+                {"$set": {"webhook_captured_at": utcnow(), "webhook_event": event}},
+            )
+    elif event in ("payment.failed",):
+        payment_entity = entity.get("payment", {}).get("entity", {})
+        order_id = payment_entity.get("order_id")
+        if order_id:
+            await db.payments.update_one(
+                {"razorpay_order_id": order_id},
+                {"$set": {"status": "failed", "webhook_event": event, "failure_reason": payment_entity.get("error_description")}},
+            )
+
+    return {"ok": True, "event": event}
+
+
+@api.post("/payments/{payment_id}/refund")
+async def refund_payment(payment_id: str, body: dict, user: dict = Depends(admin_only)):
+    pay = await db.payments.find_one({"id": payment_id})
+    if not pay:
+        raise HTTPException(404, "Payment not found")
+    amount = float(body.get("amount") or pay["amount"])
+    if pay.get("gateway") == "razorpay" and pay.get("razorpay_payment_id") and RAZORPAY_ENABLED:
+        try:
+            refund = razorpay_client.payment.refund(pay["razorpay_payment_id"], {
+                "amount": int(round(amount * 100)),
+                "notes": {"reason": body.get("reason") or "admin_refund"},
+            })
+            await db.payments.update_one({"id": payment_id}, {"$set": {"refund_id": refund.get("id"), "refunded_at": utcnow(), "status": "refunded"}})
+        except Exception as e:
+            raise HTTPException(502, f"Refund failed: {e}")
+    else:
+        await db.payments.update_one({"id": payment_id}, {"$set": {"status": "refunded", "refunded_at": utcnow()}})
+
+    # Credit wallet
+    await _refund_to_wallet(pay["user_id"], amount, f"Refund for payment {payment_id}")
+    return {"ok": True, "amount": amount}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1542,6 +1731,45 @@ async def get_contract(cid: str, user: dict = Depends(get_current_user)):
     if user["role"] != "admin" and user["id"] not in (doc["artist_id"], doc["customer_id"]):
         raise HTTPException(403, "Forbidden")
     return clean(doc)
+
+
+@api.get("/contracts/{cid}/pdf")
+async def download_contract_pdf(cid: str, user: dict = Depends(get_current_user)):
+    contract = await db.contracts.find_one({"id": cid})
+    if not contract:
+        raise HTTPException(404, "Contract not found")
+    if user["role"] != "admin" and user["id"] not in (contract["artist_id"], contract["customer_id"]):
+        raise HTTPException(403, "Forbidden")
+    booking = await db.bookings.find_one({"id": contract["booking_id"]})
+    artist_user = await db.users.find_one({"id": contract["artist_id"]}) or {}
+    artist_profile = await db.artist_profiles.find_one({"user_id": contract["artist_id"]}) or {}
+    customer = await db.users.find_one({"id": contract["customer_id"]}) or {}
+    artist_merged = {**artist_user, **artist_profile}
+    pdf_bytes = generate_contract_pdf(booking, artist_merged, customer, contract)
+    filename = f"contract_{contract.get('ref', cid[:8])}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.get("/bookings/{bid}/invoice")
+async def download_invoice_pdf(bid: str, user: dict = Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": bid})
+    if not booking:
+        raise HTTPException(404, "Booking not found")
+    if user["role"] != "admin" and user["id"] not in (booking["customer_id"], booking["artist_id"]):
+        raise HTTPException(403, "Forbidden")
+    artist_user = await db.users.find_one({"id": booking["artist_id"]}) or {}
+    artist_profile = await db.artist_profiles.find_one({"user_id": booking["artist_id"]}) or {}
+    pdf_bytes = generate_invoice_pdf(booking, {**artist_user, **artist_profile})
+    filename = f"invoice_{booking.get('ref', bid[:8])}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # BOOST

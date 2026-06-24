@@ -419,3 +419,192 @@ class TestKYC:
         r = requests.get(f"{API}/kyc/mine", headers=_h(artist["token"]), timeout=15)
         assert r.status_code == 200
         assert r.json().get("status") in ("pending", "approved", "rejected")
+
+
+# ---------- NEW: Razorpay config + PDF contracts/invoice + refund + webhook ----------
+class TestPaymentsConfig:
+    def test_payment_config_public(self):
+        r = requests.get(f"{API}/payments/config", timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        assert "razorpay_enabled" in d
+        assert "currency" in d
+        # keys are empty in .env → mock mode
+        assert d["razorpay_enabled"] is False
+        assert d.get("razorpay_key_id") in (None, "")
+        assert d["currency"] == "INR"
+
+
+class TestPaymentInitGateway:
+    """Verify mock gateway label is returned when Razorpay disabled."""
+    def test_init_returns_razorpay_mock(self, customer, artist):
+        # create a fresh booking
+        ad = requests.get(f"{API}/artists/{artist['user']['id']}", timeout=15).json()
+        pid = ad["packages"][0]["id"]
+        body = {
+            "artist_id": artist["user"]["id"], "package_id": pid, "addons": [],
+            "event_date": "2027-11-11", "event_time": "20:00",
+            "event_type": "Wedding", "venue": "TEST", "city": "Mumbai",
+            "guests": "100",
+        }
+        r = requests.post(f"{API}/bookings", json=body, headers=_h(customer["token"]), timeout=15)
+        assert r.status_code == 200, r.text
+        bid = r.json()["id"]
+
+        # init
+        r = requests.post(f"{API}/payments/init",
+                          json={"booking_id": bid, "method": "upi"},
+                          headers=_h(customer["token"]), timeout=15)
+        assert r.status_code == 200
+        d = r.json()
+        assert d.get("gateway") == "razorpay_mock"
+        assert "payment_id" in d
+        assert "amount" in d
+
+        # also assert: passing razorpay_signature on a mock payment still uses mock_otp branch
+        r2 = requests.post(f"{API}/payments/verify",
+                           json={"payment_id": d["payment_id"], "booking_id": bid,
+                                 "razorpay_signature": "bogus", "mock_otp": "123456"},
+                           headers=_h(customer["token"]), timeout=15)
+        assert r2.status_code == 200, r2.text
+        v = r2.json()
+        assert v.get("status") == "pending_artist"
+        assert str(v.get("booking_ref", "")).startswith("BT-")
+        assert v.get("gateway") == "razorpay_mock"
+
+
+class TestContractsAndInvoicePDF:
+    def test_contract_list_and_pdf(self, booking_ctx, customer, artist):
+        # contract was created on accept earlier
+        r = requests.get(f"{API}/contracts/mine", headers=_h(customer["token"]), timeout=15)
+        assert r.status_code == 200
+        contracts = r.json()
+        match = [c for c in contracts if c.get("booking_id") == booking_ctx["booking"]["id"]]
+        assert match, "expected contract for booking"
+        cid = match[0]["id"]
+
+        # download PDF as customer
+        r = requests.get(f"{API}/contracts/{cid}/pdf",
+                         headers={"Authorization": f"Bearer {customer['token']}"}, timeout=20)
+        assert r.status_code == 200
+        assert r.headers.get("content-type", "").startswith("application/pdf")
+        assert r.content[:5] == b"%PDF-"
+        assert len(r.content) > 500
+
+        # artist can also download
+        r2 = requests.get(f"{API}/contracts/{cid}/pdf",
+                          headers={"Authorization": f"Bearer {artist['token']}"}, timeout=20)
+        assert r2.status_code == 200
+        assert r2.content[:5] == b"%PDF-"
+
+    def test_contract_pdf_forbidden_for_stranger(self, booking_ctx):
+        # create another customer
+        email = f"TEST_stranger_{uuid.uuid4().hex[:6]}@booktalent.com"
+        rr = requests.post(f"{API}/auth/register", json={
+            "email": email, "password": "Test@1234", "first_name": "S",
+            "last_name": "T", "phone": "+9199" + str(int(time.time()))[-8:],
+            "role": "customer",
+        }, timeout=15)
+        assert rr.status_code == 200
+        tok = rr.json()["token"]
+
+        # find contract
+        cr = requests.get(f"{API}/contracts/mine",
+                         headers=_h(tok), timeout=15)
+        assert cr.status_code == 200
+        # stranger has no contracts of their own
+        assert all(c.get("booking_id") != booking_ctx["booking"]["id"] for c in cr.json())
+
+        # try to fetch a real contract by id
+        # First get the real contract id as admin
+        adm_r = requests.post(f"{API}/auth/login",
+                              json={"email": ADMIN_EMAIL, "password": ADMIN_PWD}, timeout=15)
+        adm = adm_r.json()["token"]
+        all_c = requests.get(f"{API}/contracts/mine", headers=_h(adm), timeout=15).json()
+        # admin sees all per server impl? if not, skip
+        if not all_c:
+            pytest.skip("admin cannot list all contracts in this impl")
+        cid = all_c[0]["id"]
+        r = requests.get(f"{API}/contracts/{cid}/pdf",
+                         headers={"Authorization": f"Bearer {tok}"}, timeout=15)
+        assert r.status_code in (403, 404)
+
+    def test_invoice_pdf(self, booking_ctx, customer):
+        bid = booking_ctx["booking"]["id"]
+        r = requests.get(f"{API}/bookings/{bid}/invoice",
+                         headers={"Authorization": f"Bearer {customer['token']}"}, timeout=20)
+        assert r.status_code == 200
+        assert r.headers.get("content-type", "").startswith("application/pdf")
+        assert r.content[:5] == b"%PDF-"
+
+    def test_invoice_pdf_forbidden(self, booking_ctx):
+        # register a stranger
+        email = f"TEST_invs_{uuid.uuid4().hex[:6]}@booktalent.com"
+        rr = requests.post(f"{API}/auth/register", json={
+            "email": email, "password": "Test@1234", "first_name": "S",
+            "last_name": "T", "phone": "+9198" + str(int(time.time()))[-8:],
+            "role": "customer",
+        }, timeout=15).json()
+        tok = rr["token"]
+        bid = booking_ctx["booking"]["id"]
+        r = requests.get(f"{API}/bookings/{bid}/invoice",
+                         headers={"Authorization": f"Bearer {tok}"}, timeout=15)
+        assert r.status_code in (403, 404)
+
+
+class TestRefund:
+    def test_refund_admin_only(self, customer, artist, admin):
+        # New booking + paid token (mock)
+        ad = requests.get(f"{API}/artists/{artist['user']['id']}", timeout=15).json()
+        pid = ad["packages"][0]["id"]
+        body = {
+            "artist_id": artist["user"]["id"], "package_id": pid, "addons": [],
+            "event_date": "2027-10-10", "event_time": "18:00",
+            "event_type": "Wedding", "venue": "TEST", "city": "Mumbai",
+            "guests": "60",
+        }
+        bk = requests.post(f"{API}/bookings", json=body,
+                           headers=_h(customer["token"]), timeout=15).json()
+        bid = bk["id"]
+        init = requests.post(f"{API}/payments/init",
+                             json={"booking_id": bid, "method": "card"},
+                             headers=_h(customer["token"]), timeout=15).json()
+        pay_id = init["payment_id"]
+        v = requests.post(f"{API}/payments/verify",
+                          json={"payment_id": pay_id, "booking_id": bid, "mock_otp": "123456"},
+                          headers=_h(customer["token"]), timeout=15)
+        assert v.status_code == 200
+
+        # Non-admin refund attempt → 403
+        r_forbid = requests.post(f"{API}/payments/{pay_id}/refund",
+                                 json={}, headers=_h(customer["token"]), timeout=15)
+        assert r_forbid.status_code in (401, 403)
+
+        # Wallet balance before
+        w_before = requests.get(f"{API}/wallet",
+                                headers=_h(customer["token"]), timeout=15).json().get("balance", 0)
+
+        # Admin refund
+        r = requests.post(f"{API}/payments/{pay_id}/refund",
+                          json={"reason": "test_refund"},
+                          headers=_h(admin["token"]), timeout=15)
+        assert r.status_code == 200, r.text
+        amt = r.json().get("amount")
+        assert amt and amt > 0
+
+        # Customer wallet credited
+        w_after = requests.get(f"{API}/wallet",
+                               headers=_h(customer["token"]), timeout=15).json().get("balance", 0)
+        assert w_after >= w_before + amt - 0.01
+
+
+class TestWebhook:
+    def test_webhook_disabled_when_no_keys(self):
+        # Razorpay disabled - should return ok:false with reason
+        r = requests.post(f"{API}/payments/webhook",
+                          data=b'{"event":"payment.captured"}',
+                          headers={"Content-Type": "application/json"}, timeout=10)
+        assert r.status_code == 200
+        d = r.json()
+        assert d.get("ok") is False
+        assert d.get("reason") == "razorpay_disabled"

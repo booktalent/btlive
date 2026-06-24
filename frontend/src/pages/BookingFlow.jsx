@@ -5,6 +5,16 @@ import api, { fmtINRFull, formatApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 
+/** Lazy-load Razorpay checkout JS once */
+const loadRazorpay = () => new Promise((resolve) => {
+  if (window.Razorpay) return resolve(true);
+  const s = document.createElement("script");
+  s.src = "https://checkout.razorpay.com/v1/checkout.js";
+  s.onload = () => resolve(true);
+  s.onerror = () => resolve(false);
+  document.body.appendChild(s);
+});
+
 const ADDONS = [
   { id: "dhol", label: "🥁 Dhol Player", price: 3500 },
   { id: "anchor", label: "🎙️ Anchor / Emcee", price: 5000 },
@@ -44,6 +54,7 @@ export default function BookingFlow() {
   });
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);
+  const [paymentConfig, setPaymentConfig] = useState({ razorpay_enabled: false });
 
   useEffect(() => {
     if (!user) { nav("/login"); return; }
@@ -55,6 +66,7 @@ export default function BookingFlow() {
         setForm((f) => ({ ...f, package_id: pop.id }));
       }
     });
+    api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
     // eslint-disable-next-line
   }, [id]);
 
@@ -73,10 +85,71 @@ export default function BookingFlow() {
   const submitBooking = async () => {
     setBusy(true);
     try {
+      // 1. Create booking
       const r = await api.post("/bookings", { artist_id: id, ...form });
-      const initR = await api.post("/payments/init", { booking_id: r.data.id, method: paymentMethod });
-      const verR = await api.post("/payments/verify", { booking_id: r.data.id, payment_id: initR.data.payment_id, mock_otp: "123456" });
-      setSuccessData({ booking: r.data, ref: verR.data.booking_ref });
+      const booking = r.data;
+      // 2. Init payment
+      const initR = await api.post("/payments/init", { booking_id: booking.id, method: paymentMethod });
+
+      if (initR.data.gateway === "razorpay") {
+        // 3a. Real Razorpay checkout
+        const loaded = await loadRazorpay();
+        if (!loaded) {
+          toast("Could not load payment gateway", "error");
+          setBusy(false);
+          return;
+        }
+        const rp = initR.data.razorpay;
+        const options = {
+          key: rp.key_id,
+          amount: initR.data.amount_paise,
+          currency: rp.currency,
+          name: rp.name,
+          description: rp.description,
+          order_id: rp.order_id,
+          prefill: rp.prefill,
+          notes: rp.notes,
+          theme: { color: "#D4AF37" },
+          handler: async (resp) => {
+            try {
+              const verR = await api.post("/payments/verify", {
+                booking_id: booking.id,
+                payment_id: initR.data.payment_id,
+                razorpay_order_id: resp.razorpay_order_id,
+                razorpay_payment_id: resp.razorpay_payment_id,
+                razorpay_signature: resp.razorpay_signature,
+              });
+              setSuccessData({ booking, ref: verR.data.booking_ref });
+              setStep(6);
+            } catch (e) {
+              toast(formatApiError(e), "error");
+            } finally {
+              setBusy(false);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              setBusy(false);
+              toast("Payment cancelled", "error");
+            },
+          },
+        };
+        const rzp = new window.Razorpay(options);
+        rzp.on("payment.failed", (response) => {
+          setBusy(false);
+          toast(`Payment failed: ${response?.error?.description || "unknown"}`, "error");
+        });
+        rzp.open();
+        return; // verify will run inside handler
+      }
+
+      // 3b. Mock flow — auto-verify with OTP 123456
+      const verR = await api.post("/payments/verify", {
+        booking_id: booking.id,
+        payment_id: initR.data.payment_id,
+        mock_otp: "123456",
+      });
+      setSuccessData({ booking, ref: verR.data.booking_ref });
       setStep(6);
     } catch (e) {
       toast(formatApiError(e), "error");
@@ -281,7 +354,7 @@ export default function BookingFlow() {
                   ))}
                 </div>
 
-                {paymentMethod === "card" && (
+                {paymentMethod === "card" && !paymentConfig.razorpay_enabled && (
                   <div data-testid="card-form">
                     <div className="field">
                       <div className="field-label">Card Number (test)</div>
@@ -300,14 +373,16 @@ export default function BookingFlow() {
                   </div>
                 )}
 
-                <div style={{ background: "var(--green-dim)", border: "1px solid var(--green-border)", borderRadius: 10, padding: 12, fontSize: 12, color: "var(--green)" }}>
-                  🔒 Test mode: OTP <strong>123456</strong> will be auto-applied for verification.
+                <div style={{ background: paymentConfig.razorpay_enabled ? "rgba(59,130,246,0.1)" : "var(--green-dim)", border: `1px solid ${paymentConfig.razorpay_enabled ? "rgba(59,130,246,0.3)" : "var(--green-border)"}`, borderRadius: 10, padding: 12, fontSize: 12, color: paymentConfig.razorpay_enabled ? "var(--blue)" : "var(--green)" }} data-testid="payment-gateway-banner">
+                  {paymentConfig.razorpay_enabled
+                    ? "🔒 Razorpay LIVE — clicking Pay will open the secure Razorpay checkout."
+                    : "🔒 Test mode: Mock gateway active (Razorpay keys not configured). OTP 123456 auto-applied."}
                 </div>
 
                 <div className="flex justify-between mt-24">
                   <button className="btn btn-ghost" onClick={() => setStep(4)} data-testid="step5-back">← Back</button>
                   <button className="btn btn-gold btn-lg" disabled={busy} onClick={submitBooking} data-testid="pay-now-btn">
-                    {busy ? "Processing…" : `🔐 Pay ${fmtINRFull(token)} to Confirm`}
+                    {busy ? "Processing…" : `🔐 Pay ${fmtINRFull(token)} ${paymentConfig.razorpay_enabled ? "via Razorpay" : "to Confirm"}`}
                   </button>
                 </div>
               </div>
@@ -333,6 +408,19 @@ export default function BookingFlow() {
                 </div>
                 <div className="flex gap-12 justify-center" style={{ flexWrap: "wrap" }}>
                   <button className="btn btn-gold" onClick={() => nav("/customer")} data-testid="success-go-dashboard">📊 Go to Dashboard</button>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={async () => {
+                      const tok = localStorage.getItem("bt_token");
+                      const r = await fetch(`${api.defaults.baseURL}/bookings/${successData.booking.id}/invoice`, { headers: { Authorization: `Bearer ${tok}` } });
+                      const blob = await r.blob();
+                      const a = document.createElement("a");
+                      a.href = window.URL.createObjectURL(blob);
+                      a.download = `invoice_${successData.ref}.pdf`;
+                      a.click();
+                    }}
+                    data-testid="success-dl-invoice"
+                  >🧾 Download Invoice</button>
                   <button className="btn btn-ghost" onClick={() => nav("/")} data-testid="success-go-home">🏠 Home</button>
                 </div>
               </div>

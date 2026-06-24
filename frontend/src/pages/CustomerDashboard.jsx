@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Nav from "../components/Nav";
-import api, { fmtINRFull, formatApiError } from "../lib/api";
+import api, { fmtINRFull, formatApiError, API } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 
@@ -142,6 +142,20 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
   if (bookings.length === 0) {
     return <div className="empty"><div className="empty-icon">📋</div><div className="empty-title">No bookings yet</div></div>;
   }
+
+  const downloadPdf = async (url, filename) => {
+    const token = localStorage.getItem("bt_token");
+    const r = await fetch(`${API}${url}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) { alert("Download failed"); return; }
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = window.URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   return (
     <div className="table-wrap">
       <table className="table" data-testid="bookings-table">
@@ -158,6 +172,7 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
         <tbody>
           {bookings.map((b) => {
             const [pillCls, label] = STATUS_MAP[b.status] || ["sp-pending", b.status];
+            const showContract = b.contract_id && ["confirmed", "started", "completed_by_artist", "completed", "reviewed"].includes(b.status);
             return (
               <tr key={b.id} data-testid={`booking-row-${b.id}`}>
                 <td className="font-mono fs-11" style={{ color: "var(--gold-light)" }}>{b.ref}</td>
@@ -169,7 +184,7 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                 <td className="text-gold font-serif fs-18 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>
                 <td><span className={`status-pill ${pillCls}`}>{label}</span></td>
                 <td>
-                  <div className="flex gap-8">
+                  <div className="flex gap-8" style={{ flexWrap: "wrap" }}>
                     {role === "artist" && b.status === "pending_artist" && (
                       <>
                         <button className="btn btn-green btn-xs" onClick={() => onAction(b.id, "accept")} data-testid={`accept-${b.id}`}>Accept</button>
@@ -187,6 +202,22 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                     )}
                     {role === "customer" && ["pending_artist", "confirmed"].includes(b.status) && (
                       <button className="btn btn-red btn-xs" onClick={() => onAction(b.id, "cancel")} data-testid={`cancel-${b.id}`}>Cancel</button>
+                    )}
+                    {showContract && (
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => downloadPdf(`/contracts/${b.contract_id}/pdf`, `contract_${b.ref}.pdf`)}
+                        data-testid={`dl-contract-${b.id}`}
+                        title="Download Contract PDF"
+                      >📄 Contract</button>
+                    )}
+                    {b.amount_paid > 0 && (
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => downloadPdf(`/bookings/${b.id}/invoice`, `invoice_${b.ref}.pdf`)}
+                        data-testid={`dl-invoice-${b.id}`}
+                        title="Download Invoice PDF"
+                      >🧾 Invoice</button>
                     )}
                   </div>
                 </td>
