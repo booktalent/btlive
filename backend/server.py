@@ -1718,7 +1718,12 @@ async def resolve_dispute(did: str, body: DisputeResolveBody, _: dict = Depends(
 # CONTRACTS
 @api.get("/contracts/mine")
 async def my_contracts(user: dict = Depends(get_current_user)):
-    q = {"artist_id": user["id"]} if user["role"] == "artist" else {"customer_id": user["id"]}
+    if user["role"] == "admin":
+        q = {}
+    elif user["role"] == "artist":
+        q = {"artist_id": user["id"]}
+    else:
+        q = {"customer_id": user["id"]}
     docs = await db.contracts.find(q).sort("created_at", -1).to_list(500)
     return [clean(d) for d in docs]
 

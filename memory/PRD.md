@@ -1,120 +1,92 @@
 # BookTalent — Product Requirements Document
 
 ## Original Problem Statement
-Build a production-ready BookTalent talent marketplace platform (Indian artist booking) from scratch. User uploaded HTML design references for premium dark luxury theme (gold + purple). Must include real backend workflows — auth, artist profiles with media uploads, package builder, booking workflow end-to-end, payments (simulated Razorpay), wallet & withdrawals, reviews, contracts, KYC, admin panel — not just UI mockups.
+Build a production-ready BookTalent talent marketplace platform (Indian artist booking) with the premium dark luxury theme from the supplied HTML references. Must have real backend workflows — auth, artist profiles + media, packages, full booking workflow, **real Razorpay payments**, wallet & withdrawals, reviews, **PDF contracts/invoices**, KYC, admin panel — not just UI mockups.
 
 ## Architecture
-- **Backend**: FastAPI (Python) + MongoDB + JWT auth (`bcrypt` + `pyjwt`)
-- **Frontend**: React 19 + react-router-dom v7 (client-side routing)
-- **Styling**: Custom CSS (no framework) matching the dark luxury HTML reference
-- **Media**: base64 stored in MongoDB `media` collection, streamed back via `/api/media/{id}`
-- **Payments**: simulated Razorpay-style flow (mock OTP `123456`)
+- **Backend**: FastAPI + MongoDB + JWT (`bcrypt`, `pyjwt`), Razorpay SDK (`razorpay==1.4.2`), PDF generation (`reportlab==4.2.0`)
+- **Frontend**: React 19 + react-router-dom v7
+- **Styling**: Custom CSS dark luxury theme (gold + purple, Cormorant Garamond + Inter)
+- **Media**: base64 stored in MongoDB, streamed via `/api/media/{id}`
+- **Payments**: Razorpay live integration with safe mock fallback (when keys empty)
+- **PDFs**: ReportLab — contract + GST invoice generators
 
 ## User Personas
-1. **Customer / Event Planner** — books artists for events, manages bookings, leaves reviews
-2. **Artist** — manages profile, packages, media, availability; receives bookings; withdraws earnings
-3. **Agency** — same as customer but represents multiple artists (data model only)
-4. **Corporate** — bulk-booking event planners
-5. **Admin** — moderates KYC, releases payouts, manages coupons/blogs/users, resolves disputes
+1. **Customer / Event Planner** — books artists, manages bookings, downloads contracts/invoices, leaves reviews
+2. **Artist** — manages profile/media/packages/availability, accepts bookings, withdraws earnings
+3. **Agency / Corporate** — same as customer (multi-booking workflows)
+4. **Admin** — moderates KYC, releases payouts, manages coupons, resolves disputes, views all contracts
 
-## Core Requirements (delivered ✅)
-### Auth
-- Email/password registration with role selector (customer/artist/agency/corporate)
-- JWT token, `Authorization: Bearer` header
-- `/api/auth/me` returns enriched user with artist_profile + wallet
-- Mock OTP for SMS (`/api/auth/otp/send`, `/api/auth/otp/verify`)
-- Forgot-password endpoint (creates token, logs reset link)
-- Seeded admin: `admin@booktalent.com / Admin@123`
+## What's been implemented
 
-### Artist Module
-- Profile CRUD (bio, tagline, languages, genres, event types, travel range)
-- Packages CRUD (name, price, duration, features, is_popular)
-- Media upload (profile, cover, gallery, video, reel, kyc, review) — base64, deletable, feature-toggle, reorder
-- Availability calendar (block / free dates) — blocks booking on conflict
-- KYC submission + status tracking
-- Public profile at `/artist/:id` with tabs: About / Media / Packages / Reviews
+### Iteration 1 (2026-06-24)
+- All MVP modules: auth, artist discovery, profile pages, 5-step booking flow, customer/artist/admin dashboards
+- Wallet engine, reviews, KYC, coupons, boost plans, disputes, notifications, messaging
+- Seeded 6 demo artists + 1 customer + 2 coupons
+- 28/28 backend tests passing
 
-### Booking Workflow (full state machine)
-- States: `pending_payment → pending_artist → confirmed → started → completed_by_artist → completed → reviewed`
-- 5-step UI: Package → Date+Time → Event Details → Review → Payment
-- Pricing: package fee + add-ons − coupon + 5% platform fee + 18% GST = total. 5% token paid upfront, balance due before event
-- Artist actions: accept, reject (with refund), counter-offer, start, complete
-- Customer actions: approve_completion (releases funds), cancel
-- Auto contract generation on accept; auto fund release on `approve_completion`
-- Booking ref format `BT-YYMMDD-XXXXXX`
+### Iteration 2 — Razorpay + PDF (2026-06-24)
+- **Razorpay integration** via `razorpay==1.4.2`
+  - `POST /api/payments/init` — creates real Razorpay order when keys present; mock when absent
+  - `POST /api/payments/verify` — verifies Razorpay signature via `razorpay_client.utility.verify_payment_signature`; falls back to mock OTP `123456`
+  - `POST /api/payments/webhook` — HMAC SHA256 verification using `RAZORPAY_WEBHOOK_SECRET`
+  - `POST /api/payments/{id}/refund` — calls `razorpay_client.payment.refund` (admin-only); credits wallet
+  - `GET /api/payments/config` — public, returns `{razorpay_enabled, razorpay_key_id, currency}`
+- **PDF generation** (`pdf_service.py`)
+  - `GET /api/contracts/{cid}/pdf` — professional A4 contract w/ parties, event details, financial breakdown, cancellation policy, digital sig section (~5KB)
+  - `GET /api/bookings/{bid}/invoice` — GST tax invoice (~3KB)
+  - Both return `application/pdf` with proper `%PDF-` magic bytes
+- **Frontend**:
+  - BookingFlow loads `https://checkout.razorpay.com/v1/checkout.js` lazily; opens real Razorpay modal when enabled
+  - Payment-gateway banner switches between "Razorpay LIVE" and "Test mode" copy
+  - Pay button label changes to "Pay ₹X via Razorpay" when live
+  - Success screen has Download Invoice button
+  - Bookings table now exposes `dl-contract-{id}` / `dl-invoice-{id}` buttons
+- Admin role can list all contracts via `/api/contracts/mine`
+- **35/35 backend tests passing, full end-to-end booking + invoice download verified**
 
-### Payment & Wallet
-- Mock Razorpay flow with `/api/payments/init` + `/api/payments/verify`
-- Wallet per user (balance, pending, total_earned, total_withdrawn)
-- Transactions ledger
-- Withdrawal request → admin release
-
-### Reviews
-- Customer reviews completed bookings (rating + text + photos)
-- Aggregates update artist's `rating_avg` and `review_count`
-- Artist can reply once; users can report
-
-### Admin Panel
-- KPI dashboard (real GMV, platform revenue, escrow, KYC pending, disputes — all computed from DB)
-- Artist management (feature / suspend toggles)
-- KYC queue (approve / reject with reason)
-- Withdrawal release queue
-- Coupon CRUD
-- All bookings + users view
-- Dispute resolution (release to artist / refund / partial)
-
-### Search & Discovery
-- Landing page with hero, featured artists, category strip
-- `/search` with filters: query, category, city, max price, sort (relevance/rating/popular/newest)
-- Pagination support
-- Featured / boosted profiles surface first
-
-### Boost / Premium
-- 3 plans: Starter (₹999/7d), Pro (₹2499/30d), Elite (₹7499/90d)
-- `is_boosted` + `boost_expires` on artist profile
-
-### CMS & Misc
-- Blog/CMS endpoints (`/api/blogs`, admin create)
-- Notifications system (in-app) on booking events
-- Direct messages (`/api/messages` + `/api/conversations`)
-
-## What's been implemented (2026-06-24)
-- Backend `server.py` — ~1,700 LOC covering all of the above with seeded demo data (6 artists, 1 customer, 2 coupons)
-- Frontend pages: `Landing`, `Auth` (signin+signup), `Search`, `ArtistProfile`, `BookingFlow`, `CustomerDashboard`, `ArtistDashboard`, `AdminDashboard`
-- Premium dark luxury theme in `index.css` (Cormorant Garamond + Inter, gold/purple palette, glassmorphism)
-- `data-testid` on every interactive element
-- Testing agent: **28/28 backend tests passing**, ~95% frontend coverage
+## How to go live with Razorpay
+1. Go to https://dashboard.razorpay.com/ → Account & Settings → API Keys → Generate Test Key
+2. Add to `/app/backend/.env`:
+   ```
+   RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxx
+   RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxx
+   RAZORPAY_WEBHOOK_SECRET=xxxxxxxxxxxxxx   # only if using webhook
+   ```
+3. Restart backend: `sudo supervisorctl restart backend`
+4. `GET /api/payments/config` now returns `razorpay_enabled: true`
+5. Real Razorpay checkout will open in the booking flow
+6. Optional webhook URL for Razorpay dashboard: `https://yourdomain.com/api/payments/webhook`
 
 ## Known Mocks (highlighted)
-- **PAYMENT** is fully MOCKED — Razorpay simulator (OTP `123456`). Real Razorpay/Stripe integration must be added for production.
-- **SMS OTP** is MOCKED — always `123456`. Real SMS provider (Twilio / MSG91) needed for production.
-- **KYC verification** is manual admin approval — no real document verification provider integrated.
-- **Media storage** uses base64 in MongoDB — for production scale, migrate to S3/Cloudinary.
+- **Razorpay is in MOCK mode** until keys are filled in `.env` (clearly indicated in UI banner)
+- **SMS OTP** is MOCKED (always `123456`)
+- **KYC verification** — manual admin approval, no document-verification provider integrated
+- **Media storage** — base64 in MongoDB (works at MVP scale; consider S3/Cloudinary for production)
 
-## Backlog (P0 / P1 / P2)
-### P0 — needed before public launch
-- [ ] Real payment gateway (Razorpay or Stripe) replacing mock
-- [ ] Real SMS OTP provider for phone verification
-- [ ] PDF generation for contracts (`reportlab` or `weasyprint`)
-- [ ] S3/Cloudinary migration for media (move off base64 in DB)
+## Backlog
+### P0 (do next)
+- [ ] Add Razorpay live keys to `.env` (user has to provide)
+- [ ] Real SMS OTP provider (Twilio/MSG91) for phone verification
+- [ ] S3/Cloudinary migration for media
 
-### P1 — feature completeness
-- [ ] Real-time chat (WebSocket layer; messages exist via REST today)
-- [ ] Push notifications (web + mobile)
+### P1
+- [ ] Real-time chat via WebSocket (currently REST polling)
+- [ ] Push notifications
+- [ ] Digital signature on contracts (signaturepad.js)
+- [ ] AI semantic search over artist bios
+- [ ] Agency dashboard
 - [ ] Counter-offer UI flow on artist side
-- [ ] Digital signature on contracts (e.g. `signaturepad.js`)
-- [ ] AI search (semantic) over artist bios/genres
-- [ ] Agency dashboard (manage multiple artists)
 
-### P2 — polish & growth
-- [ ] Analytics charts (currently table-based)
+### P2
+- [ ] Analytics charts (recharts)
 - [ ] Email notifications (SendGrid/Resend)
 - [ ] Referral program
-- [ ] Two-factor auth
+- [ ] 2FA
 - [ ] i18n (Hindi + English)
 
 ## Test Credentials (see /app/memory/test_credentials.md)
 - Admin: `admin@booktalent.com / Admin@123`
 - Customer: `customer@booktalent.com / Customer@123`
 - Artist: `priya@booktalent.com / Artist@123`
-- Mock OTP: `123456`
+- Mock OTP (used only in mock mode): `123456`
