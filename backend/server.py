@@ -37,6 +37,12 @@ from iter9_routes import make_router as make_iter9_router
 from iter11_routes import make_iter11_router
 from chat_routes import make_chat_router
 from notification_service import dispatch as notify_dispatch
+from routes import reviews as routes_reviews
+from routes import wallet as routes_wallet
+from routes import coupons as routes_coupons
+from routes import blogs as routes_blogs
+from routes import disputes as routes_disputes
+from routes import kyc as routes_kyc
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -1666,198 +1672,13 @@ async def refund_payment(payment_id: str, body: dict, user: dict = Depends(admin
 # ─────────────────────────────────────────────────────────────────────────────
 # WALLET
 # ─────────────────────────────────────────────────────────────────────────────
-@api.get("/wallet")
-async def get_wallet(user: dict = Depends(get_current_user)):
-    w = await db.wallets.find_one({"user_id": user["id"]})
-    return clean(w) if w else {"balance": 0, "pending": 0, "total_earned": 0, "total_withdrawn": 0}
-
-
-@api.get("/wallet/transactions")
-async def wallet_tx(user: dict = Depends(get_current_user)):
-    docs = await db.transactions.find({"user_id": user["id"]}).sort("created_at", -1).to_list(200)
-    return [clean(d) for d in docs]
-
-
-@api.post("/wallet/withdraw")
-async def withdraw(body: WithdrawBody, user: dict = Depends(get_current_user)):
-    if body.amount <= 0:
-        raise HTTPException(400, "Invalid amount")
-    w = await db.wallets.find_one({"user_id": user["id"]})
-    if not w or w["balance"] < body.amount:
-        raise HTTPException(400, "Insufficient balance")
-    wid = new_id()
-    await db.withdrawals.insert_one({
-        "id": wid, "user_id": user["id"], "amount": body.amount,
-        "status": "pending", "created_at": utcnow(),
-    })
-    await db.wallets.update_one({"user_id": user["id"]}, {"$inc": {"balance": -body.amount}})
-    await db.transactions.insert_one({
-        "id": new_id(), "user_id": user["id"], "type": "withdrawal",
-        "amount": -body.amount, "status": "pending",
-        "description": "Withdrawal request submitted", "created_at": utcnow(),
-    })
-    return {"ok": True, "withdrawal_id": wid}
+# ── Wallet endpoints moved to routes/wallet.py (Iter 13) ─────────────────────
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # REVIEWS
 # ─────────────────────────────────────────────────────────────────────────────
-@api.post("/reviews")
-async def create_review(body: ReviewBody, user: dict = Depends(get_current_user)):
-    booking = await db.bookings.find_one({"id": body.booking_id})
-    if not booking or booking["customer_id"] != user["id"]:
-        raise HTTPException(404, "Booking not found")
-    if booking["status"] not in ("completed", "confirmed"):
-        raise HTTPException(400, "Can only review completed/confirmed bookings")
-    if await db.reviews.find_one({"booking_id": body.booking_id}):
-        raise HTTPException(400, "Already reviewed")
-
-    rid = new_id()
-    photo_ids, video_ids = [], []
-
-    # photos (≤ 5 MB each, ≤ 5 photos)
-    for du in body.photos[:5]:
-        try:
-            header, b64 = du.split(",", 1)
-            mime = header.split(";")[0].replace("data:", "")
-            if not mime.startswith("image/"):
-                continue
-            if (len(b64) * 3) // 4 > 5 * 1024 * 1024:
-                continue
-            mid = new_id()
-            await db.media.insert_one({
-                "id": mid, "user_id": user["id"], "type": "review",
-                "mime": mime, "data": b64, "created_at": utcnow(),
-            })
-            photo_ids.append(mid)
-        except Exception:
-            continue
-
-    # videos (≤ 30 MB each, ≤ 2 videos)
-    for du in body.videos[:2]:
-        try:
-            header, b64 = du.split(",", 1)
-            mime = header.split(";")[0].replace("data:", "")
-            if not mime.startswith("video/"):
-                continue
-            if (len(b64) * 3) // 4 > 30 * 1024 * 1024:
-                continue
-            mid = new_id()
-            await db.media.insert_one({
-                "id": mid, "user_id": user["id"], "type": "review",
-                "mime": mime, "data": b64, "created_at": utcnow(),
-            })
-            video_ids.append(mid)
-        except Exception:
-            continue
-
-    # Smart moderation: reviews with media go to admin queue;
-    # text-only reviews are auto-approved.
-    auto_approve = not (photo_ids or video_ids)
-    initial_status = "approved" if auto_approve else "pending"
-
-    await db.reviews.insert_one({
-        "id": rid, "booking_id": body.booking_id, "customer_id": user["id"],
-        "customer_name": booking.get("customer_name"),
-        "artist_id": booking["artist_id"], "rating": body.rating, "text": body.text,
-        "photos": photo_ids, "videos": video_ids,
-        "event_type": booking.get("event_type"),
-        "moderated": initial_status, "reply": None, "created_at": utcnow(),
-    })
-
-    # Rebuild aggregate against approved reviews only
-    all_reviews = await db.reviews.find({"artist_id": booking["artist_id"], "moderated": "approved"}).to_list(10000)
-    avg = sum(r["rating"] for r in all_reviews) / len(all_reviews) if all_reviews else 0
-    await db.artist_profiles.update_one(
-        {"user_id": booking["artist_id"]},
-        {"$set": {"rating_avg": round(avg, 2), "review_count": len(all_reviews)}},
-    )
-    await db.bookings.update_one({"id": body.booking_id}, {"$set": {"status": "reviewed"}})
-
-    # Notify admins on pending-moderation reviews
-    if not auto_approve:
-        async for adm in db.users.find({"role": "admin"}, {"id": 1}):
-            await notify_dispatch(
-                db, user_id=adm["id"], event="review.pending_moderation",
-                channels=["in_app"],
-                ctx={"title": "Review awaiting moderation", "body": f"{booking.get('customer_name', 'A customer')} attached media to a {body.rating}★ review."},
-            )
-
-    return {"ok": True, "review_id": rid, "status": initial_status}
-
-
-@api.get("/admin/reviews")
-async def admin_reviews(status: str = "pending", _: dict = Depends(admin_only)):
-    q = {} if status == "all" else {"moderated": status}
-    docs = await db.reviews.find(q).sort("created_at", -1).to_list(500)
-    out = []
-    for d in docs:
-        d = clean(d)
-        a = await db.artist_profiles.find_one({"user_id": d["artist_id"]}, {"stage_name": 1, "_id": 0})
-        d["artist_stage_name"] = a.get("stage_name") if a else None
-        out.append(d)
-    return out
-
-
-@api.post("/admin/reviews/{rid}/moderate")
-async def admin_moderate_review(rid: str, body: ReviewModerateBody, admin: dict = Depends(admin_only)):
-    r = await db.reviews.find_one({"id": rid})
-    if not r:
-        raise HTTPException(404, "Review not found")
-    new_status = "approved" if body.decision == "approve" else "rejected"
-    await db.reviews.update_one(
-        {"id": rid},
-        {"$set": {"moderated": new_status, "moderation_reason": body.reason, "moderated_by": admin["id"], "moderated_at": utcnow()}},
-    )
-    # Recompute aggregate
-    all_reviews = await db.reviews.find({"artist_id": r["artist_id"], "moderated": "approved"}).to_list(10000)
-    avg = sum(x["rating"] for x in all_reviews) / len(all_reviews) if all_reviews else 0
-    await db.artist_profiles.update_one(
-        {"user_id": r["artist_id"]},
-        {"$set": {"rating_avg": round(avg, 2), "review_count": len(all_reviews)}},
-    )
-    # Audit + notify customer
-    try:
-        await db.audit_logs.insert_one({
-            "id": new_id(), "actor_id": admin["id"], "actor_email": admin.get("email"),
-            "actor_role": "admin", "action": f"review.{body.decision}",
-            "target_type": "review", "target_id": rid,
-            "payload": {"reason": body.reason}, "created_at": utcnow(),
-        })
-    except Exception:
-        pass
-    await notify_dispatch(
-        db, user_id=r["customer_id"], event=f"review.{new_status}",
-        channels=["in_app"],
-        ctx={
-            "title": "Review approved" if new_status == "approved" else "Review removed",
-            "body": body.reason or ("Your review is now live." if new_status == "approved" else "Your review violated our guidelines."),
-        },
-    )
-    return {"ok": True, "status": new_status}
-
-
-@api.get("/reviews/artist/{user_id}")
-async def reviews_for_artist(user_id: str):
-    docs = await db.reviews.find({"artist_id": user_id, "moderated": "approved"}).sort("created_at", -1).to_list(200)
-    return [clean(d) for d in docs]
-
-
-@api.post("/reviews/{rid}/reply")
-async def reply_review(rid: str, body: ReviewReplyBody, user: dict = Depends(get_current_user)):
-    r = await db.reviews.find_one({"id": rid})
-    if not r or r["artist_id"] != user["id"]:
-        raise HTTPException(404, "Not found")
-    await db.reviews.update_one({"id": rid}, {"$set": {"reply": body.reply, "replied_at": utcnow()}})
-    return {"ok": True}
-
-
-@api.post("/reviews/{rid}/report")
-async def report_review(rid: str, user: dict = Depends(get_current_user)):
-    await db.review_reports.insert_one({
-        "id": new_id(), "review_id": rid, "reporter_id": user["id"], "created_at": utcnow(),
-    })
-    return {"ok": True}
+# ── Reviews endpoints moved to routes/reviews.py (Iter 13) ───────────────────
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1934,107 +1755,8 @@ async def conversation_messages(cid: str, user: dict = Depends(get_current_user)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# KYC
+# KYC — moved to routes/kyc.py (Iter 13)
 # ─────────────────────────────────────────────────────────────────────────────
-KYC_ALLOWED_MIMES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"}
-KYC_MAX_BYTES = 5 * 1024 * 1024  # 5 MB per doc
-
-_AADHAAR_RX = re.compile(r"^\d{12}$")
-_PAN_RX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
-
-
-def _validate_data_url(label: str, dataurl: str) -> tuple[str, str]:
-    """Returns (mime, base64) or raises 400."""
-    if not dataurl.startswith("data:"):
-        raise HTTPException(400, f"{label}: not a data url")
-    try:
-        header, b64 = dataurl.split(",", 1)
-        mime = header.split(";")[0].replace("data:", "").lower()
-    except Exception:
-        raise HTTPException(400, f"{label}: malformed data url")
-    if mime not in KYC_ALLOWED_MIMES:
-        raise HTTPException(400, f"{label}: only JPG / PNG / WEBP / PDF allowed (got {mime})")
-    # Approx size from base64 — 4/3 ratio
-    approx = (len(b64) * 3) // 4
-    if approx > KYC_MAX_BYTES:
-        raise HTTPException(400, f"{label}: file too large ({approx // 1024} KB > 5120 KB limit)")
-    return mime, b64
-
-
-@api.post("/kyc/submit")
-async def kyc_submit(body: KYCSubmitBody, user: dict = Depends(get_current_user)):
-    payload = body.model_dump(exclude_unset=True)
-
-    # ── Field validations ────────────────────────────────────────────────────
-    aadhaar_no = (payload.get("aadhaar_number") or "").strip().replace(" ", "")
-    pan_no = (payload.get("pan_number") or "").strip().upper()
-    if aadhaar_no and not _AADHAAR_RX.match(aadhaar_no):
-        raise HTTPException(400, "Aadhaar number must be exactly 12 digits")
-    if pan_no and not _PAN_RX.match(pan_no):
-        raise HTTPException(400, "PAN must follow the format ABCDE1234F")
-
-    # Required: at least Aadhaar OR PAN proof image must be present along with the matching number
-    if not (payload.get("aadhaar") or payload.get("pan")):
-        raise HTTPException(400, "Upload at least one identity document (Aadhaar or PAN)")
-    if payload.get("aadhaar") and not aadhaar_no:
-        raise HTTPException(400, "Aadhaar number is required when uploading the Aadhaar document")
-    if payload.get("pan") and not pan_no:
-        raise HTTPException(400, "PAN number is required when uploading the PAN document")
-
-    # ── Persist documents ────────────────────────────────────────────────────
-    docs: Dict[str, str] = {}
-    for key in ("aadhaar", "pan", "bank_proof", "selfie"):
-        v = payload.get(key)
-        if not v:
-            continue
-        mime, b64 = _validate_data_url(key, v)
-        mid = new_id()
-        await db.media.insert_one({
-            "id": mid, "user_id": user["id"], "type": "kyc",
-            "mime": mime, "data": b64, "created_at": utcnow(), "kyc_field": key,
-        })
-        docs[key] = mid
-
-    sub_doc = {
-        "user_id": user["id"],
-        "documents": docs,
-        "aadhaar_number_masked": ("XXXX-XXXX-" + aadhaar_no[-4:]) if aadhaar_no else None,
-        "pan_number": pan_no or None,
-        "full_name": payload.get("full_name"),
-        "dob": payload.get("dob"),
-        "status": "pending",
-        "submitted_at": utcnow(),
-        "decided_at": None,
-        "reason": None,
-    }
-    await db.kyc_submissions.update_one(
-        {"user_id": user["id"]},
-        {"$set": sub_doc},
-        upsert=True,
-    )
-    await db.users.update_one({"id": user["id"]}, {"$set": {"kyc_status": "pending"}})
-    if user["role"] == "artist":
-        await db.artist_profiles.update_one({"user_id": user["id"]}, {"$set": {"kyc_status": "pending"}})
-
-    # Notify admins so they can act fast
-    try:
-        u_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or user.get("email", "")
-        async for adm in db.users.find({"role": "admin"}, {"id": 1, "email": 1}):
-            await notify_dispatch(
-                db, user_id=adm["id"], event="kyc.submitted",
-                channels=["in_app"],
-                ctx={"title": "New KYC submission", "body": f"{u_name} submitted KYC documents — review pending."},
-            )
-    except Exception:
-        pass
-
-    return {"ok": True}
-
-
-@api.get("/kyc/mine")
-async def kyc_mine(user: dict = Depends(get_current_user)):
-    doc = await db.kyc_submissions.find_one({"user_id": user["id"]})
-    return clean(doc) if doc else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2125,92 +1847,7 @@ async def admin_users(role: Optional[str] = None, _: dict = Depends(admin_only))
     return [clean(d) for d in docs]
 
 
-@api.get("/admin/kyc")
-async def admin_kyc(status: Optional[str] = None, _: dict = Depends(admin_only)):
-    q: dict = {}
-    if status in ("pending", "approved", "rejected", "needs_resubmission"):
-        q["status"] = status
-    docs = await db.kyc_submissions.find(q).sort("submitted_at", -1).to_list(500)
-    out = []
-    for d in docs:
-        d = clean(d)
-        u = await db.users.find_one({"id": d["user_id"]}, {"password_hash": 0})
-        d["user"] = clean(u) if u else None
-        # Convenience: stage_name + category for artist KYC items
-        if u and u.get("role") == "artist":
-            ap = await db.artist_profiles.find_one({"user_id": u["id"]}, {"stage_name": 1, "category": 1, "city": 1, "_id": 0})
-            d["artist_profile"] = ap
-        out.append(d)
-    return out
-
-
-@api.post("/admin/kyc/decide")
-async def admin_kyc_decide(body: KYCDecideBody, admin: dict = Depends(admin_only)):
-    sub = await db.kyc_submissions.find_one({"user_id": body.artist_id})
-    if not sub:
-        raise HTTPException(404, "No KYC submission found for this user")
-
-    decision_to_status = {
-        "approve": "approved",
-        "reject": "rejected",
-        "request_resubmission": "needs_resubmission",
-    }
-    new_status = decision_to_status[body.decision]
-
-    await db.kyc_submissions.update_one(
-        {"user_id": body.artist_id},
-        {"$set": {
-            "status": new_status,
-            "decided_at": utcnow(),
-            "decided_by": admin["id"],
-            "reason": body.reason,
-        }},
-    )
-    await db.users.update_one({"id": body.artist_id}, {"$set": {"kyc_status": new_status, "verified": new_status == "approved"}})
-    await db.artist_profiles.update_one(
-        {"user_id": body.artist_id},
-        {"$set": {"kyc_status": new_status, "verified_badge": new_status == "approved"}},
-    )
-
-    # Smart notification — in_app + email
-    target_user = await db.users.find_one({"id": body.artist_id})
-    titles = {
-        "approved": "✓ KYC Approved — Verified Badge Activated",
-        "rejected": "✗ KYC Rejected",
-        "needs_resubmission": "↻ KYC — Resubmission Requested",
-    }
-    bodies = {
-        "approved": "Congratulations! Your identity has been verified. Your profile now displays a Verified Badge.",
-        "rejected": f"Your KYC was rejected. Reason: {body.reason or 'documents did not meet our standards'}.",
-        "needs_resubmission": f"Please resubmit your KYC. Reason: {body.reason or 'we need a clearer copy of your documents'}.",
-    }
-    try:
-        await notify_dispatch(
-            db, user_id=body.artist_id, event=f"kyc.{new_status}",
-            channels=["in_app", "email"],
-            ctx={"title": titles[new_status], "body": bodies[new_status], "reason": body.reason or ""},
-            email=target_user.get("email") if target_user else None,
-        )
-    except Exception as _e:
-        log.warning("KYC notification failed: %s", _e)
-
-    # Audit log
-    try:
-        await db.audit_logs.insert_one({
-            "id": new_id(),
-            "actor_id": admin.get("id"),
-            "actor_email": admin.get("email"),
-            "actor_role": "admin",
-            "action": f"kyc.{body.decision}",
-            "target_type": "kyc_submission",
-            "target_id": body.artist_id,
-            "payload": {"reason": body.reason, "new_status": new_status},
-            "created_at": utcnow(),
-        })
-    except Exception:
-        pass
-
-    return {"ok": True, "status": new_status}
+# /admin/kyc and /admin/kyc/decide moved to routes/kyc.py (Iter 13)
 
 
 @api.post("/admin/artists/{user_id}/feature")
@@ -2298,167 +1935,7 @@ async def _validate_coupon(code: str, *, user_id: str, base_amount: float, event
     return c, discount
 
 
-@api.post("/admin/coupons")
-async def admin_create_coupon(body: CouponBody, admin: dict = Depends(admin_only)):
-    if await db.coupons.find_one({"code": body.code.upper()}):
-        raise HTTPException(400, "Coupon code already exists")
-    doc = body.model_dump()
-    doc["code"] = doc["code"].upper()
-    doc["id"] = new_id()
-    doc["created_at"] = utcnow()
-    doc["usage_count"] = 0
-    doc["total_discount"] = 0.0
-    await db.coupons.insert_one(doc)
-    try:
-        await db.audit_logs.insert_one({
-            "id": new_id(), "actor_id": admin["id"], "actor_email": admin.get("email"),
-            "actor_role": "admin", "action": "coupon.create", "target_type": "coupon",
-            "target_id": doc["id"], "payload": {"code": doc["code"]}, "created_at": utcnow(),
-        })
-    except Exception:
-        pass
-    return clean(doc)
-
-
-@api.get("/admin/coupons")
-async def admin_list_coupons(_: dict = Depends(admin_only)):
-    docs = await db.coupons.find().sort("created_at", -1).to_list(500)
-    return [clean(d) for d in docs]
-
-
-@api.delete("/admin/coupons/{cid}")
-async def admin_delete_coupon(cid: str, admin: dict = Depends(admin_only)):
-    await db.coupons.delete_one({"id": cid})
-    try:
-        await db.audit_logs.insert_one({
-            "id": new_id(), "actor_id": admin["id"], "actor_email": admin.get("email"),
-            "actor_role": "admin", "action": "coupon.delete", "target_type": "coupon",
-            "target_id": cid, "payload": {}, "created_at": utcnow(),
-        })
-    except Exception:
-        pass
-    return {"ok": True}
-
-
-@api.get("/admin/coupons/{cid}/redemptions")
-async def admin_coupon_redemptions(cid: str, _: dict = Depends(admin_only)):
-    """Per-coupon redemption ledger with user + booking details."""
-    rows = await db.coupon_redemptions.find({"coupon_id": cid}).sort("created_at", -1).to_list(500)
-    out = []
-    for r in rows:
-        r = clean(r)
-        u = await db.users.find_one({"id": r["user_id"]}, {"password_hash": 0})
-        b = await db.bookings.find_one({"id": r.get("booking_id")}, {"ref": 1, "status": 1, "pricing": 1, "_id": 0})
-        r["user"] = clean(u) if u else None
-        r["booking"] = b
-        out.append(r)
-    return out
-
-
-@api.get("/admin/coupons/analytics")
-async def admin_coupon_analytics(_: dict = Depends(admin_only)):
-    """Aggregate per-coupon usage + revenue impact."""
-    coupons = await db.coupons.find({}).sort("created_at", -1).to_list(500)
-    out = []
-    for c in coupons:
-        c = clean(c)
-        pipe = [
-            {"$match": {"coupon_id": c["id"]}},
-            {"$group": {
-                "_id": None,
-                "uses": {"$sum": 1},
-                "total_discount": {"$sum": "$discount_amount"},
-                "total_gmv": {"$sum": "$booking_total"},
-            }},
-        ]
-        agg = await db.coupon_redemptions.aggregate(pipe).to_list(1)
-        a = agg[0] if agg else {"uses": 0, "total_discount": 0, "total_gmv": 0}
-        out.append({
-            "id": c["id"], "code": c["code"], "discount_type": c["discount_type"],
-            "discount_value": c["discount_value"], "active": c["active"], "expires_at": c.get("expires_at"),
-            "max_uses": c.get("max_uses"), "per_user_limit": c.get("per_user_limit", 1),
-            "uses": a["uses"], "remaining": max(0, c.get("max_uses", 0) - a["uses"]),
-            "total_discount": round(a["total_discount"], 2),
-            "total_gmv": round(a["total_gmv"], 2),
-            "net_revenue": round(a["total_gmv"] - a["total_discount"], 2),
-        })
-    # Sort by uses desc so highest-impact coupons surface first
-    out.sort(key=lambda x: x["uses"], reverse=True)
-    return out
-
-
-@api.get("/coupons/validate")
-async def coupon_validate(code: str, base_amount: float = 0, event_type: Optional[str] = None, user: dict = Depends(get_current_user)):
-    c, discount = await _validate_coupon(code, user_id=user["id"], base_amount=base_amount, event_type=event_type)
-    return {
-        "code": c["code"], "description": c.get("description", ""),
-        "discount_type": c["discount_type"], "discount_value": c["discount_value"],
-        "discount_amount": discount, "min_order": c.get("min_order", 0),
-        "applies_to": c.get("applies_to", "all"),
-    }
-
-
-# BLOGS (CMS)
-@api.post("/admin/blogs")
-async def admin_create_blog(body: BlogBody, _: dict = Depends(admin_only)):
-    doc = body.model_dump()
-    doc["id"] = new_id()
-    doc["created_at"] = utcnow()
-    await db.blogs.insert_one(doc)
-    return clean(doc)
-
-
-@api.get("/blogs")
-async def list_blogs(published_only: bool = True):
-    q = {"published": True} if published_only else {}
-    docs = await db.blogs.find(q).sort("created_at", -1).to_list(100)
-    return [clean(d) for d in docs]
-
-
-@api.get("/blogs/{slug}")
-async def get_blog(slug: str):
-    doc = await db.blogs.find_one({"slug": slug})
-    if not doc:
-        raise HTTPException(404, "Not found")
-    return clean(doc)
-
-
-# DISPUTES
-@api.post("/disputes")
-async def create_dispute(body: DisputeBody, user: dict = Depends(get_current_user)):
-    b = await db.bookings.find_one({"id": body.booking_id})
-    if not b or user["id"] not in (b["customer_id"], b["artist_id"]):
-        raise HTTPException(403, "Not allowed")
-    did = new_id()
-    await db.disputes.insert_one({
-        "id": did, "booking_id": body.booking_id, "raised_by": user["id"],
-        "reason": body.reason, "description": body.description,
-        "status": "open", "created_at": utcnow(),
-    })
-    return {"id": did}
-
-
-@api.get("/admin/disputes")
-async def admin_disputes(_: dict = Depends(admin_only)):
-    docs = await db.disputes.find().sort("created_at", -1).to_list(500)
-    return [clean(d) for d in docs]
-
-
-@api.post("/admin/disputes/{did}/resolve")
-async def resolve_dispute(did: str, body: DisputeResolveBody, _: dict = Depends(admin_only)):
-    d = await db.disputes.find_one({"id": did})
-    if not d:
-        raise HTTPException(404, "Not found")
-    booking = await db.bookings.find_one({"id": d["booking_id"]})
-    if body.decision == "refund":
-        amount = body.amount or booking.get("amount_paid", 0)
-        await _refund_to_wallet(booking["customer_id"], amount, f"Dispute refund {booking['ref']}")
-    elif body.decision == "release":
-        await _release_payment_to_artist(booking)
-    elif body.decision == "partial":
-        await _refund_to_wallet(booking["customer_id"], body.amount or 0, f"Partial refund {booking['ref']}")
-    await db.disputes.update_one({"id": did}, {"$set": {"status": "resolved", "decision": body.decision, "amount": body.amount, "note": body.note, "resolved_at": utcnow()}})
-    return {"ok": True}
+# ── Coupons / Blogs / Disputes endpoints moved to routes/ (Iter 13) ──────────
 
 
 # CONTRACTS
@@ -2834,6 +2311,39 @@ app.include_router(_iter9_router, prefix="/api")
 # Iter11 — ICS calendar, CSV exports, AI semantic search
 _iter11_router = make_iter11_router(db, get_current_user, admin_only)
 app.include_router(_iter11_router, prefix="/api")
+
+# Iter13 — server.py modularisation. Domain routers split out for maintainability.
+_common_deps = dict(db=db, utcnow=utcnow, new_id=new_id, clean=clean)
+app.include_router(
+    routes_reviews.make_router(get_current_user=get_current_user, admin_only=admin_only,
+                               notify_dispatch=notify_dispatch, **_common_deps),
+    prefix="/api",
+)
+app.include_router(
+    routes_wallet.make_router(get_current_user=get_current_user, **_common_deps),
+    prefix="/api",
+)
+app.include_router(
+    routes_coupons.make_router(get_current_user=get_current_user, admin_only=admin_only,
+                               validate_coupon=_validate_coupon, **_common_deps),
+    prefix="/api",
+)
+app.include_router(
+    routes_blogs.make_router(admin_only=admin_only, **_common_deps),
+    prefix="/api",
+)
+app.include_router(
+    routes_disputes.make_router(get_current_user=get_current_user, admin_only=admin_only,
+                                refund_to_wallet=_refund_to_wallet,
+                                release_payment_to_artist=_release_payment_to_artist,
+                                **_common_deps),
+    prefix="/api",
+)
+app.include_router(
+    routes_kyc.make_router(get_current_user=get_current_user, admin_only=admin_only,
+                           notify_dispatch=notify_dispatch, log=log, **_common_deps),
+    prefix="/api",
+)
 
 
 @app.on_event("startup")
