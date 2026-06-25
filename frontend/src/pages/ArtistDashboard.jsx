@@ -68,6 +68,11 @@ export default function ArtistDashboard() {
   };
 
   const doAction = async (bid, action) => {
+    if (action === "counter") {
+      const b = data.bookings.find((x) => x.id === bid);
+      if (b) setCounterModal(b);
+      return;
+    }
     try {
       await api.post(`/bookings/${bid}/action`, { action });
       toast("Booking updated");
