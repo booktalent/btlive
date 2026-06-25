@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Nav from "../components/Nav";
-import api, { fmtINRFull, mediaUrl } from "../lib/api";
+import api, { fmtINRFull, pickArtistThumb } from "../lib/api";
 
 const CATEGORIES = [
   "Bollywood Vocalist", "Classical Vocalist", "Carnatic Vocalist", "Sufi Vocalist", "Ghazal Singer",
@@ -100,16 +100,16 @@ export default function Search() {
           </div>
         ) : (
           <div className="grid grid-4">
-            {items.map((a) => (
+            {items.map((a) => {
+              const thumb = pickArtistThumb(a);
+              return (
               <Link to={`/artist/${a.user_id}`} key={a.user_id} className="artist-card" data-testid={`artist-card-${a.user_id}`}>
                 <div className="artist-card-cover" style={
-                  a.cover_image
-                    ? { backgroundImage: `url(${mediaUrl(a.cover_image)}?v=${a.updated_at || ""})`, backgroundSize: "cover", backgroundPosition: "center", fontSize: 0 }
-                    : a.profile_image
-                    ? { backgroundImage: `url(${mediaUrl(a.profile_image)}?v=${a.updated_at || ""})`, backgroundSize: "cover", backgroundPosition: "center", fontSize: 0 }
+                  thumb
+                    ? { backgroundImage: `url(${thumb})`, backgroundSize: "cover", backgroundPosition: "center", fontSize: 0 }
                     : {}
                 }>
-                  {!a.cover_image && !a.profile_image && (a.emoji || "🎤")}
+                  {!thumb && (a.emoji || "🎤")}
                   {a.is_boosted && <span className="boost-tag">★ FEATURED</span>}
                 </div>
                 <div className="artist-card-body">
@@ -124,7 +124,8 @@ export default function Search() {
                   </div>
                 </div>
               </Link>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

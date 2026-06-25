@@ -30,6 +30,7 @@ from pdf_service import generate_contract_pdf, generate_invoice_pdf
 from email_service import (
     is_email_enabled, generate_otp, send_otp_email, send_booking_confirmation_email,
 )
+from image_service import compress_image, make_thumbnail
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -689,13 +690,27 @@ async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_u
         raw = base64.b64decode(b64)
     except Exception as e:
         raise HTTPException(400, f"Could not decode file: {e}")
-    # MongoDB BSON documents are limited to 16 MB. Base64 inside a single doc
-    # must therefore stay under ~12 MB binary (≈ 16 MB base64-encoded).
-    # For larger files, users should host externally and store the URL.
     MAX_BINARY = 12 * 1024 * 1024
     if len(raw) > MAX_BINARY:
         raise HTTPException(413, f"File too large for local storage (max {MAX_BINARY // (1024*1024)} MB binary). Please use a smaller file or host externally.")
 
+    original_size = len(raw)
+    thumb_b64 = None
+    if mime.startswith("image/"):
+        # Compress original (reduces JPEG to ~30% of original on average)
+        try:
+            raw, mime = compress_image(raw, mime)
+        except Exception as _e:
+            log.warning("compress_image failed: %s", _e)
+        # Generate thumbnail (square 400x400)
+        try:
+            tbytes, _tmime = make_thumbnail(raw, mime)
+            if tbytes:
+                thumb_b64 = base64.b64encode(tbytes).decode()
+        except Exception as _e:
+            log.warning("make_thumbnail failed: %s", _e)
+
+    final_b64 = base64.b64encode(raw).decode()
     mid = new_id()
     doc = {
         "id": mid,
@@ -703,9 +718,11 @@ async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_u
         "type": body.type,
         "mime": mime,
         "size": len(raw),
+        "original_size": original_size,
         "title": body.title,
         "is_featured": body.is_featured,
-        "data": b64,  # base64 stored
+        "data": final_b64,  # compressed base64
+        "thumb": thumb_b64,  # 400x400 base64 jpeg (None for non-images)
         "order": 0,
         "created_at": utcnow(),
     }
@@ -717,16 +734,84 @@ async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_u
         existing = await db.artist_profiles.find_one({"user_id": user["id"]})
         old_id = (existing or {}).get(key)
         if old_id and old_id != mid:
-            # remove orphan
             await db.media.delete_one({"id": old_id})
         await db.artist_profiles.update_one(
             {"user_id": user["id"]},
             {"$set": {key: mid, "updated_at": utcnow()}},
         )
 
+    # never return the raw data field
     doc.pop("data", None)
+    doc.pop("thumb", None)
     doc.pop("_id", None)
     return doc
+
+
+@api.get("/media/{media_id}/thumb")
+async def media_thumb(media_id: str):
+    doc = await db.media.find_one({"id": media_id})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    if doc.get("thumb"):
+        raw = base64.b64decode(doc["thumb"])
+        return StreamingResponse(io.BytesIO(raw), media_type="image/jpeg", headers={"Cache-Control": "public, max-age=300"})
+    # Fall back to original (non-image types still go through here)
+    raw = base64.b64decode(doc.get("data", ""))
+    return StreamingResponse(io.BytesIO(raw), media_type=doc.get("mime", "application/octet-stream"))
+
+
+@api.put("/media/{media_id}")
+async def media_replace(media_id: str, body: MediaUploadBody, user: dict = Depends(get_current_user)):
+    """Replace an existing media item's binary while preserving its id + order + featured flag."""
+    existing = await db.media.find_one({"id": media_id})
+    if not existing:
+        raise HTTPException(404, "Not found")
+    if existing["user_id"] != user["id"] and user["role"] != "admin":
+        raise HTTPException(403, "Forbidden")
+
+    if not body.data_url.startswith("data:"):
+        raise HTTPException(400, "Invalid data URL")
+    try:
+        header, b64 = body.data_url.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "") or "application/octet-stream"
+        raw = base64.b64decode(b64)
+    except Exception as e:
+        raise HTTPException(400, f"Could not decode file: {e}")
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 12 MB binary).")
+
+    original_size = len(raw)
+    thumb_b64 = None
+    if mime.startswith("image/"):
+        try:
+            raw, mime = compress_image(raw, mime)
+        except Exception:
+            pass
+        try:
+            tbytes, _ = make_thumbnail(raw, mime)
+            if tbytes:
+                thumb_b64 = base64.b64encode(tbytes).decode()
+        except Exception:
+            pass
+
+    await db.media.update_one(
+        {"id": media_id},
+        {"$set": {
+            "mime": mime,
+            "size": len(raw),
+            "original_size": original_size,
+            "data": base64.b64encode(raw).decode(),
+            "thumb": thumb_b64,
+            "title": body.title or existing.get("title"),
+            "updated_at": utcnow(),
+        }},
+    )
+    # If profile/cover, bump the profile updated_at for cache busting
+    if user["role"] == "artist" and existing.get("type") in ("profile", "cover"):
+        await db.artist_profiles.update_one(
+            {"user_id": user["id"]}, {"$set": {"updated_at": utcnow()}},
+        )
+    return {"ok": True, "id": media_id, "size": len(raw)}
 
 
 @api.get("/media/{media_id}")
@@ -827,7 +912,6 @@ async def artists_search(
     total = await db.artist_profiles.count_documents(query)
     docs = await db.artist_profiles.find(query).sort([sort_field, ("rating_avg", -1)]).skip((page - 1) * limit).limit(limit).to_list(limit)
 
-    # enrich with packages min price & user info
     out = []
     for p in docs:
         p = clean(p)
@@ -842,6 +926,12 @@ async def artists_search(
             continue
         if max_price is not None and (p["starting_price"] is None or p["starting_price"] > max_price):
             continue
+        # Gallery thumbs for dynamic-thumbnail rotation
+        gallery = await db.media.find(
+            {"user_id": p["user_id"], "type": "gallery"},
+            {"data": 0, "thumb": 0},
+        ).sort([("is_featured", -1), ("order", 1)]).limit(8).to_list(8)
+        p["gallery_thumbs"] = [{"id": g["id"], "is_featured": g.get("is_featured", False)} for g in gallery]
         out.append(p)
     return {"total": total, "page": page, "items": out}
 
@@ -857,6 +947,11 @@ async def artists_featured(limit: int = 8):
         p = clean(p)
         pkgs = await db.packages.find({"artist_id": p["user_id"]}).to_list(20)
         p["starting_price"] = min((float(pp.get("price", 0)) for pp in pkgs), default=None)
+        gallery = await db.media.find(
+            {"user_id": p["user_id"], "type": "gallery"},
+            {"data": 0, "thumb": 0},
+        ).sort([("is_featured", -1), ("order", 1)]).limit(8).to_list(8)
+        p["gallery_thumbs"] = [{"id": g["id"], "is_featured": g.get("is_featured", False)} for g in gallery]
         out.append(p)
     return out
 

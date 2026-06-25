@@ -22,6 +22,26 @@ export const formatApiError = (e) => {
 };
 
 export const mediaUrl = (id) => (id ? `${API}/media/${id}` : null);
+export const thumbUrl = (id) => (id ? `${API}/media/${id}/thumb` : null);
+
+/**
+ * Pick a random gallery thumb for an artist card.
+ * Rotates each page load — uses Math.random so different visitors see different photos.
+ * Falls back gracefully to profile_image → cover_image → null.
+ */
+export const pickArtistThumb = (artist) => {
+  const thumbs = artist?.gallery_thumbs || [];
+  if (thumbs.length > 0) {
+    // featured first if any, else random
+    const featured = thumbs.find((t) => t.is_featured);
+    if (featured) return thumbUrl(featured.id);
+    const pick = thumbs[Math.floor(Math.random() * thumbs.length)];
+    return thumbUrl(pick.id);
+  }
+  if (artist?.profile_image) return thumbUrl(artist.profile_image);
+  if (artist?.cover_image) return mediaUrl(artist.cover_image);
+  return null;
+};
 
 export const fmtINR = (n) => {
   if (n == null) return "—";

@@ -490,8 +490,15 @@ function PackageModal({ pkg, onSave, onClose }) {
 
 function MediaManager({ data, refresh, toast }) {
   const inputRef = useRef();
+  const replaceRefs = useRef({});
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+
+  const fileToDataUrl = (f) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result); r.onerror = rej;
+    r.readAsDataURL(f);
+  });
 
   const upload = async (files, type) => {
     if (!files || files.length === 0) return;
@@ -502,11 +509,7 @@ function MediaManager({ data, refresh, toast }) {
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
         if (f.size > 12 * 1024 * 1024) { toast(`${f.name} too large (max 12MB)`, "error"); continue; }
-        const dataUrl = await new Promise((res) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result);
-          r.readAsDataURL(f);
-        });
+        const dataUrl = await fileToDataUrl(f);
         await api.post("/media/upload", { type, data_url: dataUrl, title: f.name }, {
           onUploadProgress: (e) => {
             const fileProg = e.total ? (e.loaded / e.total) : 0;
@@ -519,8 +522,19 @@ function MediaManager({ data, refresh, toast }) {
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(false);
     setProgress(0);
-    // CRITICAL: reset input value so the SAME file can be picked again
     if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const replace = async (mediaId, file) => {
+    if (!file) return;
+    if (file.size > 12 * 1024 * 1024) { toast("File too large (max 12MB)", "error"); return; }
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      await api.put(`/media/${mediaId}`, { type: "gallery", data_url: dataUrl, title: file.name });
+      toast("Replaced");
+      await refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    if (replaceRefs.current[mediaId]) replaceRefs.current[mediaId].value = "";
   };
 
   const del = async (id) => {
@@ -530,15 +544,33 @@ function MediaManager({ data, refresh, toast }) {
     toast("Deleted");
   };
 
+  const toggleFeatured = async (id) => {
+    await api.post(`/media/${id}/feature`);
+    await refresh();
+  };
+
+  const move = async (idx, dir) => {
+    const items = data.media.filter((m) => !["kyc", "profile", "cover"].includes(m.type));
+    const j = idx + dir;
+    if (j < 0 || j >= items.length) return;
+    const swap = [...items];
+    [swap[idx], swap[j]] = [swap[j], swap[idx]];
+    await api.post("/media/reorder", { ids: swap.map(x => x.id) });
+    await refresh();
+  };
+
   const onDrop = (e) => {
     e.preventDefault();
     if (e.dataTransfer.files) upload(e.dataTransfer.files, "gallery");
   };
 
+  const galleryItems = data.media.filter((m) => !["kyc", "profile", "cover"].includes(m.type));
+
   return (
     <div data-testid="media-tab">
       <div className="flex justify-between mb-16">
         <h2 className="font-serif fs-20 fw-700">Media Manager</h2>
+        <div className="text-muted fs-12">{galleryItems.length} item{galleryItems.length !== 1 ? "s" : ""}</div>
       </div>
       <div
         className="upload-zone mb-20"
@@ -555,7 +587,7 @@ function MediaManager({ data, refresh, toast }) {
         />
         <div className="upload-zone-icon">📁</div>
         <div className="fs-14 fw-600 mb-4">{busy ? `Uploading… ${progress}%` : "Drop files here or click to browse"}</div>
-        <div className="text-muted fs-12">Images, videos, audio, PDFs · Up to 12MB each</div>
+        <div className="text-muted fs-12">Auto-compressed & thumbnailed · Up to 12 MB each</div>
         {busy && (
           <div style={{ width: "60%", margin: "12px auto 0", height: 6, background: "var(--glass)", borderRadius: 3, overflow: "hidden" }}>
             <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, var(--gold), var(--purple))", transition: "width 0.2s" }} />
@@ -563,7 +595,7 @@ function MediaManager({ data, refresh, toast }) {
         )}
       </div>
       <div className="media-grid">
-        {data.media.filter((m) => !["kyc", "profile", "cover"].includes(m.type)).map((m) => (
+        {galleryItems.map((m, idx) => (
           <div key={m.id} className="media-tile" data-testid={`media-tile-${m.id}`}>
             {m.mime?.startsWith("video/") ? (
               <video src={mediaUrl(m.id)} muted />
@@ -572,11 +604,39 @@ function MediaManager({ data, refresh, toast }) {
             ) : m.mime === "application/pdf" ? (
               <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 48 }}>📄</div>
             ) : (
-              <img src={mediaUrl(m.id)} alt={m.title || ""} />
+              <img src={`${api.defaults.baseURL}/media/${m.id}/thumb`} alt={m.title || ""} />
             )}
-            <div className="media-tile-overlay">
-              <span className="text-muted fs-11">{(m.size / 1024).toFixed(0)} KB</span>
-              <button className="btn btn-red btn-xs" onClick={(e) => { e.stopPropagation(); del(m.id); }} data-testid={`del-media-${m.id}`}>Delete</button>
+            {m.is_featured && (
+              <div style={{ position: "absolute", top: 6, left: 6, padding: "2px 7px", background: "var(--gold)", color: "#000", fontSize: 10, fontWeight: 700, borderRadius: 5 }}>★ FEATURED</div>
+            )}
+            <div className="media-tile-overlay" style={{ opacity: 1, background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 60%)", padding: 6, flexDirection: "column", gap: 4 }}>
+              <div className="flex gap-4" style={{ width: "100%", justifyContent: "space-between" }}>
+                <button className="btn btn-ghost btn-xs" onClick={(e) => { e.stopPropagation(); move(idx, -1); }} title="Move left" data-testid={`move-left-${m.id}`} disabled={idx === 0}>←</button>
+                <button className="btn btn-ghost btn-xs" onClick={(e) => { e.stopPropagation(); move(idx, 1); }} title="Move right" data-testid={`move-right-${m.id}`} disabled={idx === galleryItems.length - 1}>→</button>
+              </div>
+              <div className="flex gap-4" style={{ width: "100%" }}>
+                <button
+                  className={`btn btn-xs ${m.is_featured ? "btn-gold" : "btn-ghost"}`}
+                  onClick={(e) => { e.stopPropagation(); toggleFeatured(m.id); }}
+                  data-testid={`feature-${m.id}`}
+                  title={m.is_featured ? "Unfeature" : "Set as featured"}
+                  style={{ flex: 1 }}
+                >★</button>
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={(e) => { e.stopPropagation(); replaceRefs.current[m.id]?.click(); }}
+                  data-testid={`replace-${m.id}`}
+                  title="Replace"
+                  style={{ flex: 1 }}
+                >↻</button>
+                <input
+                  ref={(el) => { if (el) replaceRefs.current[m.id] = el; }}
+                  type="file" accept="image/*,video/*,audio/*,application/pdf"
+                  style={{ display: "none" }}
+                  onChange={(e) => replace(m.id, e.target.files[0])}
+                />
+                <button className="btn btn-red btn-xs" onClick={(e) => { e.stopPropagation(); del(m.id); }} data-testid={`del-media-${m.id}`} title="Delete" style={{ flex: 1 }}>✕</button>
+              </div>
             </div>
           </div>
         ))}
