@@ -142,6 +142,19 @@ const STATUS_MAP = {
 export function BookingsTable({ bookings, role, onAction, onReview }) {
   const [chatBooking, setChatBooking] = useState(null);
 
+  // Lock body scroll + scroll to top when a chat opens so the modal is always
+  // visible (otherwise the modal-bg dim appears but the modal-card lands above
+  // the viewport on long lists, which users perceive as "Chat shows an empty
+  // faded screen for a long time").
+  useEffect(() => {
+    if (chatBooking) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [chatBooking]);
+
   if (bookings.length === 0) {
     return <div className="empty"><div className="empty-icon">📋</div><div className="empty-title">No bookings yet</div></div>;
   }
