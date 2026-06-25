@@ -7,90 +7,108 @@ dummy button, and static page must be wired to real database operations and busi
 Treat as a premium enterprise SaaS, not a demo.
 
 ## User Personas
-- **Customer** — books artists for events (weddings, corporate, private parties).
-- **Artist** — creates a profile, takes bookings, gets paid, can buy promotion packages.
-- **Agency** — manages a roster of artists.
-- **Corporate** — books at scale.
-- **Admin** — operates the full marketplace ERP.
+- **Customer** — books artists for events (weddings, corporate, private parties)
+- **Artist** — creates a profile, takes bookings, gets paid, can buy promotion packages
+- **Agency** — manages a roster of artists
+- **Corporate** — books at scale
+- **Admin** — operates the full marketplace ERP
 
 ## Architecture
-- Backend: FastAPI + Motor (MongoDB) + JWT
-- Frontend: React 18 + React Router + custom dark-luxury theme
-- File storage: MongoDB binary with Pillow compression + thumbnail
-- PDF: ReportLab
-- Email: Resend (mock fallback)
-- Payments: Razorpay + Stripe + PayPal (mock fallback)
-- New routers: `iter7_routes.py` (enterprise ERP) wired via `app.include_router`
+- **Backend**: FastAPI + Motor (MongoDB) + JWT, in-process WebSocket manager for chat
+- **Frontend**: React 18 + React Router + custom dark-luxury theme (PRESERVED, no redesign)
+- **File storage**: MongoDB binary with Pillow compression + 400×400 thumbnails
+- **PDF**: ReportLab (contracts + invoices)
+- **Email**: Resend (mock fallback)
+- **Payments**: Razorpay + Stripe + PayPal (mock fallback for boost; Razorpay for bookings)
+- **Routers**: `iter7_routes.py` (Enterprise ERP), `chat_routes.py` (Live chat WS + REST)
 
 ## Modules — Status
 
-### Done
-- Auth: email OTP signup, JWT, role-based (customer/artist/agency/admin) ✓
-- Onboarding Wizard (5-step) ✓
-- Artist Profile + packages + media manager (Pillow compression, replace/reorder/set-featured) ✓
-- Dynamic gallery thumbnails on landing/search cards ✓
-- Booking flow (5-step) + auto-block dates + counter-offers + alternative artists ✓
-- Contract PDF + signed upload + status flips ✓
-- Razorpay payments (mock fallback) ✓
-- Reviews & ratings ✓
-- Wallet (top-up, withdrawals, escrow) ✓
-- Customer / Artist / Admin dashboards ✓
+### Done (Iter 1-6, Feb 2026 earlier)
+- Auth with email OTP + JWT
+- 5-step Onboarding Wizard, Artist Profile + packages + media manager
+- Booking flow + auto-block dates + counter-offers + alternative artists
+- Contract PDF + signed upload
+- Razorpay (mock) + Wallet + Reviews
+- Customer / Artist / Admin dashboards
+- Pillow compression, replace/reorder/set-featured, dynamic gallery thumbs on cards
 
 ### Iteration 7 — Enterprise (Feb 2026)
-- **Master Data CRUD** — Categories, Cities, Event Types, Languages (admin editable + public catalogs) ✓
-- **FAQs** — admin CRUD + public `/api/faqs` ✓
-- **CMS Pages** — about, terms, privacy (admin CRUD + public `/api/cms/{slug}`) ✓
-- **System Settings** — key-value (platform_fee_pct, gst_pct, support email/phone) ✓
-- **Notification Templates** — email/sms/whatsapp/push/in_app with `{var}` interpolation, admin CRUD ✓
-- **Smart Notification Engine** — `notification_service.dispatch()` writes to db.notifications + db.notifications_log; multi-channel with mock fallback when keys absent ✓
-- **Booking auto-notify** — customer + artist + admins all get in-app + email on confirmation ✓
-- **Broadcast** — admin can blast a notification to any audience (artist/customer/all) on multiple channels ✓
-- **Audit Logs** — every admin write is logged with actor/target/payload ✓
-- **Boost / Promotion System** — admin-managed packages (9 types × 5 durations), artist purchase via Razorpay/Stripe/PayPal/mock, auto-expiry on `/boost/mine`, auto-revert boost_rank/flags ✓
-- **Admin Boost Manager** — packages CRUD, active subscribers, cancel, manual-assign ✓
-- **Advanced Search** — filters (category, city, budget, language, gender, rating, experience, event type, featured/verified/premium/instant), sort (relevance/price/rating/newest), pagination, boost_rank ranking ✓
-- **Search UX** — type-ahead suggestions, popular queries (last 30d), saved searches, history ✓
-- **Reports** — Revenue (GMV/platform/boost), Top Artists by revenue ✓
+- Master Data CRUD (Categories / Cities / Event Types / Languages) — admin editable, public catalogs
+- FAQs, CMS pages, System Settings (key-value)
+- Notification Templates (email/sms/whatsapp/push/in_app) with `{token}` interpolation
+- Smart Notification Engine (`notification_service.py`) — multi-channel + mock fallback + `db.notifications_log`
+- Booking auto-notify: customer + artist + admins on confirmation
+- Broadcast — admin blast to any audience
+- Audit Logs — every admin write
+- Boost / Promotion System — 9 types × 5 durations, 11 seeded packages, auto-expiry, admin manual-assign + cancel
+- Advanced Search — 13 filters, sort, pagination, type-ahead suggestions, popular, saved, history
+- Reports — revenue (GMV/platform/boost), top artists by revenue
 
-### Backlog (P1/P2)
-- **P1** — KYC approval workflow polish (UI exists; backend stub)
-- **P1** — Coupon usage tracking + redemption ledger
-- **P1** — Live chat (WebSocket) between customer & artist
-- **P2** — Photo/video reviews + moderation
-- **P2** — S3/Cloudinary migration for media (currently MongoDB binary)
-- **P2** — Push notifications via FCM (channel scaffolded, no key)
-- **P2** — Real WhatsApp/SMS via Twilio / Gupshup (channel scaffolded, no key)
-- **P2** — Agency dashboard + roster management
-- **P2** — Corporate dashboard + bulk booking
+### Iteration 8 — Rotation + KYC + Coupon + Chat (Feb 2026)
+- **Dynamic Artist Thumbnail Rotation** — `<ArtistCardThumb>` component used by Landing + Search:
+  - Featured image first, then rotates remaining gallery images every 3.5s with crossfade
+  - Single image → static; no images → emoji fallback
+  - Pauses on hover, preloads next, IntersectionObserver scoped (100s of cards OK)
+  - Progress dots at bottom of card; deduped URL list
+- **KYC Polish**
+  - Strict field validation: Aadhaar (12 digits regex), PAN (`[A-Z]{5}[0-9]{4}[A-Z]`), file-type whitelist, 5 MB cap
+  - Decisions: approve / reject / **request_resubmission** (new)
+  - Smart-notification + audit-log on every decision
+  - Aadhaar masked in admin queue (`XXXX-XXXX-9012`)
+  - Frontend: full form (name/DOB/Aadhaar+number/PAN+number/Bank/Selfie), status pill, reason banner, locked when pending/approved
+- **Coupon Redemption Ledger + Analytics**
+  - `_validate_coupon()` checks expiry, max_uses, per_user_limit, min_order, applies_to
+  - Booking creation writes `db.coupon_redemptions` row, increments `usage_count` + `total_discount`
+  - `GET /api/admin/coupons/analytics` — per-coupon uses / discount given / GMV / net revenue (sorted by uses desc)
+  - `GET /api/admin/coupons/{id}/redemptions` — full ledger with user + booking
+  - Admin UI: 4 KPI cards + table + drill-down ledger modal
+- **Live Chat (WebSocket)**
+  - `WS /api/ws/chat/{booking_id}?token=<jwt>` — JWT-authenticated, booking-participant-only
+  - Events: `message`, `typing`, `read`, `presence`
+  - REST fallback: `GET/POST /api/chat/{bid}/messages`, `POST /api/chat/{bid}/read`
+  - Off-line notification: in-app row when recipient not in room
+  - Frontend `<ChatBox>` — bubbles (gold for self), typing indicator, ✓/✓✓ read receipts, autoscroll, live status pill
+  - Embedded in `BookingsTable` row (💬 Chat button → modal)
+  - Verified end-to-end via `wss://` through ingress
+
+### Backlog (P2)
+- Real provider keys: Twilio SMS, Gupshup/Meta WhatsApp, FCM Push (channels scaffolded)
+- Photo/video reviews + moderation
+- S3/Cloudinary media migration
+- Agency dashboard + roster management
+- Corporate dashboard + bulk booking
+- AI semantic search via Emergent LLM key
+- ChatBox: file/image upload, voice notes, video call escalation
+- Move WebSocket ConnectionManager to Redis pubsub (multi-replica scaling)
 
 ### Tech Debt
-- `server.py` is 2400+ lines → split into `/app/backend/routes/{auth,booking,media,...}.py`
-- React admin components could move to per-feature folders
+- `server.py` is ~2.6k lines → split into `routes/{auth,booking,media,kyc,coupons,...}.py`
+- React admin components could move into per-feature folders
+- Add CI pytest sweep to GitHub Actions
 
-## Key Endpoints (Iter7 additions)
+## Key Endpoints (Iter8 additions)
 | Endpoint | Method | Notes |
 | --- | --- | --- |
-| `/api/catalog/{entity}` | GET | public — categories/cities/event-types/languages |
-| `/api/admin/master/{entity}` | GET/POST/PUT/DELETE | admin CRUD |
-| `/api/faqs`, `/api/admin/faqs` | public read / admin CRUD | |
-| `/api/cms/{slug}`, `/api/admin/cms` | public read / admin CRUD | |
-| `/api/admin/settings`, `/api/admin/settings/{key}` | admin | system settings |
-| `/api/admin/templates` | admin CRUD | notification templates |
-| `/api/admin/notifications/broadcast` | POST | multi-channel blast |
-| `/api/admin/notifications/log` | GET | audit channel attempts |
-| `/api/admin/audit-logs` | GET | all admin write history |
-| `/api/boost/packages`, `/api/boost/purchase`, `/api/boost/mine` | artist | |
-| `/api/admin/boost/packages`, `/admin/boost/subscriptions`, `/admin/boost/{id}/cancel`, `/admin/boost/manual-assign` | admin | |
-| `/api/search/artists` | GET | full-filter, paginated, boost-ranked |
-| `/api/search/suggestions`, `/search/popular`, `/search/saved`, `/search/history` | mixed | |
-| `/api/admin/reports/revenue`, `/api/admin/reports/top-artists` | admin | |
+| `/api/kyc/submit`, `/api/kyc/mine` | artist | strict validation, multi-field |
+| `/api/admin/kyc?status=...` | GET admin | filtered queue |
+| `/api/admin/kyc/decide` | POST admin | approve / reject / request_resubmission + notify + audit |
+| `/api/coupons/validate?code=&base_amount=&event_type=` | GET auth | strict validation |
+| `/api/admin/coupons/analytics` | GET admin | per-coupon analytics |
+| `/api/admin/coupons/{id}/redemptions` | GET admin | ledger drilldown |
+| `/api/chat/{bid}/messages` | GET/POST auth | REST history + post |
+| `/api/chat/{bid}/read` | POST auth | mark all read |
+| `/api/ws/chat/{bid}?token=` | WS | live messaging + typing + read receipts |
 
-## Storage
-Media remains in MongoDB binary with Pillow compression (12 MB cap, 400×400 thumbs).
-S3/Cloudinary migration deferred to backlog.
+## Test Results
+- **iter8**: 100% backend (22/22 new + 62/63 full sweep — 1 skip = known iter7 calendar collision)
+- **iter8**: 100% frontend (all 17 admin tabs render, search rotation visible, chat modal works, coupon KPIs render)
+- Reports: `/app/test_reports/iteration_5.json` (audit), `iteration_6.json` (iter7), `iteration_7.json` (iter8)
+- Test files: `/app/backend/tests/test_iter6.py`, `test_iter7.py`, `test_iter8.py`
 
-## Iter7 Test Results
-- Backend: 104/105 pytest pass (30 new iter7 tests + 74 regression).
-- Frontend: AdminDashboard Coupons crash fixed (`useEffect(reload, [])` → `useEffect(() => { reload(); }, [])`).
-  All 17 sidebar tabs render. Search page renders with 14 cards + advanced filters.
-- See `/app/test_reports/iteration_5.json` (audit) and `/app/test_reports/iteration_6.json` (iter7).
+## Test Credentials
+- Admin: `admin@booktalent.com` / `Admin@123`
+- Customer: `customer@booktalent.com` / `Customer@123`
+- Artist: `priya@booktalent.com` / `Artist@123` (verified)
+- Alt artist: `vortex@booktalent.com` / `Artist@123`
+- Mock email + payment OTP: `123456`

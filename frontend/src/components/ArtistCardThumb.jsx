@@ -24,20 +24,26 @@ export default function ArtistCardThumb({
   interval = 3500,
   children, // overlay content (e.g. boost tags)
 }) {
-  // Build ordered image URL list — featured first
+  // Build ordered image URL list — featured first, deduped to guard against
+  // backend returning the same media id twice in gallery_thumbs.
   const images = useMemo(() => {
     const out = [];
+    const seen = new Set();
+    const push = (u) => {
+      if (!u || seen.has(u)) return;
+      seen.add(u);
+      out.push(u);
+    };
     const thumbs = artist?.gallery_thumbs || [];
     const featured = thumbs.find((t) => t.is_featured);
     const others = thumbs.filter((t) => !t.is_featured);
-    if (featured) out.push(thumbUrl(featured.id));
-    others.forEach((t) => out.push(thumbUrl(t.id)));
-    // Fallbacks if there were no gallery thumbs at all
+    if (featured) push(thumbUrl(featured.id));
+    others.forEach((t) => push(thumbUrl(t.id)));
     if (out.length === 0) {
-      if (artist?.profile_image) out.push(thumbUrl(artist.profile_image));
-      else if (artist?.cover_image) out.push(mediaUrl(artist.cover_image));
+      if (artist?.profile_image) push(thumbUrl(artist.profile_image));
+      else if (artist?.cover_image) push(mediaUrl(artist.cover_image));
     }
-    return out.filter(Boolean);
+    return out;
   }, [artist]);
 
   const [idx, setIdx] = useState(0);
