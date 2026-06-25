@@ -190,29 +190,79 @@ function AdminBookings() {
 
 function AdminKYC({ toast }) {
   const [list, setList] = useState([]);
-  useEffect(() => { api.get("/admin/kyc").then(r => setList(r.data)); }, []);
+  const [status, setStatus] = useState("pending");
+  const [expanded, setExpanded] = useState(null);
+  const reload = () => api.get(`/admin/kyc?status=${status}`).then((r) => setList(r.data));
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [status]);
+
   const decide = async (artist_id, decision) => {
-    await api.post("/admin/kyc/decide", { artist_id, decision });
-    toast(`KYC ${decision}d`);
-    api.get("/admin/kyc").then(r => setList(r.data));
+    let reason = "";
+    if (decision === "reject" || decision === "request_resubmission") {
+      reason = window.prompt(`Reason for ${decision === "reject" ? "rejection" : "resubmission"}:`, "") || "";
+      if (!reason.trim()) { toast("Reason is required", "error"); return; }
+    }
+    try {
+      await api.post("/admin/kyc/decide", { artist_id, decision, reason });
+      toast(`KYC ${decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "resubmission requested"}`);
+      reload();
+    } catch (e) { toast(formatApiError(e), "error"); }
   };
+
   return (
     <div className="card" data-testid="admin-kyc">
-      <div className="card-head"><div className="card-title">🪪 KYC Queue ({list.length})</div></div>
+      <div className="card-head" style={{ justifyContent: "space-between", display: "flex", alignItems: "center" }}>
+        <div className="card-title">🪪 KYC Queue ({list.length})</div>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="input" style={{ width: 200 }} data-testid="kyc-status-filter">
+          <option value="pending">Pending</option>
+          <option value="needs_resubmission">Needs Resubmission</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="">All</option>
+        </select>
+      </div>
       <div style={{ padding: 14 }}>
-        {list.length === 0 && <div className="empty"><div className="empty-icon">🪪</div><div className="empty-title">No pending KYC</div></div>}
-        {list.map((k) => (
-          <div key={k.user_id} className="card card-pad mb-12 flex items-center gap-16" data-testid={`kyc-row-${k.user_id}`}>
-            <div className="avatar">{k.user?.first_name?.[0]}</div>
-            <div style={{ flex: 1 }}>
-              <div className="fw-600">{k.user?.first_name} {k.user?.last_name}</div>
-              <div className="text-muted fs-12">{k.user?.email} · Submitted {k.submitted_at?.slice(0, 10)}</div>
-              <div className="text-muted fs-11 mt-4">Docs: {Object.keys(k.documents || {}).join(", ")}</div>
+        {list.length === 0 && <div className="empty"><div className="empty-icon">🪪</div><div className="empty-title">No KYC records</div></div>}
+        {list.map((k) => {
+          const isOpen = expanded === k.user_id;
+          return (
+            <div key={k.user_id} className="card card-pad mb-12" data-testid={`kyc-row-${k.user_id}`} style={{ marginBottom: 12 }}>
+              <div className="flex items-center gap-16">
+                <div className="avatar">{k.user?.first_name?.[0]}</div>
+                <div style={{ flex: 1 }}>
+                  <div className="fw-600">
+                    {k.user?.first_name} {k.user?.last_name}
+                    {k.artist_profile?.stage_name && <span className="text-muted fs-12" style={{ marginLeft: 8 }}>· {k.artist_profile.stage_name}</span>}
+                  </div>
+                  <div className="text-muted fs-12">{k.user?.email} · Submitted {k.submitted_at?.slice(0, 10)} · <span className={`pill pill-${k.status === "approved" ? "green" : k.status === "rejected" ? "red" : "amber"}`}>{k.status}</span></div>
+                  <div className="text-muted fs-11 mt-4">Docs: {Object.keys(k.documents || {}).join(", ") || "—"}{k.pan_number && ` · PAN ${k.pan_number}`}{k.aadhaar_number_masked && ` · Aadhaar ${k.aadhaar_number_masked}`}</div>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(isOpen ? null : k.user_id)} data-testid={`kyc-view-${k.user_id}`}>{isOpen ? "Hide" : "View"}</button>
+                {k.status === "pending" || k.status === "needs_resubmission" ? (
+                  <>
+                    <button className="btn btn-green btn-sm" onClick={() => decide(k.user_id, "approve")} data-testid={`kyc-approve-${k.user_id}`}>✓ Approve</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => decide(k.user_id, "request_resubmission")} data-testid={`kyc-resub-${k.user_id}`}>↻ Resubmit</button>
+                    <button className="btn btn-red btn-sm" onClick={() => decide(k.user_id, "reject")} data-testid={`kyc-reject-${k.user_id}`}>✕ Reject</button>
+                  </>
+                ) : null}
+              </div>
+              {isOpen && k.documents && (
+                <div className="grid grid-3 gap-12 mt-12" style={{ marginTop: 12 }} data-testid={`kyc-docs-${k.user_id}`}>
+                  {Object.entries(k.documents).map(([field, mid]) => (
+                    <div key={field} className="card card-pad" style={{ textAlign: "center" }}>
+                      <div className="text-muted fs-11 mb-4" style={{ marginBottom: 4 }}>{field.toUpperCase()}</div>
+                      <a href={`${api.defaults.baseURL}/media/${mid}`} target="_blank" rel="noreferrer" data-testid={`kyc-doc-${k.user_id}-${field}`}>
+                        <img src={`${api.defaults.baseURL}/media/${mid}/thumb`} alt={field} style={{ maxWidth: "100%", borderRadius: 8 }} onError={(e) => { e.target.style.display = "none"; e.target.parentElement.innerHTML += '<div style="font-size:48px">📄</div>'; }} />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {k.reason && (k.status === "rejected" || k.status === "needs_resubmission") && (
+                <div className="text-muted fs-12 mt-8" style={{ marginTop: 8 }}>Reason: {k.reason}</div>
+              )}
             </div>
-            <button className="btn btn-green btn-sm" onClick={() => decide(k.user_id, "approve")} data-testid={`kyc-approve-${k.user_id}`}>✓ Approve</button>
-            <button className="btn btn-red btn-sm" onClick={() => decide(k.user_id, "reject")} data-testid={`kyc-reject-${k.user_id}`}>✕ Reject</button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -254,39 +304,61 @@ function AdminPayouts({ toast }) {
 }
 
 function AdminCoupons({ toast }) {
-  const [list, setList] = useState([]);
+  const [analytics, setAnalytics] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ code: "", description: "", discount_type: "percent", discount_value: 10, max_uses: 100, expires_at: "2026-12-31", min_order: 0, applies_to: "all", active: true });
-  const reload = () => api.get("/admin/coupons").then(r => setList(r.data));
+  const [drillIn, setDrillIn] = useState(null);
+  const [ledger, setLedger] = useState([]);
+  const [form, setForm] = useState({ code: "", description: "", discount_type: "percent", discount_value: 10, max_uses: 100, per_user_limit: 1, expires_at: "2026-12-31", min_order: 0, applies_to: "all", active: true });
+  const reload = () => api.get("/admin/coupons/analytics").then(r => setAnalytics(r.data));
   useEffect(() => { reload(); }, []);
   const create = async () => {
     try { await api.post("/admin/coupons", form); toast("Created"); setShowAdd(false); reload(); }
     catch (e) { toast(formatApiError(e), "error"); }
   };
-  const del = async (id) => { await api.delete(`/admin/coupons/${id}`); reload(); };
+  const del = async (id) => { if (!window.confirm("Delete coupon?")) return; await api.delete(`/admin/coupons/${id}`); reload(); };
+  const drill = async (c) => {
+    setDrillIn(c);
+    const r = await api.get(`/admin/coupons/${c.id}/redemptions`);
+    setLedger(r.data);
+  };
+
   return (
     <div className="card" data-testid="admin-coupons">
       <div className="card-head">
-        <div className="card-title">🎫 Coupons ({list.length})</div>
+        <div className="card-title">🎫 Coupons & Analytics ({analytics.length})</div>
         <button className="btn btn-gold btn-sm" onClick={() => setShowAdd(true)} data-testid="add-coupon-btn">+ New Coupon</button>
       </div>
+
+      <div className="kpi-grid" style={{ padding: "12px 14px 0" }}>
+        <div className="kpi" data-testid="coupon-kpi-uses"><div className="kpi-num">{analytics.reduce((s, c) => s + c.uses, 0)}</div><div className="kpi-label">Total Redemptions</div></div>
+        <div className="kpi" data-testid="coupon-kpi-discount"><div className="kpi-num text-gold">{fmtINRFull(analytics.reduce((s, c) => s + c.total_discount, 0))}</div><div className="kpi-label">Total Discount Given</div></div>
+        <div className="kpi" data-testid="coupon-kpi-gmv"><div className="kpi-num text-gold">{fmtINRFull(analytics.reduce((s, c) => s + c.total_gmv, 0))}</div><div className="kpi-label">Coupon-Driven GMV</div></div>
+        <div className="kpi" data-testid="coupon-kpi-active"><div className="kpi-num">{analytics.filter(c => c.active).length}</div><div className="kpi-label">Active Coupons</div></div>
+      </div>
+
       <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>Code</th><th>Discount</th><th>Usage</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Code</th><th>Discount</th><th>Uses</th><th>Discount Given</th><th>GMV Driven</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
-            {list.map((c) => (
+            {analytics.map((c) => (
               <tr key={c.id} data-testid={`coupon-${c.code}`}>
                 <td><code style={{ color: "var(--gold-light)", background: "var(--gold-dim)", padding: "3px 8px", borderRadius: 5 }}>{c.code}</code></td>
                 <td>{c.discount_type === "percent" ? `${c.discount_value}%` : fmtINRFull(c.discount_value)}</td>
-                <td>{c.usage_count || 0} / {c.max_uses}</td>
+                <td>{c.uses} / {c.max_uses}</td>
+                <td className="text-gold">{fmtINRFull(c.total_discount)}</td>
+                <td className="text-gold">{fmtINRFull(c.total_gmv)}</td>
                 <td className="fs-12 text-muted">{c.expires_at}</td>
                 <td><span className={`pill ${c.active ? "pill-green" : "pill-red"}`}>{c.active ? "Active" : "Inactive"}</span></td>
-                <td><button className="btn btn-red btn-xs" onClick={() => del(c.id)} data-testid={`del-coupon-${c.id}`}>Delete</button></td>
+                <td>
+                  <button className="btn btn-ghost btn-xs" onClick={() => drill(c)} data-testid={`drill-coupon-${c.id}`}>Ledger</button>
+                  <button className="btn btn-red btn-xs" onClick={() => del(c.id)} style={{ marginLeft: 6 }} data-testid={`del-coupon-${c.id}`}>Delete</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
       {showAdd && (
         <div className="modal-bg" onClick={() => setShowAdd(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -302,13 +374,52 @@ function AdminCoupons({ toast }) {
               <div className="field"><div className="field-label">Value</div><input type="number" className="field-input" value={form.discount_value} onChange={(e) => setForm({...form, discount_value: Number(e.target.value)})} data-testid="coupon-value" /></div>
             </div>
             <div className="field-row">
-              <div className="field"><div className="field-label">Max Uses</div><input type="number" className="field-input" value={form.max_uses} onChange={(e) => setForm({...form, max_uses: Number(e.target.value)})} /></div>
+              <div className="field"><div className="field-label">Max Uses (total)</div><input type="number" className="field-input" value={form.max_uses} onChange={(e) => setForm({...form, max_uses: Number(e.target.value)})} /></div>
+              <div className="field"><div className="field-label">Per User Limit</div><input type="number" className="field-input" value={form.per_user_limit} onChange={(e) => setForm({...form, per_user_limit: Number(e.target.value)})} /></div>
+            </div>
+            <div className="field-row">
+              <div className="field"><div className="field-label">Min Order ₹</div><input type="number" className="field-input" value={form.min_order} onChange={(e) => setForm({...form, min_order: Number(e.target.value)})} /></div>
               <div className="field"><div className="field-label">Expires</div><input type="date" className="field-input" value={form.expires_at} onChange={(e) => setForm({...form, expires_at: e.target.value})} /></div>
+            </div>
+            <div className="field"><div className="field-label">Applies To</div>
+              <select className="field-input" value={form.applies_to} onChange={(e) => setForm({...form, applies_to: e.target.value})}>
+                <option value="all">All bookings</option>
+                <option value="wedding">Weddings only</option>
+                <option value="corporate">Corporate only</option>
+                <option value="birthday">Birthdays only</option>
+              </select>
             </div>
             <div className="flex gap-12">
               <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
               <button className="btn btn-gold" style={{ flex: 1 }} onClick={create} data-testid="save-coupon">Create</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {drillIn && (
+        <div className="modal-bg" onClick={() => setDrillIn(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+            <div className="modal-title">Redemption Ledger — <code style={{ color: "var(--gold)" }}>{drillIn.code}</code></div>
+            <p className="text-muted fs-13 mb-12">{ledger.length} redemptions · ₹{drillIn.total_discount.toLocaleString("en-IN")} discount given</p>
+            <div className="table-wrap" style={{ maxHeight: 400, overflow: "auto" }}>
+              <table className="table">
+                <thead><tr><th>When</th><th>User</th><th>Booking</th><th>Discount</th><th>Total</th></tr></thead>
+                <tbody>
+                  {ledger.map((r) => (
+                    <tr key={r.id} data-testid={`ledger-${r.id}`}>
+                      <td className="fs-11 text-muted">{r.created_at?.slice(0, 19).replace("T", " ")}</td>
+                      <td>{r.user?.email || r.user_id?.slice(0, 8)}</td>
+                      <td><code className="fs-11">{r.booking?.ref || r.booking_id?.slice(0, 8)}</code></td>
+                      <td className="text-gold">{fmtINRFull(r.discount_amount)}</td>
+                      <td>{fmtINRFull(r.booking_total || 0)}</td>
+                    </tr>
+                  ))}
+                  {ledger.length === 0 && <tr><td colSpan={5} className="text-muted" style={{ textAlign: "center", padding: 20 }}>No redemptions yet</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <button className="btn btn-ghost mt-12" onClick={() => setDrillIn(null)} style={{ marginTop: 12 }}>Close</button>
           </div>
         </div>
       )}

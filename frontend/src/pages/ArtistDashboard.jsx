@@ -929,40 +929,131 @@ function Boost({ refresh, toast }) {
 }
 
 function KYC({ toast, refresh }) {
-  const [aadhaar, setAadhaar] = useState("");
-  const [pan, setPan] = useState("");
+  const [aadhaarFile, setAadhaarFile] = useState("");
+  const [panFile, setPanFile] = useState("");
+  const [bankFile, setBankFile] = useState("");
+  const [selfieFile, setSelfieFile] = useState("");
+  const [aadhaarNo, setAadhaarNo] = useState("");
+  const [panNo, setPanNo] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [dob, setDob] = useState("");
   const [kyc, setKyc] = useState(null);
-  useEffect(() => { api.get("/kyc/mine").then((r) => setKyc(r.data)); }, []);
+  const [busy, setBusy] = useState(false);
+
+  const reload = () => api.get("/kyc/mine").then((r) => setKyc(r.data));
+  useEffect(() => { reload(); }, []);
+
   const upload = async (file, setter) => {
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast("File too large (max 5 MB)", "error"); return; }
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"];
+    if (!allowed.includes(file.type)) { toast("Only JPG / PNG / WEBP / PDF allowed", "error"); return; }
     const r = new FileReader();
     r.onload = () => setter(r.result);
     r.readAsDataURL(file);
   };
-  const submit = async () => {
-    try {
-      await api.post("/kyc/submit", { aadhaar, pan });
-      toast("KYC submitted for review");
-      api.get("/kyc/mine").then((r) => setKyc(r.data));
-      refresh();
-    } catch (e) { toast(formatApiError(e), "error"); }
+
+  const validate = () => {
+    if (!aadhaarFile && !panFile) return "Upload at least one identity document (Aadhaar or PAN)";
+    const aaNum = aadhaarNo.replace(/\s/g, "");
+    if (aadhaarFile && !/^\d{12}$/.test(aaNum)) return "Aadhaar number must be exactly 12 digits";
+    if (panFile && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(panNo.toUpperCase())) return "PAN must be in format ABCDE1234F";
+    return null;
   };
+
+  const submit = async () => {
+    const err = validate();
+    if (err) { toast(err, "error"); return; }
+    setBusy(true);
+    try {
+      await api.post("/kyc/submit", {
+        full_name: fullName, dob,
+        aadhaar_number: aadhaarNo.replace(/\s/g, ""), pan_number: panNo.toUpperCase(),
+        aadhaar: aadhaarFile, pan: panFile,
+        bank_proof: bankFile, selfie: selfieFile,
+      });
+      toast("KYC submitted for review");
+      reload();
+      refresh && refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setBusy(false);
+  };
+
+  const status = kyc?.status;
+  const isLocked = status === "pending" || status === "approved";
+
   return (
     <div className="card card-pad" data-testid="kyc-tab">
-      <h2 className="font-serif fs-20 fw-700 mb-8">KYC Documents</h2>
-      <p className="text-muted fs-13 mb-20">Verify your identity to unlock payouts and premium features.</p>
-      {kyc && <div className={`pill mb-16 ${kyc.status === "approved" ? "pill-green" : kyc.status === "rejected" ? "pill-red" : "pill-amber"}`}>Status: {kyc.status}</div>}
-      <div className="field">
-        <div className="field-label">Aadhaar Card</div>
-        <input type="file" accept="image/*,application/pdf" onChange={(e) => upload(e.target.files[0], setAadhaar)} data-testid="kyc-aadhaar" />
-        {aadhaar && <div className="pill pill-green mt-8">✓ File selected</div>}
-      </div>
-      <div className="field">
-        <div className="field-label">PAN Card</div>
-        <input type="file" accept="image/*,application/pdf" onChange={(e) => upload(e.target.files[0], setPan)} data-testid="kyc-pan" />
-        {pan && <div className="pill pill-green mt-8">✓ File selected</div>}
-      </div>
-      <button className="btn btn-gold" disabled={!aadhaar && !pan} onClick={submit} data-testid="kyc-submit">Submit for Review</button>
+      <h2 className="font-serif fs-20 fw-700 mb-8">KYC Verification</h2>
+      <p className="text-muted fs-13 mb-20">Verify your identity to unlock payouts, the Verified Badge, and premium features.</p>
+
+      {status && (
+        <div className="mb-16">
+          <div className={`pill ${status === "approved" ? "pill-green" : status === "rejected" ? "pill-red" : status === "needs_resubmission" ? "pill-amber" : "pill-purple"}`} data-testid="kyc-status">
+            Status: {status.replace(/_/g, " ")}
+          </div>
+          {kyc.reason && (status === "rejected" || status === "needs_resubmission") && (
+            <div className="text-muted fs-13 mt-8" data-testid="kyc-reason">Reason: {kyc.reason}</div>
+          )}
+          {status === "approved" && <div className="text-muted fs-13 mt-8">✓ Verified Badge active on your profile</div>}
+        </div>
+      )}
+
+      {isLocked ? (
+        <div className="empty">
+          <div className="empty-title">{status === "approved" ? "You're verified!" : "Review in progress"}</div>
+          <p className="text-muted">{status === "approved" ? "Your KYC has been approved." : "Our team will review your submission within 24-48 hours."}</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-2 gap-12 mb-12" style={{ marginBottom: 12 }}>
+            <div className="field">
+              <div className="field-label">Full Name (as per Aadhaar)</div>
+              <input className="field-input" placeholder="e.g. Priya Sharma" value={fullName} onChange={(e) => setFullName(e.target.value)} data-testid="kyc-name" />
+            </div>
+            <div className="field">
+              <div className="field-label">Date of Birth</div>
+              <input type="date" className="field-input" value={dob} onChange={(e) => setDob(e.target.value)} data-testid="kyc-dob" />
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="field-label">Aadhaar Number (12 digits)</div>
+            <input className="field-input" placeholder="1234 5678 9012" maxLength={14} value={aadhaarNo} onChange={(e) => setAadhaarNo(e.target.value)} data-testid="kyc-aadhaar-no" />
+          </div>
+          <div className="field">
+            <div className="field-label">Aadhaar Document (JPG/PNG/PDF, max 5 MB)</div>
+            <input type="file" accept="image/*,application/pdf" onChange={(e) => upload(e.target.files[0], setAadhaarFile)} data-testid="kyc-aadhaar" />
+            {aadhaarFile && <div className="pill pill-green mt-8" style={{ marginTop: 8 }}>✓ Aadhaar file selected</div>}
+          </div>
+
+          <div className="field">
+            <div className="field-label">PAN Number</div>
+            <input className="field-input" placeholder="ABCDE1234F" maxLength={10} value={panNo} onChange={(e) => setPanNo(e.target.value.toUpperCase())} data-testid="kyc-pan-no" />
+          </div>
+          <div className="field">
+            <div className="field-label">PAN Document</div>
+            <input type="file" accept="image/*,application/pdf" onChange={(e) => upload(e.target.files[0], setPanFile)} data-testid="kyc-pan" />
+            {panFile && <div className="pill pill-green mt-8" style={{ marginTop: 8 }}>✓ PAN file selected</div>}
+          </div>
+
+          <div className="field">
+            <div className="field-label">Bank Proof — Cancelled Cheque / Passbook (optional)</div>
+            <input type="file" accept="image/*,application/pdf" onChange={(e) => upload(e.target.files[0], setBankFile)} data-testid="kyc-bank" />
+            {bankFile && <div className="pill pill-green mt-8" style={{ marginTop: 8 }}>✓ Bank proof selected</div>}
+          </div>
+
+          <div className="field">
+            <div className="field-label">Live Selfie (optional but recommended)</div>
+            <input type="file" accept="image/*" capture="user" onChange={(e) => upload(e.target.files[0], setSelfieFile)} data-testid="kyc-selfie" />
+            {selfieFile && <div className="pill pill-green mt-8" style={{ marginTop: 8 }}>✓ Selfie selected</div>}
+          </div>
+
+          <button className="btn btn-gold" disabled={busy} onClick={submit} data-testid="kyc-submit">
+            {busy ? "Submitting..." : status === "needs_resubmission" ? "Resubmit for Review" : "Submit for Review"}
+          </button>
+        </>
+      )}
     </div>
   );
 }

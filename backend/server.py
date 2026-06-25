@@ -14,6 +14,7 @@ import base64
 import io
 import hmac
 import hashlib
+import re
 import bcrypt
 import jwt
 import razorpay
@@ -32,6 +33,7 @@ from email_service import (
 )
 from image_service import compress_image, make_thumbnail
 from iter7_routes import make_router as make_iter7_router
+from chat_routes import make_chat_router
 from notification_service import dispatch as notify_dispatch
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -312,9 +314,10 @@ class CouponBody(BaseModel):
     discount_type: Literal["percent", "flat"]
     discount_value: float
     max_uses: int = 1000
+    per_user_limit: int = 1
     expires_at: str  # YYYY-MM-DD
     min_order: float = 0
-    applies_to: str = "all"  # all/wedding/corporate
+    applies_to: str = "all"  # all/wedding/corporate/category-slug
     active: bool = True
 
 
@@ -340,14 +343,19 @@ class BoostBody(BaseModel):
 
 
 class KYCSubmitBody(BaseModel):
-    aadhaar: Optional[str] = None  # data url
-    pan: Optional[str] = None
-    bank_proof: Optional[str] = None
+    aadhaar_number: Optional[str] = None       # raw 12-digit Aadhaar number
+    pan_number: Optional[str] = None           # raw PAN like ABCDE1234F
+    full_name: Optional[str] = None
+    dob: Optional[str] = None                  # YYYY-MM-DD
+    aadhaar: Optional[str] = None              # data url — Aadhaar doc image/pdf
+    pan: Optional[str] = None                  # data url — PAN doc image/pdf
+    bank_proof: Optional[str] = None           # data url — cancelled cheque / passbook
+    selfie: Optional[str] = None               # data url — live selfie for face-match
 
 
 class KYCDecideBody(BaseModel):
     artist_id: str
-    decision: Literal["approve", "reject"]
+    decision: Literal["approve", "reject", "request_resubmission"]
     reason: Optional[str] = None
 
 
@@ -1116,13 +1124,14 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
     coupon_discount = 0
     coupon_doc = None
     if body.coupon_code:
-        coupon_doc = await db.coupons.find_one({"code": body.coupon_code.upper(), "active": True})
-        if coupon_doc:
+        try:
             base = float(pkg["price"]) + addon_total
-            if coupon_doc["discount_type"] == "percent":
-                coupon_discount = round(base * float(coupon_doc["discount_value"]) / 100, 2)
-            else:
-                coupon_discount = float(coupon_doc["discount_value"])
+            coupon_doc, coupon_discount = await _validate_coupon(
+                body.coupon_code, user_id=user["id"], base_amount=base, event_type=body.event_type,
+            )
+        except HTTPException as ce:
+            # Surface coupon error to the customer instead of silently dropping
+            raise ce
 
     pricing = calc_booking_pricing(float(pkg["price"]), addon_total, coupon_discount)
 
@@ -1156,6 +1165,23 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         "created_at": utcnow(),
     }
     await db.bookings.insert_one(doc)
+
+    # Coupon redemption ledger + counters
+    if coupon_doc and coupon_discount > 0:
+        await db.coupon_redemptions.insert_one({
+            "id": new_id(),
+            "coupon_id": coupon_doc["id"],
+            "coupon_code": coupon_doc["code"],
+            "user_id": user["id"],
+            "booking_id": bid,
+            "discount_amount": coupon_discount,
+            "booking_total": pricing["total"],
+            "created_at": utcnow(),
+        })
+        await db.coupons.update_one(
+            {"id": coupon_doc["id"]},
+            {"$inc": {"usage_count": 1, "total_discount": coupon_discount}},
+        )
 
     # notifications: artist
     await db.notifications.insert_one({
@@ -1788,29 +1814,98 @@ async def conversation_messages(cid: str, user: dict = Depends(get_current_user)
 # ─────────────────────────────────────────────────────────────────────────────
 # KYC
 # ─────────────────────────────────────────────────────────────────────────────
+KYC_ALLOWED_MIMES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"}
+KYC_MAX_BYTES = 5 * 1024 * 1024  # 5 MB per doc
+
+_AADHAAR_RX = re.compile(r"^\d{12}$")
+_PAN_RX = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+
+
+def _validate_data_url(label: str, dataurl: str) -> tuple[str, str]:
+    """Returns (mime, base64) or raises 400."""
+    if not dataurl.startswith("data:"):
+        raise HTTPException(400, f"{label}: not a data url")
+    try:
+        header, b64 = dataurl.split(",", 1)
+        mime = header.split(";")[0].replace("data:", "").lower()
+    except Exception:
+        raise HTTPException(400, f"{label}: malformed data url")
+    if mime not in KYC_ALLOWED_MIMES:
+        raise HTTPException(400, f"{label}: only JPG / PNG / WEBP / PDF allowed (got {mime})")
+    # Approx size from base64 — 4/3 ratio
+    approx = (len(b64) * 3) // 4
+    if approx > KYC_MAX_BYTES:
+        raise HTTPException(400, f"{label}: file too large ({approx // 1024} KB > 5120 KB limit)")
+    return mime, b64
+
+
 @api.post("/kyc/submit")
 async def kyc_submit(body: KYCSubmitBody, user: dict = Depends(get_current_user)):
-    docs = {}
-    for k, v in body.model_dump(exclude_unset=True).items():
+    payload = body.model_dump(exclude_unset=True)
+
+    # ── Field validations ────────────────────────────────────────────────────
+    aadhaar_no = (payload.get("aadhaar_number") or "").strip().replace(" ", "")
+    pan_no = (payload.get("pan_number") or "").strip().upper()
+    if aadhaar_no and not _AADHAAR_RX.match(aadhaar_no):
+        raise HTTPException(400, "Aadhaar number must be exactly 12 digits")
+    if pan_no and not _PAN_RX.match(pan_no):
+        raise HTTPException(400, "PAN must follow the format ABCDE1234F")
+
+    # Required: at least Aadhaar OR PAN proof image must be present along with the matching number
+    if not (payload.get("aadhaar") or payload.get("pan")):
+        raise HTTPException(400, "Upload at least one identity document (Aadhaar or PAN)")
+    if payload.get("aadhaar") and not aadhaar_no:
+        raise HTTPException(400, "Aadhaar number is required when uploading the Aadhaar document")
+    if payload.get("pan") and not pan_no:
+        raise HTTPException(400, "PAN number is required when uploading the PAN document")
+
+    # ── Persist documents ────────────────────────────────────────────────────
+    docs: Dict[str, str] = {}
+    for key in ("aadhaar", "pan", "bank_proof", "selfie"):
+        v = payload.get(key)
         if not v:
             continue
-        if v.startswith("data:"):
-            try:
-                header, b64 = v.split(",", 1)
-                mime = header.split(";")[0].replace("data:", "")
-                mid = new_id()
-                await db.media.insert_one({"id": mid, "user_id": user["id"], "type": "kyc", "mime": mime, "data": b64, "created_at": utcnow(), "kyc_field": k})
-                docs[k] = mid
-            except Exception:
-                continue
+        mime, b64 = _validate_data_url(key, v)
+        mid = new_id()
+        await db.media.insert_one({
+            "id": mid, "user_id": user["id"], "type": "kyc",
+            "mime": mime, "data": b64, "created_at": utcnow(), "kyc_field": key,
+        })
+        docs[key] = mid
+
+    sub_doc = {
+        "user_id": user["id"],
+        "documents": docs,
+        "aadhaar_number_masked": ("XXXX-XXXX-" + aadhaar_no[-4:]) if aadhaar_no else None,
+        "pan_number": pan_no or None,
+        "full_name": payload.get("full_name"),
+        "dob": payload.get("dob"),
+        "status": "pending",
+        "submitted_at": utcnow(),
+        "decided_at": None,
+        "reason": None,
+    }
     await db.kyc_submissions.update_one(
         {"user_id": user["id"]},
-        {"$set": {"user_id": user["id"], "documents": docs, "status": "pending", "submitted_at": utcnow()}},
+        {"$set": sub_doc},
         upsert=True,
     )
     await db.users.update_one({"id": user["id"]}, {"$set": {"kyc_status": "pending"}})
     if user["role"] == "artist":
         await db.artist_profiles.update_one({"user_id": user["id"]}, {"$set": {"kyc_status": "pending"}})
+
+    # Notify admins so they can act fast
+    try:
+        u_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or user.get("email", "")
+        async for adm in db.users.find({"role": "admin"}, {"id": 1, "email": 1}):
+            await notify_dispatch(
+                db, user_id=adm["id"], event="kyc.submitted",
+                channels=["in_app"],
+                ctx={"title": "New KYC submission", "body": f"{u_name} submitted KYC documents — review pending."},
+            )
+    except Exception:
+        pass
+
     return {"ok": True}
 
 
@@ -1903,29 +1998,91 @@ async def admin_users(role: Optional[str] = None, _: dict = Depends(admin_only))
 
 
 @api.get("/admin/kyc")
-async def admin_kyc(_: dict = Depends(admin_only)):
-    docs = await db.kyc_submissions.find({"status": "pending"}).to_list(500)
+async def admin_kyc(status: Optional[str] = None, _: dict = Depends(admin_only)):
+    q: dict = {}
+    if status in ("pending", "approved", "rejected", "needs_resubmission"):
+        q["status"] = status
+    docs = await db.kyc_submissions.find(q).sort("submitted_at", -1).to_list(500)
     out = []
     for d in docs:
         d = clean(d)
-        u = await db.users.find_one({"id": d["user_id"]})
-        d["user"] = clean(u)
+        u = await db.users.find_one({"id": d["user_id"]}, {"password_hash": 0})
+        d["user"] = clean(u) if u else None
+        # Convenience: stage_name + category for artist KYC items
+        if u and u.get("role") == "artist":
+            ap = await db.artist_profiles.find_one({"user_id": u["id"]}, {"stage_name": 1, "category": 1, "city": 1, "_id": 0})
+            d["artist_profile"] = ap
         out.append(d)
     return out
 
 
 @api.post("/admin/kyc/decide")
-async def admin_kyc_decide(body: KYCDecideBody, _: dict = Depends(admin_only)):
-    new_status = "approved" if body.decision == "approve" else "rejected"
-    await db.kyc_submissions.update_one({"user_id": body.artist_id}, {"$set": {"status": new_status, "decided_at": utcnow(), "reason": body.reason}})
+async def admin_kyc_decide(body: KYCDecideBody, admin: dict = Depends(admin_only)):
+    sub = await db.kyc_submissions.find_one({"user_id": body.artist_id})
+    if not sub:
+        raise HTTPException(404, "No KYC submission found for this user")
+
+    decision_to_status = {
+        "approve": "approved",
+        "reject": "rejected",
+        "request_resubmission": "needs_resubmission",
+    }
+    new_status = decision_to_status[body.decision]
+
+    await db.kyc_submissions.update_one(
+        {"user_id": body.artist_id},
+        {"$set": {
+            "status": new_status,
+            "decided_at": utcnow(),
+            "decided_by": admin["id"],
+            "reason": body.reason,
+        }},
+    )
     await db.users.update_one({"id": body.artist_id}, {"$set": {"kyc_status": new_status, "verified": new_status == "approved"}})
-    await db.artist_profiles.update_one({"user_id": body.artist_id}, {"$set": {"kyc_status": new_status}})
-    await db.notifications.insert_one({
-        "id": new_id(), "user_id": body.artist_id, "type": "kyc",
-        "title": f"KYC {new_status}", "body": body.reason or "Your KYC has been reviewed",
-        "read": False, "created_at": utcnow(), "link": "/dashboard/profile",
-    })
-    return {"ok": True}
+    await db.artist_profiles.update_one(
+        {"user_id": body.artist_id},
+        {"$set": {"kyc_status": new_status, "verified_badge": new_status == "approved"}},
+    )
+
+    # Smart notification — in_app + email
+    target_user = await db.users.find_one({"id": body.artist_id})
+    titles = {
+        "approved": "✓ KYC Approved — Verified Badge Activated",
+        "rejected": "✗ KYC Rejected",
+        "needs_resubmission": "↻ KYC — Resubmission Requested",
+    }
+    bodies = {
+        "approved": "Congratulations! Your identity has been verified. Your profile now displays a Verified Badge.",
+        "rejected": f"Your KYC was rejected. Reason: {body.reason or 'documents did not meet our standards'}.",
+        "needs_resubmission": f"Please resubmit your KYC. Reason: {body.reason or 'we need a clearer copy of your documents'}.",
+    }
+    try:
+        await notify_dispatch(
+            db, user_id=body.artist_id, event=f"kyc.{new_status}",
+            channels=["in_app", "email"],
+            ctx={"title": titles[new_status], "body": bodies[new_status], "reason": body.reason or ""},
+            email=target_user.get("email") if target_user else None,
+        )
+    except Exception as _e:
+        log.warning("KYC notification failed: %s", _e)
+
+    # Audit log
+    try:
+        await db.audit_logs.insert_one({
+            "id": new_id(),
+            "actor_id": admin.get("id"),
+            "actor_email": admin.get("email"),
+            "actor_role": "admin",
+            "action": f"kyc.{body.decision}",
+            "target_type": "kyc_submission",
+            "target_id": body.artist_id,
+            "payload": {"reason": body.reason, "new_status": new_status},
+            "created_at": utcnow(),
+        })
+    except Exception:
+        pass
+
+    return {"ok": True, "status": new_status}
 
 
 @api.post("/admin/artists/{user_id}/feature")
@@ -1974,14 +2131,64 @@ async def admin_release_withdrawal(wid: str, _: dict = Depends(admin_only)):
 
 
 # COUPONS
+async def _validate_coupon(code: str, *, user_id: str, base_amount: float, event_type: Optional[str] = None) -> tuple[dict, float]:
+    """Returns (coupon_doc, discount_amount) or raises 400."""
+    c = await db.coupons.find_one({"code": code.upper()})
+    if not c:
+        raise HTTPException(404, "Invalid coupon code")
+    if not c.get("active", False):
+        raise HTTPException(400, "Coupon is inactive")
+    # Expiry
+    try:
+        exp = c.get("expires_at", "")
+        if exp and exp < datetime.now(timezone.utc).strftime("%Y-%m-%d"):
+            raise HTTPException(400, "Coupon has expired")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    # Min order
+    if base_amount < float(c.get("min_order", 0)):
+        raise HTTPException(400, f"Order must be at least ₹{c.get('min_order', 0)} to use this coupon")
+    # Max uses
+    if c.get("usage_count", 0) >= int(c.get("max_uses", 1000)):
+        raise HTTPException(400, "Coupon usage limit reached")
+    # Per-user limit
+    per_user_used = await db.coupon_redemptions.count_documents({"coupon_id": c["id"], "user_id": user_id})
+    if per_user_used >= int(c.get("per_user_limit", 1)):
+        raise HTTPException(400, "You've already used this coupon the maximum number of times")
+    # applies_to
+    applies_to = c.get("applies_to", "all")
+    if applies_to != "all" and event_type and applies_to.lower() != event_type.lower():
+        raise HTTPException(400, f"Coupon valid only for {applies_to} bookings")
+    # Compute discount
+    if c["discount_type"] == "percent":
+        discount = round(base_amount * float(c["discount_value"]) / 100, 2)
+    else:
+        discount = float(c["discount_value"])
+    discount = min(discount, base_amount)  # never exceed base
+    return c, discount
+
+
 @api.post("/admin/coupons")
-async def admin_create_coupon(body: CouponBody, _: dict = Depends(admin_only)):
+async def admin_create_coupon(body: CouponBody, admin: dict = Depends(admin_only)):
+    if await db.coupons.find_one({"code": body.code.upper()}):
+        raise HTTPException(400, "Coupon code already exists")
     doc = body.model_dump()
     doc["code"] = doc["code"].upper()
     doc["id"] = new_id()
     doc["created_at"] = utcnow()
     doc["usage_count"] = 0
+    doc["total_discount"] = 0.0
     await db.coupons.insert_one(doc)
+    try:
+        await db.audit_logs.insert_one({
+            "id": new_id(), "actor_id": admin["id"], "actor_email": admin.get("email"),
+            "actor_role": "admin", "action": "coupon.create", "target_type": "coupon",
+            "target_id": doc["id"], "payload": {"code": doc["code"]}, "created_at": utcnow(),
+        })
+    except Exception:
+        pass
     return clean(doc)
 
 
@@ -1992,17 +2199,75 @@ async def admin_list_coupons(_: dict = Depends(admin_only)):
 
 
 @api.delete("/admin/coupons/{cid}")
-async def admin_delete_coupon(cid: str, _: dict = Depends(admin_only)):
+async def admin_delete_coupon(cid: str, admin: dict = Depends(admin_only)):
     await db.coupons.delete_one({"id": cid})
+    try:
+        await db.audit_logs.insert_one({
+            "id": new_id(), "actor_id": admin["id"], "actor_email": admin.get("email"),
+            "actor_role": "admin", "action": "coupon.delete", "target_type": "coupon",
+            "target_id": cid, "payload": {}, "created_at": utcnow(),
+        })
+    except Exception:
+        pass
     return {"ok": True}
 
 
+@api.get("/admin/coupons/{cid}/redemptions")
+async def admin_coupon_redemptions(cid: str, _: dict = Depends(admin_only)):
+    """Per-coupon redemption ledger with user + booking details."""
+    rows = await db.coupon_redemptions.find({"coupon_id": cid}).sort("created_at", -1).to_list(500)
+    out = []
+    for r in rows:
+        r = clean(r)
+        u = await db.users.find_one({"id": r["user_id"]}, {"password_hash": 0})
+        b = await db.bookings.find_one({"id": r.get("booking_id")}, {"ref": 1, "status": 1, "pricing": 1, "_id": 0})
+        r["user"] = clean(u) if u else None
+        r["booking"] = b
+        out.append(r)
+    return out
+
+
+@api.get("/admin/coupons/analytics")
+async def admin_coupon_analytics(_: dict = Depends(admin_only)):
+    """Aggregate per-coupon usage + revenue impact."""
+    coupons = await db.coupons.find({}).sort("created_at", -1).to_list(500)
+    out = []
+    for c in coupons:
+        c = clean(c)
+        pipe = [
+            {"$match": {"coupon_id": c["id"]}},
+            {"$group": {
+                "_id": None,
+                "uses": {"$sum": 1},
+                "total_discount": {"$sum": "$discount_amount"},
+                "total_gmv": {"$sum": "$booking_total"},
+            }},
+        ]
+        agg = await db.coupon_redemptions.aggregate(pipe).to_list(1)
+        a = agg[0] if agg else {"uses": 0, "total_discount": 0, "total_gmv": 0}
+        out.append({
+            "id": c["id"], "code": c["code"], "discount_type": c["discount_type"],
+            "discount_value": c["discount_value"], "active": c["active"], "expires_at": c.get("expires_at"),
+            "max_uses": c.get("max_uses"), "per_user_limit": c.get("per_user_limit", 1),
+            "uses": a["uses"], "remaining": max(0, c.get("max_uses", 0) - a["uses"]),
+            "total_discount": round(a["total_discount"], 2),
+            "total_gmv": round(a["total_gmv"], 2),
+            "net_revenue": round(a["total_gmv"] - a["total_discount"], 2),
+        })
+    # Sort by uses desc so highest-impact coupons surface first
+    out.sort(key=lambda x: x["uses"], reverse=True)
+    return out
+
+
 @api.get("/coupons/validate")
-async def coupon_validate(code: str, _: dict = Depends(get_current_user)):
-    c = await db.coupons.find_one({"code": code.upper(), "active": True})
-    if not c:
-        raise HTTPException(404, "Invalid coupon")
-    return clean(c)
+async def coupon_validate(code: str, base_amount: float = 0, event_type: Optional[str] = None, user: dict = Depends(get_current_user)):
+    c, discount = await _validate_coupon(code, user_id=user["id"], base_amount=base_amount, event_type=event_type)
+    return {
+        "code": c["code"], "description": c.get("description", ""),
+        "discount_type": c["discount_type"], "discount_value": c["discount_value"],
+        "discount_amount": discount, "min_order": c.get("min_order", 0),
+        "applies_to": c.get("applies_to", "all"),
+    }
 
 
 # BLOGS (CMS)
@@ -2429,6 +2694,10 @@ app.include_router(api)
 # Iteration 7 — Enterprise routes (Admin ERP, Boost, Notifications, Advanced Search)
 _iter7_router = make_iter7_router(db, get_current_user, admin_only)
 app.include_router(_iter7_router, prefix="/api")
+
+# Live chat (REST + WebSocket)
+_chat_router = make_chat_router(db, get_current_user)
+app.include_router(_chat_router, prefix="/api")
 
 
 @app.on_event("startup")

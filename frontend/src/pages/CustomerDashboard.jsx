@@ -4,6 +4,7 @@ import Nav from "../components/Nav";
 import api, { fmtINRFull, formatApiError, API } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
+import ChatBox from "../components/ChatBox";
 
 export default function CustomerDashboard() {
   const { user } = useAuth();
@@ -139,6 +140,8 @@ const STATUS_MAP = {
 };
 
 export function BookingsTable({ bookings, role, onAction, onReview }) {
+  const [chatBooking, setChatBooking] = useState(null);
+
   if (bookings.length === 0) {
     return <div className="empty"><div className="empty-icon">📋</div><div className="empty-title">No bookings yet</div></div>;
   }
@@ -220,6 +223,12 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                         title="Download Invoice PDF"
                       >🧾 Invoice</button>
                     )}
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      onClick={() => setChatBooking(b)}
+                      data-testid={`chat-${b.id}`}
+                      title="Open chat"
+                    >💬 Chat</button>
                   </div>
                 </td>
               </tr>
@@ -227,6 +236,20 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
           })}
         </tbody>
       </table>
+      {chatBooking && (
+        <div className="modal-bg" onClick={() => setChatBooking(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, padding: 0 }}>
+            <ChatBox
+              bookingId={chatBooking.id}
+              otherName={role === "customer" ? (chatBooking.artist_name || "Artist") : (chatBooking.customer_name || "Customer")}
+              height={520}
+            />
+            <div style={{ padding: 10, textAlign: "right" }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setChatBooking(null)} data-testid="chat-close">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
