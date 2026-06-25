@@ -130,17 +130,49 @@ class ConnectionManager:
         return list({uid for _, uid in self.rooms.get(room, set())})
 
 
+def _is_chat_unlocked(booking: dict) -> bool:
+    """Chat is locked until the customer pays the Platform Service Fee + GST.
+    Unlocks once payment_status leaves the "unpaid" state (token_paid, completed, refunded).
+    """
+    ps = (booking or {}).get("payment_status") or "unpaid"
+    return ps != "unpaid"
+
+
 def make_chat_router(db, get_current_user) -> APIRouter:
     r = APIRouter()
     manager = ConnectionManager()
 
-    async def _check_access(booking_id: str, user_id: str, role: str) -> dict:
+    async def _check_access(booking_id: str, user_id: str, role: str, *, enforce_payment: bool = True) -> dict:
         b = await db.bookings.find_one({"id": booking_id})
         if not b:
             raise HTTPException(404, "Booking not found")
         if role != "admin" and user_id not in (b.get("customer_id"), b.get("artist_id")):
             raise HTTPException(403, "Not a participant on this booking")
+        # Payment gate: customer/artist cannot chat until the platform service fee is paid.
+        # Admin always bypasses (for moderation / dispute support).
+        if enforce_payment and role != "admin" and not _is_chat_unlocked(b):
+            raise HTTPException(
+                403,
+                "Chat Access Denied — Complete Platform Service Fee payment to unlock chat.",
+            )
         return b
+
+    @r.get("/chat/{booking_id}/access")
+    async def chat_access(booking_id: str, user: dict = Depends(get_current_user)):
+        """Lightweight check used by the UI to decide whether to render the live chat
+        or a 'Complete Platform Fee Payment to Unlock Chat' lock card."""
+        b = await db.bookings.find_one({"id": booking_id})
+        if not b:
+            raise HTTPException(404, "Booking not found")
+        if user["role"] != "admin" and user["id"] not in (b.get("customer_id"), b.get("artist_id")):
+            raise HTTPException(403, "Not a participant on this booking")
+        unlocked = _is_chat_unlocked(b) or user["role"] == "admin"
+        return {
+            "enabled": unlocked,
+            "payment_status": b.get("payment_status") or "unpaid",
+            "booking_status": b.get("status"),
+            "reason": None if unlocked else "Chat will be available after successful payment of the Platform Service Fee.",
+        }
 
     @r.get("/chat/{booking_id}/messages")
     async def list_messages(booking_id: str, limit: int = 200, user: dict = Depends(get_current_user)):
@@ -216,6 +248,10 @@ def make_chat_router(db, get_current_user) -> APIRouter:
             return
         if user.get("role") != "admin" and user_id not in (booking.get("customer_id"), booking.get("artist_id")):
             await websocket.close(code=4003)
+            return
+        # Payment gate — chat locked until Platform Service Fee + GST is paid.
+        if user.get("role") != "admin" and not _is_chat_unlocked(booking):
+            await websocket.close(code=4402, reason="payment_required")
             return
 
         await manager.connect(booking_id, websocket, user_id)

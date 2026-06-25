@@ -354,6 +354,12 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             raise HTTPException(404, "Booking not found")
         if user["role"] != "admin" and user["id"] not in (booking.get("customer_id"), booking.get("artist_id")):
             raise HTTPException(403, "Not a participant")
+        # Payment gate — block file / voice / video-request uploads until Platform Service Fee paid.
+        if user["role"] != "admin" and (booking.get("payment_status") or "unpaid") == "unpaid":
+            raise HTTPException(
+                403,
+                "Chat Access Denied — Complete Platform Service Fee payment to unlock chat.",
+            )
 
         media_id = None
         if body.type in ("file", "voice"):

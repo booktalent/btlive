@@ -5,18 +5,39 @@ import { useAuth } from "../lib/auth";/**
  * messages, typing indicators, and read receipts. Falls back to REST polling
  * if the WebSocket fails.
  */
-export default function ChatBox({ bookingId, otherName = "Counterparty", height = 420 }) {
+export default function ChatBox({ bookingId, otherName = "Counterparty", paymentStatus, height = 420 }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(null);
   const [connected, setConnected] = useState(false);
   const [participants, setParticipants] = useState([]);
+  const [access, setAccess] = useState(null); // { enabled, payment_status, reason }
   const wsRef = useRef(null);
   const listRef = useRef(null);
   const typingTimer = useRef(null);
 
-  // Load history
+  // Verify chat access (payment gate). Backend is the source of truth.
+  useEffect(() => {
+    if (!bookingId) return;
+    let cancelled = false;
+    api.get(`/chat/${bookingId}/access`)
+      .then((r) => { if (!cancelled) setAccess(r.data); })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e?.response?.status === 403) {
+          setAccess({ enabled: false, reason: e.response.data?.detail || "Chat locked", payment_status: paymentStatus || "unpaid" });
+        } else {
+          // network error — optimistic fallback to prop
+          setAccess({ enabled: paymentStatus && paymentStatus !== "unpaid", payment_status: paymentStatus || "unpaid" });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [bookingId, paymentStatus]);
+
+  const locked = access && access.enabled === false;
+
+  // Load history (only when chat is unlocked)
   const loadHistory = async () => {
     try {
       const r = await api.get(`/chat/${bookingId}/messages?limit=200`);
@@ -25,11 +46,16 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", height 
       api.post(`/chat/${bookingId}/read`).catch(() => {});
     } catch (_e) { /* ignore */ }
   };
-  useEffect(() => { loadHistory(); /* eslint-disable-next-line */ }, [bookingId]);
+  useEffect(() => {
+    if (!access?.enabled) return;
+    loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId, access?.enabled]);
 
   // WebSocket
   useEffect(() => {
     if (!bookingId || !user) return;
+    if (!access?.enabled) return; // payment gate
     const token = localStorage.getItem("token");
     if (!token) return;
     const base = (api.defaults.baseURL || "").replace(/^http/, "ws");
@@ -70,7 +96,7 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", height 
     return () => {
       try { ws.close(); } catch (_e) { /* */ }
     };
-  }, [bookingId, user]);
+  }, [bookingId, user, access?.enabled]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -179,6 +205,36 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", height 
 
   return (
     <div className="card" data-testid="chat-box" style={{ display: "flex", flexDirection: "column", height }}>
+      {locked ? (
+        <div
+          data-testid="chat-locked"
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 32,
+            textAlign: "center",
+            gap: 14,
+          }}
+          title="Chat will be available after successful payment of the Platform Service Fee."
+        >
+          <div style={{ fontSize: 44, lineHeight: 1 }} aria-hidden>🔒</div>
+          <div className="card-title" style={{ fontSize: 18 }}>
+            Complete Platform Fee Payment to Unlock Chat
+          </div>
+          <div className="text-muted fs-13" style={{ maxWidth: 380 }}>
+            For your safety, the Customer ↔ Artist chat (including file, voice and contact sharing)
+            opens automatically after the <strong>Platform Service Fee (5% + 18% GST)</strong> is paid.
+            You can still view the booking details and accept / reject the request.
+          </div>
+          <span className="pill pill-amber fs-11" data-testid="chat-locked-status">
+            Payment status: {(access?.payment_status || "unpaid").replace("_", " ")}
+          </span>
+        </div>
+      ) : (
+      <>
       <div className="card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div className="card-title">💬 Chat with {otherName}</div>
         <div className="flex gap-8 items-center">
@@ -280,6 +336,8 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", height 
         />
         <button className="btn btn-gold" onClick={send} disabled={!draft.trim() || recording} data-testid="chat-send">Send</button>
       </div>
+      </>
+      )}
     </div>
   );
 }

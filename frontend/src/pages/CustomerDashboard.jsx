@@ -223,12 +223,23 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                         title="Download Invoice PDF"
                       >🧾 Invoice</button>
                     )}
-                    <button
-                      className="btn btn-ghost btn-xs"
-                      onClick={() => setChatBooking(b)}
-                      data-testid={`chat-${b.id}`}
-                      title="Open chat"
-                    >💬 Chat</button>
+                    {(() => {
+                      const chatUnlocked = b.payment_status && b.payment_status !== "unpaid";
+                      return (
+                        <button
+                          className={`btn btn-xs ${chatUnlocked ? "btn-ghost" : "btn-ghost"}`}
+                          onClick={() => setChatBooking(b)}
+                          disabled={!chatUnlocked}
+                          data-testid={`chat-${b.id}`}
+                          title={chatUnlocked
+                            ? "Open chat"
+                            : "Chat will be available after successful payment of the Platform Service Fee."}
+                          style={!chatUnlocked ? { opacity: 0.55, cursor: "not-allowed" } : undefined}
+                        >
+                          {chatUnlocked ? "💬 Chat" : "🔒 Pay to Unlock Chat"}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </td>
               </tr>
@@ -242,6 +253,7 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
             <ChatBox
               bookingId={chatBooking.id}
               otherName={role === "customer" ? (chatBooking.artist_name || "Artist") : (chatBooking.customer_name || "Customer")}
+              paymentStatus={chatBooking.payment_status}
               height={520}
             />
             <div style={{ padding: 10, textAlign: "right" }}>
