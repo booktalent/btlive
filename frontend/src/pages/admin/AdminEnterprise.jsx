@@ -509,3 +509,146 @@ export function AdminReports() {
     </div>
   );
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   Reviews Moderation
+   ───────────────────────────────────────────────────────────────── */
+export function AdminReviewsModeration({ toast }) {
+  const [status, setStatus] = useState("pending");
+  const [list, setList] = useState([]);
+  const load = () => api.get(`/admin/reviews?status=${status}`).then((r) => setList(r.data));
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [status]);
+
+  const decide = async (rid, decision) => {
+    let reason = "";
+    if (decision === "reject") {
+      reason = window.prompt("Reason for rejection (will be sent to customer):", "") || "";
+      if (!reason.trim()) { toast("Reason required", "error"); return; }
+    }
+    try {
+      await api.post(`/admin/reviews/${rid}/moderate`, { decision, reason });
+      toast(`Review ${decision === "approve" ? "approved" : "rejected"}`);
+      load();
+    } catch (e) { toast(e?.response?.data?.detail || "Failed", "error"); }
+  };
+
+  const pendingCount = list.length;
+
+  return (
+    <div className="card" data-testid="admin-reviews-mod">
+      <div className="card-head" style={{ justifyContent: "space-between", display: "flex", alignItems: "center" }}>
+        <div className="card-title">🛡️ Reviews Moderation ({pendingCount})</div>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className="input" style={{ width: 200 }} data-testid="review-status-filter">
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+      <div style={{ padding: 14 }}>
+        {list.length === 0 && <div className="empty"><div className="empty-icon">🛡️</div><div className="empty-title">No reviews to moderate</div></div>}
+        {list.map((r) => (
+          <div key={r.id} className="card card-pad mb-12" style={{ marginBottom: 12 }} data-testid={`review-${r.id}`}>
+            <div className="flex items-center" style={{ justifyContent: "space-between" }}>
+              <div>
+                <div className="fw-700">★ {r.rating} — {r.customer_name}</div>
+                <div className="text-muted fs-12">Artist: {r.artist_stage_name || r.artist_id?.slice(0, 8)} · {r.created_at?.slice(0, 10)} · <span className={`pill pill-${r.moderated === "approved" ? "green" : r.moderated === "rejected" ? "red" : "amber"}`}>{r.moderated}</span></div>
+              </div>
+              {r.moderated === "pending" && (
+                <div className="flex gap-8">
+                  <button className="btn btn-green btn-sm" onClick={() => decide(r.id, "approve")} data-testid={`approve-rv-${r.id}`}>✓ Approve</button>
+                  <button className="btn btn-red btn-sm" onClick={() => decide(r.id, "reject")} data-testid={`reject-rv-${r.id}`}>✕ Reject</button>
+                </div>
+              )}
+            </div>
+            <div className="mt-8 fs-13" style={{ marginTop: 8 }}>{r.text}</div>
+            {(r.photos?.length > 0 || r.videos?.length > 0) && (
+              <div className="grid grid-4 gap-12 mt-12" style={{ marginTop: 12 }}>
+                {(r.photos || []).map((mid) => (
+                  <a key={mid} href={`${api.defaults.baseURL}/media/${mid}`} target="_blank" rel="noreferrer">
+                    <img src={`${api.defaults.baseURL}/media/${mid}/thumb`} alt="" style={{ width: "100%", borderRadius: 8 }} />
+                  </a>
+                ))}
+                {(r.videos || []).map((mid) => (
+                  <video key={mid} src={`${api.defaults.baseURL}/media/${mid}`} controls style={{ width: "100%", borderRadius: 8 }} />
+                ))}
+              </div>
+            )}
+            {r.moderation_reason && <div className="text-muted fs-12 mt-8" style={{ marginTop: 8 }}>Reason: {r.moderation_reason}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Providers — status + test hooks
+   ───────────────────────────────────────────────────────────────── */
+export function AdminProviders({ toast }) {
+  const [status, setStatus] = useState(null);
+  const [test, setTest] = useState({ provider: "sms", to: "", message: "BookTalent test ping" });
+  const [result, setResult] = useState(null);
+
+  const load = () => api.get("/admin/providers/status").then((r) => setStatus(r.data));
+  useEffect(() => { load(); }, []);
+
+  const send = async () => {
+    if (!test.to.trim()) return toast("Recipient required", "error");
+    try {
+      const r = await api.post(`/admin/providers/test/${test.provider}`, { to: test.to, message: test.message });
+      setResult(r.data);
+      toast(r.data.status === "sent" ? "✓ Sent live" : r.data.status === "mocked" ? "Mock (no keys set)" : "Failed");
+    } catch (e) { toast(e?.response?.data?.detail || "Failed", "error"); }
+  };
+
+  const providers = status ? [
+    { key: "email_resend", label: "📧 Email (Resend)", info: "RESEND_API_KEY" },
+    { key: "sms_twilio", label: "📱 SMS (Twilio)", info: "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM" },
+    { key: "whatsapp_gupshup", label: "💬 WhatsApp (Gupshup/Meta)", info: "WHATSAPP_TOKEN, WHATSAPP_FROM" },
+    { key: "push_fcm", label: "🔔 Push (FCM)", info: "FCM_SERVER_KEY" },
+    { key: "razorpay", label: "💳 Payments (Razorpay)", info: "RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET" },
+    { key: "stripe", label: "💳 Payments (Stripe)", info: "STRIPE_SECRET_KEY" },
+  ] : [];
+
+  return (
+    <div className="card" data-testid="admin-providers">
+      <div className="card-head"><div className="card-title">🔌 Provider Integrations</div></div>
+      <div style={{ padding: 14 }}>
+        <p className="text-muted fs-13 mb-12">Each provider auto-activates when its environment variables are present in <code>/app/backend/.env</code>. No code change required.</p>
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Provider</th><th>Status</th><th>Required ENV Keys</th></tr></thead>
+            <tbody>
+              {providers.map((p) => (
+                <tr key={p.key} data-testid={`prov-${p.key}`}>
+                  <td className="fw-700">{p.label}</td>
+                  <td>{status[p.key].live
+                    ? <span className="pill pill-green" data-testid={`prov-${p.key}-status`}>● Live</span>
+                    : <span className="pill pill-amber" data-testid={`prov-${p.key}-status`}>○ Mock (no key)</span>}</td>
+                  <td className="text-muted fs-11">{p.info}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <h4 className="font-serif mt-24 fs-16 fw-700" style={{ marginTop: 24, marginBottom: 8 }}>Send Test Message</h4>
+        <div className="grid grid-3 gap-12" style={{ marginBottom: 12 }}>
+          <select className="input" value={test.provider} onChange={(e) => setTest({ ...test, provider: e.target.value })} data-testid="prov-test-channel">
+            <option value="sms">SMS</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="push">Push</option>
+          </select>
+          <input className="input" placeholder={test.provider === "push" ? "FCM token" : "+91xxxxxxxxxx"} value={test.to} onChange={(e) => setTest({ ...test, to: e.target.value })} data-testid="prov-test-to" />
+          <input className="input" placeholder="Message" value={test.message} onChange={(e) => setTest({ ...test, message: e.target.value })} data-testid="prov-test-msg" />
+        </div>
+        <button className="btn btn-gold" onClick={send} data-testid="prov-test-send">Send Test</button>
+        {result && (
+          <pre className="card card-pad mt-12 fs-12" style={{ marginTop: 12, background: "var(--glass)" }}>{JSON.stringify(result, null, 2)}</pre>
+        )}
+      </div>
+    </div>
+  );
+}
+

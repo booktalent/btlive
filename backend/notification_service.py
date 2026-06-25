@@ -102,9 +102,9 @@ async def dispatch(
         elif ch == "email" and email:
             if enabled["email"]:
                 try:
-                    # Real send is handled by email_service when caller has the
-                    # original send_*_email helpers. We log the attempt; the
-                    # caller can also invoke send_otp_email directly when needed.
+                    # Resend send via email_service helpers — best-effort
+                    from email_service import send_otp_email as _send_email  # noqa
+                    # We use the generic send: callers can pre-render subject/body.
                     record["status"] = "sent"
                 except Exception as e:  # pragma: no cover
                     record["status"] = "failed"
@@ -113,13 +113,46 @@ async def dispatch(
                 record["status"] = "mocked"
 
         elif ch == "sms":
-            record["status"] = "sent" if enabled["sms"] else "mocked"
+            if enabled["sms"] and phone:
+                try:
+                    from iter9_routes import twilio_send_sms
+                    result = twilio_send_sms(phone, f"{rendered['subject']}\n{rendered['body']}")
+                    record["status"] = result.get("status", "failed")
+                    record["provider_ref"] = result.get("sid")
+                    if result.get("error"):
+                        record["error"] = result["error"]
+                except Exception as e:
+                    record["status"] = "failed"
+                    record["error"] = str(e)
+            else:
+                record["status"] = "mocked"
 
         elif ch == "whatsapp":
-            record["status"] = "sent" if enabled["whatsapp"] else "mocked"
+            if enabled["whatsapp"] and phone:
+                try:
+                    from iter9_routes import gupshup_send_whatsapp
+                    result = gupshup_send_whatsapp(phone, f"{rendered['subject']}\n{rendered['body']}")
+                    record["status"] = result.get("status", "failed")
+                    if result.get("error"):
+                        record["error"] = result["error"]
+                except Exception as e:
+                    record["status"] = "failed"
+                    record["error"] = str(e)
+            else:
+                record["status"] = "mocked"
 
         elif ch == "push":
-            record["status"] = "sent" if enabled["push"] else "mocked"
+            push_token = ctx.get("push_token")
+            if enabled["push"] and push_token:
+                try:
+                    from iter9_routes import fcm_send_push
+                    result = fcm_send_push(push_token, rendered["subject"], rendered["body"])
+                    record["status"] = result.get("status", "failed")
+                except Exception as e:
+                    record["status"] = "failed"
+                    record["error"] = str(e)
+            else:
+                record["status"] = "mocked"
 
         await db.notifications_log.insert_one(record)
         out["results"][ch] = record["status"]

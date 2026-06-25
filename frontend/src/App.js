@@ -12,6 +12,7 @@ import BookingFlow from "./pages/BookingFlow";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import ArtistDashboard from "./pages/ArtistDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import { AgencyDashboard, CorporateDashboard } from "./pages/RoleDashboards";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -34,8 +35,10 @@ function App() {
               <Route path="/search" element={<Search />} />
               <Route path="/artist/:id" element={<ArtistProfile />} />
               <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
-              <Route path="/customer" element={<Protected roles={["customer", "agency", "corporate"]}><CustomerDashboard /></Protected>} />
+              <Route path="/customer" element={<Protected roles={["customer"]}><CustomerDashboard /></Protected>} />
               <Route path="/artist" element={<Protected roles={["artist"]}><ArtistDashboard /></Protected>} />
+              <Route path="/agency" element={<Protected roles={["agency"]}><AgencyDashboard /></Protected>} />
+              <Route path="/corporate" element={<Protected roles={["corporate"]}><CorporateDashboard /></Protected>} />
               <Route path="/admin" element={<Protected roles={["admin"]}><AdminDashboard /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

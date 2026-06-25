@@ -44,7 +44,7 @@ export default function Auth({ mode = "signin" }) {
     try {
       const u = await login(form.email, form.password);
       toast(`Welcome back, ${u.first_name}!`);
-      const dest = u.role === "admin" ? "/admin" : u.role === "artist" ? "/artist" : "/customer";
+      const dest = u.role === "admin" ? "/admin" : u.role === "artist" ? "/artist" : u.role === "agency" ? "/agency" : u.role === "corporate" ? "/corporate" : "/customer";
       nav(dest);
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(false);
@@ -65,7 +65,7 @@ export default function Auth({ mode = "signin" }) {
       };
       const u = await register(payload);
       toast(`Welcome to BookTalent, ${u.first_name}!`);
-      const dest = u.role === "artist" ? "/artist" : u.role === "admin" ? "/admin" : "/customer";
+      const dest = u.role === "artist" ? "/artist" : u.role === "admin" ? "/admin" : u.role === "agency" ? "/agency" : u.role === "corporate" ? "/corporate" : "/customer";
       nav(dest);
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(false);

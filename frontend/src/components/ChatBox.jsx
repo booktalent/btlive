@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import api from "../lib/api";
-import { useAuth } from "../lib/auth";
-
-/**
+import { useAuth } from "../lib/auth";/**
  * Live chat box for a booking. Connects to /api/ws/chat/{bookingId} for realtime
  * messages, typing indicators, and read receipts. Falls back to REST polling
  * if the WebSocket fails.
@@ -94,6 +92,83 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", height 
     setDraft("");
   };
 
+  // ── File / voice / video upload ─────────────────────────────────────
+  const fileInputRef = useRef(null);
+  const [recording, setRecording] = useState(false);
+  const mediaRecRef = useRef(null);
+  const recChunksRef = useRef([]);
+  const recStartRef = useRef(0);
+
+  const readDataUrl = (file) => new Promise((res) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.readAsDataURL(file);
+  });
+
+  const uploadFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 15 * 1024 * 1024) { alert("Max 15 MB"); return; }
+    const dataUrl = await readDataUrl(f);
+    try {
+      const r = await api.post(`/chat/${bookingId}/upload`, {
+        booking_id: bookingId, type: "file", data_url: dataUrl, filename: f.name,
+      });
+      setMessages((prev) => [...prev, r.data]);
+    } catch (err) { alert(err?.response?.data?.detail || "Upload failed"); }
+    e.target.value = "";
+  };
+
+  const startVoice = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      recChunksRef.current = [];
+      rec.ondataavailable = (e) => recChunksRef.current.push(e.data);
+      rec.onstop = async () => {
+        const dur = (Date.now() - recStartRef.current) / 1000;
+        const blob = new Blob(recChunksRef.current, { type: rec.mimeType || "audio/webm" });
+        if (blob.size > 5 * 1024 * 1024) { alert("Voice note > 5 MB"); return; }
+        const dataUrl = await new Promise((res) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result);
+          r.readAsDataURL(blob);
+        });
+        try {
+          const r = await api.post(`/chat/${bookingId}/upload`, {
+            booking_id: bookingId, type: "voice", data_url: dataUrl, duration_sec: dur,
+          });
+          setMessages((prev) => [...prev, r.data]);
+        } catch (err) { alert(err?.response?.data?.detail || "Voice upload failed"); }
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      mediaRecRef.current = rec;
+      recStartRef.current = Date.now();
+      rec.start();
+      setRecording(true);
+    } catch (err) {
+      alert("Microphone access denied");
+    }
+  };
+
+  const stopVoice = () => {
+    if (mediaRecRef.current && recording) {
+      mediaRecRef.current.stop();
+      setRecording(false);
+    }
+  };
+
+  const requestVideo = async () => {
+    const note = window.prompt("Add a note for your video-call request (optional):", "Hey, can we hop on a quick video call?");
+    if (note === null) return;
+    try {
+      const r = await api.post(`/chat/${bookingId}/upload`, {
+        booking_id: bookingId, type: "video-request", note,
+      });
+      setMessages((prev) => [...prev, r.data]);
+    } catch (err) { alert(err?.response?.data?.detail || "Failed"); }
+  };
+
   const onTyping = (v) => {
     setDraft(v);
     const ws = wsRef.current;
@@ -140,7 +215,23 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", height 
                   wordBreak: "break-word",
                 }}
               >
-                {m.content}
+                {m.type === "voice" && m.media_id ? (
+                  <div>
+                    <audio src={`${api.defaults.baseURL}/media/${m.media_id}`} controls style={{ maxWidth: 220 }} />
+                    <div className="fs-11" style={{ opacity: .7 }}>🎤 Voice note · {Math.round(m.duration_sec || 0)}s</div>
+                  </div>
+                ) : m.type === "file" && m.media_id ? (
+                  <a href={`${api.defaults.baseURL}/media/${m.media_id}`} target="_blank" rel="noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>
+                    📎 {m.filename || "file"}
+                  </a>
+                ) : m.type === "video-request" ? (
+                  <div style={{ borderLeft: `3px solid ${mine ? "#1a1a1a" : "var(--gold)"}`, paddingLeft: 8 }}>
+                    <div className="fw-700">📹 Video call request</div>
+                    <div className="fs-12">{m.content}</div>
+                  </div>
+                ) : (
+                  m.content
+                )}
               </div>
               <div className="fs-10 text-muted" style={{ marginTop: 2, textAlign: mine ? "right" : "left" }}>
                 {!mine && <span style={{ marginRight: 6 }}>{m.sender_name}</span>}
@@ -157,17 +248,37 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", height 
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: "1px solid var(--glass-border)" }}>
+      <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: "1px solid var(--glass-border)", alignItems: "center" }}>
+        <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={uploadFile} data-testid="chat-file-input" />
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => fileInputRef.current?.click()}
+          title="Attach file"
+          data-testid="chat-attach"
+        >📎</button>
+        <button
+          className={`btn btn-sm ${recording ? "btn-red" : "btn-ghost"}`}
+          onClick={recording ? stopVoice : startVoice}
+          title={recording ? "Stop recording" : "Voice note"}
+          data-testid="chat-voice"
+        >{recording ? "■" : "🎤"}</button>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={requestVideo}
+          title="Request video call"
+          data-testid="chat-video"
+        >📹</button>
         <input
           className="field-input"
-          placeholder="Type a message…"
+          placeholder={recording ? "Recording…" : "Type a message…"}
           value={draft}
           onChange={(e) => onTyping(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          disabled={recording}
           style={{ flex: 1 }}
           data-testid="chat-input"
         />
-        <button className="btn btn-gold" onClick={send} disabled={!draft.trim()} data-testid="chat-send">Send</button>
+        <button className="btn btn-gold" onClick={send} disabled={!draft.trim() || recording} data-testid="chat-send">Send</button>
       </div>
     </div>
   );

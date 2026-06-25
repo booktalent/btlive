@@ -40,10 +40,10 @@ export default function CustomerDashboard() {
     } catch (e) { toast(formatApiError(e), "error"); }
   };
 
-  const submitReview = async (booking_id, rating, text) => {
+  const submitReview = async (booking_id, rating, text, photos = [], videos = []) => {
     try {
-      await api.post("/reviews", { booking_id, rating, text, photos: [] });
-      toast("Review submitted!");
+      const r = await api.post("/reviews", { booking_id, rating, text, photos, videos });
+      toast(r.data.status === "pending" ? "Review submitted — awaiting moderation" : "Review published!");
       setReviewModal(null);
       refresh();
     } catch (e) { toast(formatApiError(e), "error"); }
@@ -257,6 +257,38 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
 function ReviewModal({ booking, onSubmit, onClose }) {
   const [rating, setRating] = useState(5);
   const [text, setText] = useState("");
+  const [photos, setPhotos] = useState([]);
+  const [videos, setVideos] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const readFile = (f) => new Promise((res) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.readAsDataURL(f);
+  });
+
+  const onPhotos = async (e) => {
+    const files = Array.from(e.target.files || []).slice(0, 5);
+    const oversize = files.find((f) => f.size > 5 * 1024 * 1024);
+    if (oversize) { alert("Each photo must be under 5 MB"); return; }
+    const urls = await Promise.all(files.map(readFile));
+    setPhotos(urls);
+  };
+
+  const onVideos = async (e) => {
+    const files = Array.from(e.target.files || []).slice(0, 2);
+    const oversize = files.find((f) => f.size > 30 * 1024 * 1024);
+    if (oversize) { alert("Each video must be under 30 MB"); return; }
+    const urls = await Promise.all(files.map(readFile));
+    setVideos(urls);
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try { await onSubmit(booking.id, rating, text, photos, videos); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="modal-bg" onClick={onClose} data-testid="review-modal">
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -274,10 +306,23 @@ function ReviewModal({ booking, onSubmit, onClose }) {
           <div className="field-label">Your Review</div>
           <textarea className="field-input" value={text} onChange={(e) => setText(e.target.value)} placeholder="Share your experience…" data-testid="review-text" />
         </div>
+        <div className="field">
+          <div className="field-label">Photos (up to 5, max 5 MB each — will be moderated)</div>
+          <input type="file" accept="image/*" multiple onChange={onPhotos} data-testid="review-photos" />
+          {photos.length > 0 && <div className="pill pill-green mt-8">✓ {photos.length} photo(s) attached</div>}
+        </div>
+        <div className="field">
+          <div className="field-label">Videos (up to 2, max 30 MB each — will be moderated)</div>
+          <input type="file" accept="video/*" multiple onChange={onVideos} data-testid="review-videos" />
+          {videos.length > 0 && <div className="pill pill-green mt-8">✓ {videos.length} video(s) attached</div>}
+        </div>
+        {(photos.length > 0 || videos.length > 0) && (
+          <div className="text-muted fs-11 mb-8">Reviews with media go to moderation queue (24-48 h).</div>
+        )}
         <div className="flex gap-12 mt-16">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-gold" style={{ flex: 1 }} onClick={() => onSubmit(booking.id, rating, text)} disabled={!text} data-testid="submit-review">
-            Submit Review
+          <button className="btn btn-gold" style={{ flex: 1 }} onClick={submit} disabled={!text || busy} data-testid="submit-review">
+            {busy ? "Submitting..." : "Submit Review"}
           </button>
         </div>
       </div>

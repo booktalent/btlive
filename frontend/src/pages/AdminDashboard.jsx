@@ -7,6 +7,7 @@ import { useToast } from "../lib/toast";
 import {
   AdminMaster, AdminBoost, AdminTemplates, AdminFAQs,
   AdminCMS, AdminBroadcast, AdminSettings, AdminAudit, AdminReports,
+  AdminReviewsModeration, AdminProviders,
 } from "./admin/AdminEnterprise";
 
 const SIDEBAR = [
@@ -25,6 +26,8 @@ const SIDEBAR = [
   { id: "cms", label: "📄 CMS Pages" },
   { id: "broadcast", label: "📢 Broadcast" },
   { id: "reports", label: "📈 Reports" },
+  { id: "reviews-mod", label: "🛡️ Reviews Moderation" },
+  { id: "providers", label: "🔌 Providers" },
   { id: "settings", label: "⚙️ Settings" },
   { id: "audit", label: "🛡️ Audit Logs" },
 ];
@@ -93,6 +96,8 @@ export default function AdminDashboard() {
           {tab === "cms" && <AdminCMS toast={toast} />}
           {tab === "broadcast" && <AdminBroadcast toast={toast} />}
           {tab === "reports" && <AdminReports />}
+          {tab === "reviews-mod" && <AdminReviewsModeration toast={toast} />}
+          {tab === "providers" && <AdminProviders toast={toast} />}
           {tab === "settings" && <AdminSettings toast={toast} />}
           {tab === "audit" && <AdminAudit />}
         </div>
