@@ -662,7 +662,19 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         cur = db.artist_profiles.find(filt).sort(sort_spec).skip(skip).limit(limit)
         total = await db.artist_profiles.count_documents(filt)
         items = await cur.to_list(limit)
-        return {"items": [clean(d) for d in items], "total": total, "page": page, "limit": limit, "pages": (total + limit - 1) // limit if limit else 1}
+        # Enrich with starting_price + gallery_thumbs for the rotating card
+        out_items = []
+        for p in items:
+            p = clean(p)
+            pkgs = await db.packages.find({"artist_id": p["user_id"]}).to_list(20)
+            p["starting_price"] = min((float(pp.get("price", 0)) for pp in pkgs), default=None)
+            gallery = await db.media.find(
+                {"user_id": p["user_id"], "type": "gallery"},
+                {"data": 0, "thumb": 0},
+            ).sort([("is_featured", -1), ("order", 1)]).limit(8).to_list(8)
+            p["gallery_thumbs"] = [{"id": g["id"], "is_featured": g.get("is_featured", False)} for g in gallery]
+            out_items.append(p)
+        return {"items": out_items, "total": total, "page": page, "limit": limit, "pages": (total + limit - 1) // limit if limit else 1}
 
     @r.get("/search/suggestions")
     async def search_suggestions(q: str = Query(min_length=1)):

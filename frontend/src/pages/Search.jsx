@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import Nav from "../components/Nav";
 import api, { fmtINRFull, pickArtistThumb } from "../lib/api";
+import ArtistCardThumb from "../components/ArtistCardThumb";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 
@@ -267,18 +268,16 @@ export default function Search() {
           <>
             <div className="grid grid-4">
               {items.map((a) => {
-                const thumb = pickArtistThumb(a);
                 return (
                   <Link to={`/artist/${a.user_id}`} key={a.user_id} className="artist-card" data-testid={`artist-card-${a.user_id}`}>
-                    <div className="artist-card-cover" style={
-                      thumb
-                        ? { backgroundImage: `url(${thumb})`, backgroundSize: "cover", backgroundPosition: "center", fontSize: 0 }
-                        : {}
-                    }>
-                      {!thumb && (a.emoji || "🎤")}
+                    <ArtistCardThumb
+                      artist={a}
+                      className="artist-card-cover"
+                      placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>}
+                    >
                       {a.is_featured && <span className="boost-tag">★ FEATURED</span>}
                       {a.premium_badge && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #c084fc, #7c3aed)" }}>💎 PREMIUM</span>}
-                    </div>
+                    </ArtistCardThumb>
                     <div className="artist-card-body">
                       <div className="artist-card-name">
                         {a.stage_name}

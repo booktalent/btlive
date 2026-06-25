@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Nav from "../components/Nav";
 import api, { fmtINRFull, mediaUrl, pickArtistThumb } from "../lib/api";
+import ArtistCardThumb from "../components/ArtistCardThumb";
 
 const CATEGORIES = [
   { slug: "all", name: "All", icon: "✨" },
@@ -118,17 +119,15 @@ export default function Landing() {
           ) : (
             <div className="grid grid-4">
               {featured.map((a) => {
-                const thumb = pickArtistThumb(a);
                 return (
                 <Link to={`/artist/${a.user_id}`} key={a.user_id} className="artist-card" data-testid={`featured-card-${a.user_id}`}>
-                  <div className="artist-card-cover" style={
-                    thumb
-                      ? { backgroundImage: `url(${thumb})`, backgroundSize: "cover", backgroundPosition: "center", fontSize: 0 }
-                      : {}
-                  }>
-                    {!thumb && (a.emoji || "🎤")}
+                  <ArtistCardThumb
+                    artist={a}
+                    className="artist-card-cover"
+                    placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>}
+                  >
                     {a.is_boosted && <span className="boost-tag">★ FEATURED</span>}
-                  </div>
+                  </ArtistCardThumb>
                   <div className="artist-card-body">
                     <div className="artist-card-name">{a.stage_name}</div>
                     <div className="artist-card-meta">{a.category} · 📍 {a.city}</div>
