@@ -215,10 +215,12 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
     async def agency_remove(artist_id: str, user: dict = Depends(get_current_user)):
         if user["role"] != "agency":
             raise HTTPException(403, "Agency only")
-        await db.agency_roster.update_one(
-            {"agency_id": user["id"], "artist_id": artist_id},
+        result = await db.agency_roster.update_one(
+            {"agency_id": user["id"], "artist_id": artist_id, "status": {"$in": ["active", "pending"]}},
             {"$set": {"status": "removed", "removed_at": utcnow()}},
         )
+        if result.matched_count == 0:
+            raise HTTPException(404, "Artist not in your roster")
         return {"ok": True}
 
     @r.get("/agency/bookings")
