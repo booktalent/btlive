@@ -265,7 +265,7 @@ def booking_ctx(customer, artist):
         "artist_id": artist["user"]["id"],
         "package_id": pid,
         "addons": [],
-        "event_date": "2027-12-20",
+        "event_date": f"2031-{(int(time.time())%12)+1:02d}-{(int(time.time())%27)+1:02d}",
         "event_time": "19:00",
         "event_type": "Wedding",
         "venue": "TEST_Venue",
