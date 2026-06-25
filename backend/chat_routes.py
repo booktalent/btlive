@@ -44,11 +44,55 @@ class ChatMessageBody(BaseModel):
 
 
 class ConnectionManager:
-    """In-process room manager. Keyed by booking_id → set of (ws, user_id)."""
+    """In-process room manager. Keyed by booking_id → set of (ws, user_id).
+
+    If REDIS_URL is set, also fans out via Redis pubsub so multiple replicas
+    of the API can share broadcasts. Otherwise stays in-process (single replica).
+    """
     def __init__(self):
         self.rooms: Dict[str, Set[tuple]] = {}
+        self._redis = None
+        self._redis_url = os.environ.get("REDIS_URL", "").strip()
+        self._pubsub_task = None
+        self._channel = "booktalent:chat"
+        # Lazy: only connect when first asked
+        self._redis_init_attempted = False
+
+    async def _ensure_redis(self):
+        if self._redis_init_attempted or not self._redis_url:
+            return
+        self._redis_init_attempted = True
+        try:
+            import redis.asyncio as redis_async  # type: ignore
+            self._redis = await redis_async.from_url(self._redis_url, decode_responses=True)
+            await self._redis.ping()
+            # Subscriber loop
+            import asyncio as _asyncio
+            self._pubsub_task = _asyncio.create_task(self._pubsub_loop())
+            log.info("ChatBox Redis pubsub enabled @ %s", self._redis_url)
+        except Exception as e:
+            log.warning("Redis pubsub not enabled (%s) — in-process only", e)
+            self._redis = None
+
+    async def _pubsub_loop(self):
+        import json as _json
+        pub = self._redis.pubsub()
+        await pub.subscribe(self._channel)
+        async for msg in pub.listen():
+            if msg["type"] != "message":
+                continue
+            try:
+                payload = _json.loads(msg["data"])
+                room = payload.pop("__room", None)
+                origin = payload.pop("__origin", None)
+                if not room or origin == os.getpid():
+                    continue
+                await self._local_broadcast(room, payload)
+            except Exception:
+                continue
 
     async def connect(self, room: str, ws: WebSocket, user_id: str):
+        await self._ensure_redis()
         await ws.accept()
         self.rooms.setdefault(room, set()).add((ws, user_id))
 
@@ -58,7 +102,7 @@ class ConnectionManager:
             if not self.rooms[room]:
                 self.rooms.pop(room, None)
 
-    async def broadcast(self, room: str, payload: dict, exclude_ws: Optional[WebSocket] = None):
+    async def _local_broadcast(self, room: str, payload: dict, exclude_ws: Optional[WebSocket] = None):
         dead = []
         for ws, _uid in list(self.rooms.get(room, [])):
             if ws is exclude_ws:
@@ -69,6 +113,18 @@ class ConnectionManager:
                 dead.append((ws, _uid))
         for ws, uid in dead:
             self.disconnect(room, ws, uid)
+
+    async def broadcast(self, room: str, payload: dict, exclude_ws: Optional[WebSocket] = None):
+        await self._local_broadcast(room, payload, exclude_ws=exclude_ws)
+        # Fan out to other replicas via Redis (if enabled)
+        if self._redis:
+            try:
+                fan_payload = dict(payload)
+                fan_payload["__room"] = room
+                fan_payload["__origin"] = os.getpid()
+                await self._redis.publish(self._channel, json.dumps(fan_payload))
+            except Exception:
+                pass
 
     def participants(self, room: str) -> List[str]:
         return list({uid for _, uid in self.rooms.get(room, set())})

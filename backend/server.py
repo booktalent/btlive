@@ -34,6 +34,7 @@ from email_service import (
 from image_service import compress_image, make_thumbnail
 from iter7_routes import make_router as make_iter7_router
 from iter9_routes import make_router as make_iter9_router
+from iter11_routes import make_iter11_router
 from chat_routes import make_chat_router
 from notification_service import dispatch as notify_dispatch
 
@@ -2829,6 +2830,10 @@ app.include_router(_chat_router, prefix="/api")
 # Iter9 — Agency / Corporate / Chat upload / Provider wiring
 _iter9_router = make_iter9_router(db, get_current_user, admin_only)
 app.include_router(_iter9_router, prefix="/api")
+
+# Iter11 — ICS calendar, CSV exports, AI semantic search
+_iter11_router = make_iter11_router(db, get_current_user, admin_only)
+app.include_router(_iter11_router, prefix="/api")
 
 
 @app.on_event("startup")
