@@ -132,10 +132,21 @@ class ConnectionManager:
 
 def _is_chat_unlocked(booking: dict) -> bool:
     """Chat is locked until the customer pays the Platform Service Fee + GST.
-    Unlocks once payment_status leaves the "unpaid" state (token_paid, completed, refunded).
+
+    Unlocked once `payment_status` leaves "unpaid" (token_paid, completed, refunded)
+    OR the booking has progressed past the initial `pending_payment` status — which
+    handles legacy bookings created before the payment_status field existed.
     """
-    ps = (booking or {}).get("payment_status") or "unpaid"
-    return ps != "unpaid"
+    b = booking or {}
+    ps = b.get("payment_status")
+    status = b.get("status")
+    # New gated path: explicit payment success.
+    if ps and ps != "unpaid":
+        return True
+    # Legacy / status-driven path: any booking past pending_payment is implicitly paid.
+    if status and status != "pending_payment":
+        return True
+    return False
 
 
 def make_chat_router(db, get_current_user) -> APIRouter:

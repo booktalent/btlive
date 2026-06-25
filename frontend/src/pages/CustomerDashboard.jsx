@@ -224,10 +224,16 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                       >🧾 Invoice</button>
                     )}
                     {(() => {
-                      const chatUnlocked = b.payment_status && b.payment_status !== "unpaid";
+                      // Chat is locked ONLY for fresh, unpaid booking requests
+                      // (status === "pending_payment" + payment_status === "unpaid").
+                      // Every booking past that gate (legacy or new) keeps chat open.
+                      const ps = b.payment_status;
+                      const isPendingPayment = b.status === "pending_payment";
+                      const isUnpaid = ps === "unpaid" || ps === undefined && isPendingPayment;
+                      const chatUnlocked = !isPendingPayment && !isUnpaid;
                       return (
                         <button
-                          className={`btn btn-xs ${chatUnlocked ? "btn-ghost" : "btn-ghost"}`}
+                          className="btn btn-ghost btn-xs"
                           onClick={() => setChatBooking(b)}
                           disabled={!chatUnlocked}
                           data-testid={`chat-${b.id}`}
