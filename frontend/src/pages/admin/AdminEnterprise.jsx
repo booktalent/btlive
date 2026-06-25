@@ -481,9 +481,11 @@ export function AdminReports() {
       <div style={{ padding: 14 }}>
         {revenue && (
           <div className="kpi-grid mb-24">
-            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.gmv)}</div><div className="kpi-label">GMV</div></div>
-            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.platform_revenue)}</div><div className="kpi-label">Platform Revenue</div></div>
+            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.gmv)}</div><div className="kpi-label">Marketplace GMV<br/><span className="fs-10 text-muted">(artist fees — informational)</span></div></div>
+            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.platform_revenue)}</div><div className="kpi-label">Platform Service Revenue<br/><span className="fs-10 text-muted">(BookTalent net earnings)</span></div></div>
+            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.gst_collected || 0)}</div><div className="kpi-label">GST Collected</div></div>
             <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.boost_revenue)}</div><div className="kpi-label">Boost Revenue</div></div>
+            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.net_revenue || (revenue.platform_revenue + revenue.boost_revenue))}</div><div className="kpi-label">Net BookTalent Revenue</div></div>
             <div className="kpi"><div className="kpi-num">{revenue.bookings}</div><div className="kpi-label">Bookings</div></div>
           </div>
         )}

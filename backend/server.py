@@ -1052,22 +1052,32 @@ async def my_availability(user: dict = Depends(get_current_user)):
 # BOOKINGS
 # ─────────────────────────────────────────────────────────────────────────────
 def calc_booking_pricing(package_price: float, addon_total: float, coupon_discount: float = 0) -> dict:
-    base = package_price + addon_total
-    base_after_discount = max(0, base - coupon_discount)
-    platform_fee = round(base_after_discount * (PLATFORM_FEE_PCT / 100), 2)
-    gst = round((base_after_discount + platform_fee) * (GST_PCT / 100), 2)
-    total = round(base_after_discount + platform_fee + gst, 2)
-    token = round(total * (TOKEN_PCT / 100), 2)
-    balance = round(total - token, 2)
+    """
+    BookTalent is ONLY an intermediary marketplace. We do NOT collect the artist's
+    performance fee — it is settled directly between Customer and Artist.
+
+    The only amount BookTalent collects from the Customer is:
+        Platform Service Fee (5% of the Artist Fee) + 18% GST on that fee.
+
+    Coupon discounts apply to the artist_fee (reducing what the customer owes
+    the artist, and proportionally the platform_fee + GST).
+    """
+    artist_fee = round(max(0, package_price + addon_total - coupon_discount), 2)
+    platform_fee = round(artist_fee * (PLATFORM_FEE_PCT / 100), 2)   # only thing BookTalent invoices
+    gst = round(platform_fee * (GST_PCT / 100), 2)                   # GST is only on the platform fee
+    total = round(platform_fee + gst, 2)                              # amount payable to BookTalent
+    # Token / balance no longer apply — BookTalent charges 100% upfront on the
+    # platform fee; the artist fee is settled directly.
     return {
         "package_fee": package_price,
         "addons_total": addon_total,
         "coupon_discount": coupon_discount,
-        "platform_fee": platform_fee,
-        "gst": gst,
-        "total": total,
-        "token_amount": token,
-        "balance_due": balance,
+        "artist_fee": artist_fee,         # paid by customer directly to artist
+        "platform_fee": platform_fee,     # the only line BookTalent collects pre-tax
+        "gst": gst,                       # 18% on platform_fee
+        "total": total,                   # platform_fee + gst (BookTalent invoice total)
+        "token_amount": total,            # legacy field — token-equivalent now equals full BookTalent amount
+        "balance_due": 0,
     }
 
 
@@ -1357,22 +1367,26 @@ EVENT DETAILS:
   Package    : {booking.get('package_name')}
 
 FINANCIAL TERMS:
-  Package Fee     : ₹{booking['pricing']['package_fee']:.2f}
-  Add-ons         : ₹{booking['pricing']['addons_total']:.2f}
-  Platform Fee    : ₹{booking['pricing']['platform_fee']:.2f}
-  GST (18%)       : ₹{booking['pricing']['gst']:.2f}
-  Total           : ₹{booking['pricing']['total']:.2f}
-  Token Paid      : ₹{booking['pricing']['token_amount']:.2f}
-  Balance Due     : ₹{booking['pricing']['balance_due']:.2f}
+  Artist Performance Fee (paid by Client directly to Artist) : ₹{booking['pricing'].get('artist_fee', booking['pricing'].get('package_fee', 0) + booking['pricing'].get('addons_total', 0)):.2f}
+
+  Platform Service Fee (5% — payable to BookTalent)          : ₹{booking['pricing']['platform_fee']:.2f}
+  GST (18% on Platform Fee)                                  : ₹{booking['pricing']['gst']:.2f}
+  AMOUNT PAYABLE TO BOOKTALENT                                : ₹{booking['pricing']['total']:.2f}
 
 STANDARD TERMS:
-  1. The Artist agrees to perform as described above on the agreed date.
-  2. The Client agrees to provide stage, sound, hospitality as per package rider.
-  3. Cancellation by Client 15+ days prior: full refund of advance.
-  4. Cancellation by Client 7-14 days prior: 50% refund of advance.
-  5. Cancellation by Client <7 days: token amount is non-refundable.
-  6. Cancellation by Artist: 100% refund + priority rebooking guaranteed.
-  7. This contract is auto-generated and governed by BookTalent's Standard Agreement.
+  1. BookTalent acts only as a technology platform facilitating the connection
+     between the Customer and the Artist. The Artist Performance Fee shall be
+     paid directly by the Customer to the Artist as mutually agreed.
+     BookTalent shall NOT be responsible for the settlement of the
+     Artist Performance Fee.
+  2. The Artist agrees to perform as described above on the agreed date.
+  3. The Client agrees to provide stage, sound, hospitality as per package rider.
+  4. Cancellation by Client 15+ days prior: full refund of the Platform Service Fee.
+  5. Cancellation by Client within 7 days: Platform Service Fee is non-refundable.
+  6. Cancellation by Artist: 100% refund of Platform Service Fee + priority rebooking.
+  7. Refund of any Artist Performance Fee already paid directly is governed by
+     the mutual agreement between Customer and Artist.
+  8. This contract is auto-generated and governed by BookTalent's Standard Agreement.
 
 Digital signatures recorded electronically upon booking confirmation.
 """
@@ -1400,14 +1414,23 @@ async def _refund_to_wallet(user_id: str, amount: float, note: str):
 
 
 async def _release_payment_to_artist(booking: dict):
-    artist_share = booking["pricing"]["package_fee"] + booking["pricing"]["addons_total"] - booking["pricing"]["coupon_discount"]
-    # 18% commission cut already implicit via platform_fee
+    """
+    BookTalent does NOT collect the artist performance fee — that is paid
+    directly Customer ↔ Artist. This helper still records the equivalent
+    amount in the artist's wallet for activity/earnings tracking ONLY.
+    No real money moves through this path under the current business model.
+    """
+    artist_share = booking["pricing"].get("artist_fee",
+                                          booking["pricing"].get("package_fee", 0)
+                                          + booking["pricing"].get("addons_total", 0)
+                                          - booking["pricing"].get("coupon_discount", 0))
     await db.wallets.update_one({"user_id": booking["artist_id"]}, {
-        "$inc": {"balance": artist_share, "total_earned": artist_share, "pending": -artist_share},
+        "$inc": {"total_earned": artist_share},
     })
     await db.transactions.insert_one({
-        "id": new_id(), "user_id": booking["artist_id"], "type": "earning", "amount": artist_share,
-        "status": "completed", "description": f"Earning from booking {booking['ref']}",
+        "id": new_id(), "user_id": booking["artist_id"], "type": "direct_settlement",
+        "amount": artist_share, "status": "informational",
+        "description": f"Direct settlement from customer for booking {booking['ref']} (not processed by BookTalent)",
         "booking_id": booking["id"], "created_at": utcnow(),
     })
     # bump artist stats
@@ -2016,12 +2039,16 @@ async def kyc_mine(user: dict = Depends(get_current_user)):
 # ─────────────────────────────────────────────────────────────────────────────
 @api.get("/admin/stats")
 async def admin_stats(_: dict = Depends(admin_only)):
-    total_gmv = 0
+    # GMV = artist_fee marketplace volume (informational — money flowing through platform)
+    # Platform Revenue = what BookTalent actually collects (platform_fee + gst)
+    total_gmv = 0.0          # marketplace volume (artist fees only — not BT revenue)
+    platform_rev = 0.0       # what BT invoiced (platform_fee only — net of GST)
+    gst_collected = 0.0
     async for b in db.bookings.find({"status": {"$in": ["confirmed", "completed", "reviewed", "started", "completed_by_artist"]}}):
-        total_gmv += float(b.get("pricing", {}).get("total", 0))
-    platform_rev = 0
-    async for b in db.bookings.find({"status": {"$in": ["confirmed", "completed", "reviewed", "started", "completed_by_artist"]}}):
-        platform_rev += float(b.get("pricing", {}).get("platform_fee", 0))
+        p = b.get("pricing", {}) or {}
+        total_gmv += float(p.get("artist_fee", p.get("package_fee", 0) + p.get("addons_total", 0)))
+        platform_rev += float(p.get("platform_fee", 0))
+        gst_collected += float(p.get("gst", 0))
 
     total_bookings = await db.bookings.count_documents({})
     pending_bookings = await db.bookings.count_documents({"status": {"$in": ["pending_artist", "pending_payment"]}})
@@ -2044,8 +2071,10 @@ async def admin_stats(_: dict = Depends(admin_only)):
         escrow += float(w.get("pending", 0))
 
     return {
-        "gmv": total_gmv,
-        "platform_revenue": platform_rev,
+        "gmv": total_gmv,                       # marketplace artist-fee volume (informational)
+        "platform_revenue": platform_rev,       # BookTalent net platform fee earnings
+        "gst_collected": round(gst_collected, 2),
+        "bookTalent_total_collected": round(platform_rev + gst_collected, 2),
         "total_bookings": total_bookings,
         "pending_bookings": pending_bookings,
         "bookings_today": bookings_today,

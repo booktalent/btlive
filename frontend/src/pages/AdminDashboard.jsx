@@ -68,10 +68,10 @@ export default function AdminDashboard() {
           </div>
 
           <div className="kpi-grid">
-            <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(stats.gmv || 0)} label="Total GMV" />
+            <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(stats.gmv || 0)} label="Marketplace GMV (artist fees)" />
             <Kpi icon="📋" cls="kpi-icon-purple" num={stats.total_bookings || 0} label="Bookings" />
             <Kpi icon="👥" cls="kpi-icon-green" num={stats.total_users || 0} label="Users" />
-            <Kpi icon="🏦" cls="kpi-icon-blue" num={fmtINRFull(stats.platform_revenue || 0)} label="Platform Revenue" />
+            <Kpi icon="🏦" cls="kpi-icon-blue" num={fmtINRFull(stats.platform_revenue || 0)} label="Platform Service Revenue" />
           </div>
 
           <div className="kpi-grid mb-24">

@@ -77,11 +77,16 @@ export default function BookingFlow() {
   const pkg = packages.find((p) => p.id === form.package_id);
   const addonsTotal = form.addons.reduce((s, a) => s + (ADDONS.find(x => x.id === a)?.price || 0), 0);
   const pkgPrice = pkg?.price || 0;
-  const subtotal = pkgPrice + addonsTotal;
-  const platformFee = Math.round(subtotal * 0.05);
-  const gst = Math.round((subtotal + platformFee) * 0.18);
-  const total = subtotal + platformFee + gst;
-  const token = Math.round(total * 0.05);
+  // ── BookTalent business model ─────────────────────────────────────
+  // We only collect Platform Service Fee (5% of Artist Fee) + 18% GST on it.
+  // The Artist Performance Fee is settled directly between Customer and Artist.
+  const artistFee = pkgPrice + addonsTotal;            // paid directly to artist
+  const platformFee = Math.round(artistFee * 0.05);    // BookTalent service charge
+  const gst = Math.round(platformFee * 0.18);          // 18% on platform fee only
+  const total = platformFee + gst;                      // amount payable to BookTalent
+  const token = total;                                  // legacy var — full BT amount
+  // Keep `subtotal` defined to avoid breakage in legacy display blocks
+  const subtotal = artistFee;
 
   const submitBooking = async () => {
     setBusy(true);
@@ -416,7 +421,11 @@ export default function BookingFlow() {
                   <div className="flex justify-between mb-8"><span className="text-muted">Package</span><span>{pkg?.name}</span></div>
                   <div className="flex justify-between mb-8"><span className="text-muted">Date</span><span>{form.event_date} · {form.event_time}</span></div>
                   <div className="flex justify-between mb-8"><span className="text-muted">Venue</span><span>{form.venue}</span></div>
-                  <div className="flex justify-between"><span className="text-muted">Token Paid</span><span className="text-green">{fmtINRFull(token)}</span></div>
+                  <div className="flex justify-between mb-8"><span className="text-muted">Artist Performance Fee</span><span>{fmtINRFull(artistFee)}</span></div>
+                  <div className="flex justify-between"><span className="text-muted">Paid to BookTalent</span><span className="text-green">{fmtINRFull(total)}</span></div>
+                  <div className="text-muted fs-11 mt-12" style={{ marginTop: 12, lineHeight: 1.4 }}>
+                    ℹ️ The Artist Performance Fee of <b>{fmtINRFull(artistFee)}</b> will be settled directly with the artist as per your signed agreement.
+                  </div>
                 </div>
                 <div className="flex gap-12 justify-center" style={{ flexWrap: "wrap" }}>
                   <button className="btn btn-gold" onClick={() => nav("/customer")} data-testid="success-go-dashboard">📊 Go to Dashboard</button>
@@ -452,19 +461,24 @@ export default function BookingFlow() {
                   </div>
                 </div>
                 <div className="divider" style={{ margin: "12px 0" }} />
-                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Package fee</span><span>{fmtINRFull(pkgPrice)}</span></div>
-                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Add-ons</span><span>{fmtINRFull(addonsTotal)}</span></div>
-                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Fee (5%)</span><span>{fmtINRFull(platformFee)}</span></div>
-                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">GST (18%)</span><span>{fmtINRFull(gst)}</span></div>
+                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Artist Performance Fee</span><span>{fmtINRFull(artistFee)}</span></div>
+                {addonsTotal > 0 && (
+                  <div className="flex justify-between mb-8 fs-11" style={{ marginLeft: 12 }}><span className="text-muted">  Package {fmtINRFull(pkgPrice)} + add-ons {fmtINRFull(addonsTotal)}</span></div>
+                )}
+                <div className="divider" style={{ margin: "8px 0" }} />
+                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee (5%)</span><span>{fmtINRFull(platformFee)}</span></div>
+                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">GST (18% on Platform Fee)</span><span>{fmtINRFull(gst)}</span></div>
                 <div className="divider" style={{ margin: "12px 0" }} />
                 <div className="flex justify-between mb-12">
-                  <span className="fw-700">Total</span>
-                  <span className="fw-700 text-gold font-serif fs-18">{fmtINRFull(total)}</span>
+                  <span className="fw-700">Amount Payable to BookTalent</span>
+                  <span className="fw-700 text-gold font-serif fs-18" data-testid="bt-amount">{fmtINRFull(total)}</span>
                 </div>
                 <div style={{ background: "var(--gold-dim)", padding: 14, borderRadius: 10 }}>
-                  <div className="text-muted fs-11 mb-4">🔐 Pay Now (5% Token)</div>
-                  <div className="font-serif fs-20 fw-700 text-gold" data-testid="token-amount">{fmtINRFull(token)}</div>
-                  <div className="text-muted fs-11 mt-4">Balance {fmtINRFull(total - token)} due before event</div>
+                  <div className="text-muted fs-11 mb-4">🔐 Pay Now to BookTalent</div>
+                  <div className="font-serif fs-20 fw-700 text-gold" data-testid="token-amount">{fmtINRFull(total)}</div>
+                  <div className="text-muted fs-11 mt-8" style={{ marginTop: 8, lineHeight: 1.4 }}>
+                    ℹ️ Remaining Artist Performance Fee of <b>{fmtINRFull(artistFee)}</b> will be settled directly between the Customer and the Artist as per the signed agreement.
+                  </div>
                 </div>
               </div>
             </div>

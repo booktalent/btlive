@@ -733,30 +733,37 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
     @r.get("/admin/reports/revenue")
     async def revenue_report(days: int = 30, _: dict = Depends(admin_only)):
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        total_gmv = 0.0
-        platform_rev = 0.0
+        total_gmv = 0.0        # Marketplace volume (artist fees flowing through bookings)
+        platform_rev = 0.0     # Net BookTalent revenue (platform_fee only)
+        gst_collected = 0.0    # 18% GST on platform_fee
         booking_count = 0
         async for b in db.bookings.find({"created_at": {"$gte": cutoff}, "status": {"$in": ["confirmed", "completed", "reviewed"]}}):
-            total_gmv += float(b.get("pricing", {}).get("total", 0))
-            platform_rev += float(b.get("pricing", {}).get("platform_fee", 0))
+            p = b.get("pricing", {}) or {}
+            total_gmv += float(p.get("artist_fee", p.get("package_fee", 0) + p.get("addons_total", 0)))
+            platform_rev += float(p.get("platform_fee", 0))
+            gst_collected += float(p.get("gst", 0))
             booking_count += 1
         boost_rev = 0.0
         async for s in db.boost_subscriptions.find({"created_at": {"$gte": cutoff}, "status": {"$ne": "manual"}}):
             boost_rev += float(s.get("total", 0))
         return {
             "period_days": days,
-            "gmv": total_gmv,
-            "platform_revenue": platform_rev,
-            "boost_revenue": boost_rev,
-            "total_revenue": platform_rev + boost_rev,
+            "gmv": round(total_gmv, 2),                              # informational — NOT BookTalent revenue
+            "platform_revenue": round(platform_rev, 2),              # net platform fees earned
+            "gst_collected": round(gst_collected, 2),                # GST collected on behalf of govt
+            "boost_revenue": round(boost_rev, 2),
+            "net_revenue": round(platform_rev + boost_rev, 2),        # BookTalent's actual revenue ex-GST
+            "total_collected": round(platform_rev + gst_collected + boost_rev, 2),
             "bookings": booking_count,
         }
 
     @r.get("/admin/reports/top-artists")
     async def top_artists(limit: int = 10, _: dict = Depends(admin_only)):
+        # Rank by artist_fee (marketplace volume each artist drives) — this is what
+        # actually flows through them, even though BookTalent only collects the platform fee.
         pipe = [
             {"$match": {"status": {"$in": ["confirmed", "completed", "reviewed"]}}},
-            {"$group": {"_id": "$artist_id", "bookings": {"$sum": 1}, "revenue": {"$sum": "$pricing.total"}}},
+            {"$group": {"_id": "$artist_id", "bookings": {"$sum": 1}, "revenue": {"$sum": "$pricing.artist_fee"}}},
             {"$sort": {"revenue": -1}},
             {"$limit": limit},
         ]
