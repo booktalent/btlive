@@ -258,7 +258,7 @@ function AdminCoupons({ toast }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ code: "", description: "", discount_type: "percent", discount_value: 10, max_uses: 100, expires_at: "2026-12-31", min_order: 0, applies_to: "all", active: true });
   const reload = () => api.get("/admin/coupons").then(r => setList(r.data));
-  useEffect(reload, []);
+  useEffect(() => { reload(); }, []);
   const create = async () => {
     try { await api.post("/admin/coupons", form); toast("Created"); setShowAdd(false); reload(); }
     catch (e) { toast(formatApiError(e), "error"); }

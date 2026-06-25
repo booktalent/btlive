@@ -1,118 +1,96 @@
 # BookTalent — Product Requirements Document
 
 ## Original Problem Statement
-Build a production-ready BookTalent talent marketplace (Indian artist booking) with the premium dark luxury theme. Must include real backend workflows — auth (email verification), artist profiles + rich media, packages, full booking workflow, Razorpay payments, wallet, reviews, PDF contracts/invoices, KYC, admin panel.
-
-## Architecture
-- **Backend**: FastAPI + MongoDB + JWT (`bcrypt`, `pyjwt`), Razorpay SDK (`razorpay==1.4.2`), Resend email (`resend==2.32.2`), PDF generation (`reportlab==4.2.0`)
-- **Frontend**: React 19 + react-router-dom v7
-- **Styling**: Custom dark-luxury CSS (gold + purple, Cormorant Garamond + Inter)
-- **Media storage**: base64 in MongoDB (capped at 12 MB binary due to BSON 16 MB doc limit)
-- **Payments**: Razorpay live integration with safe mock fallback
-- **Email verification**: Resend with safe mock fallback
+Transform the static UI mock into a fully functional, production-ready full-stack marketplace
+(React + FastAPI + MongoDB) for booking artists across India. Every placeholder feature,
+dummy button, and static page must be wired to real database operations and business logic.
+Treat as a premium enterprise SaaS, not a demo.
 
 ## User Personas
-1. Customer / Event Planner
-2. Artist (Instagram-creator-meets-Fiverr-seller-meets-Airbnb-host experience)
-3. Agency / Corporate
-4. Admin (full marketplace ops)
+- **Customer** — books artists for events (weddings, corporate, private parties).
+- **Artist** — creates a profile, takes bookings, gets paid, can buy promotion packages.
+- **Agency** — manages a roster of artists.
+- **Corporate** — books at scale.
+- **Admin** — operates the full marketplace ERP.
 
-## Implementation log
+## Architecture
+- Backend: FastAPI + Motor (MongoDB) + JWT
+- Frontend: React 18 + React Router + custom dark-luxury theme
+- File storage: MongoDB binary with Pillow compression + thumbnail
+- PDF: ReportLab
+- Email: Resend (mock fallback)
+- Payments: Razorpay + Stripe + PayPal (mock fallback)
+- New routers: `iter7_routes.py` (enterprise ERP) wired via `app.include_router`
 
-### Iteration 1 — MVP
-- Auth, artist discovery + filters, profile, 5-step booking, customer/artist/admin dashboards
-- Wallet, reviews, KYC, coupons, boost, disputes, notifications, messaging
-- 6 seeded demo artists. 28/28 backend tests.
+## Modules — Status
 
-### Iteration 2 — Razorpay + PDFs
-- Razorpay integration (`/init`, `/verify` signature, `/webhook` HMAC, `/refund`)
-- ReportLab PDF generation (contracts + GST invoices)
-- Frontend Razorpay checkout with mock fallback. 35/35 backend tests.
+### Done
+- Auth: email OTP signup, JWT, role-based (customer/artist/agency/admin) ✓
+- Onboarding Wizard (5-step) ✓
+- Artist Profile + packages + media manager (Pillow compression, replace/reorder/set-featured) ✓
+- Dynamic gallery thumbnails on landing/search cards ✓
+- Booking flow (5-step) + auto-block dates + counter-offers + alternative artists ✓
+- Contract PDF + signed upload + status flips ✓
+- Razorpay payments (mock fallback) ✓
+- Reviews & ratings ✓
+- Wallet (top-up, withdrawals, escrow) ✓
+- Customer / Artist / Admin dashboards ✓
 
-### Iteration 3 — Email Verification
-- Resend email-OTP signup (`/auth/email/send`, `/verify`)
-- 4-step signup UI: Role → Details → Verify Email → Finish
-- Premium dark-luxury HTML email template
-- Local storage kept (no Cloudinary). 43/43 backend tests.
+### Iteration 7 — Enterprise (Feb 2026)
+- **Master Data CRUD** — Categories, Cities, Event Types, Languages (admin editable + public catalogs) ✓
+- **FAQs** — admin CRUD + public `/api/faqs` ✓
+- **CMS Pages** — about, terms, privacy (admin CRUD + public `/api/cms/{slug}`) ✓
+- **System Settings** — key-value (platform_fee_pct, gst_pct, support email/phone) ✓
+- **Notification Templates** — email/sms/whatsapp/push/in_app with `{var}` interpolation, admin CRUD ✓
+- **Smart Notification Engine** — `notification_service.dispatch()` writes to db.notifications + db.notifications_log; multi-channel with mock fallback when keys absent ✓
+- **Booking auto-notify** — customer + artist + admins all get in-app + email on confirmation ✓
+- **Broadcast** — admin can blast a notification to any audience (artist/customer/all) on multiple channels ✓
+- **Audit Logs** — every admin write is logged with actor/target/payload ✓
+- **Boost / Promotion System** — admin-managed packages (9 types × 5 durations), artist purchase via Razorpay/Stripe/PayPal/mock, auto-expiry on `/boost/mine`, auto-revert boost_rank/flags ✓
+- **Admin Boost Manager** — packages CRUD, active subscribers, cancel, manual-assign ✓
+- **Advanced Search** — filters (category, city, budget, language, gender, rating, experience, event type, featured/verified/premium/instant), sort (relevance/price/rating/newest), pagination, boost_rank ranking ✓
+- **Search UX** — type-ahead suggestions, popular queries (last 30d), saved searches, history ✓
+- **Reports** — Revenue (GMV/platform/boost), Top Artists by revenue ✓
 
-### Iteration 4 — Enterprise Artist Module
-- **Artist Onboarding Wizard** — 5-step modal that auto-shows for new artists (`/onboarding/me` + `/onboarding/complete` endpoints)
-- **Booking confirmation email** auto-sent on artist accept (uses Resend; mock-logs when no key)
-- **Auto-block date** when booking is confirmed — `db.availability` upserted to `status='booked'` with the booking_id
-- **Smart alternative artists** — when customer tries to book a blocked date, API returns 400 with 3 alternative artists (same category+city → category-only → city-only fallback) + frontend modal
-- **Counter-offer flow** — artist counters with new price, customer can accept (locks in price) or reject (reverts), both with notifications
-- **Upload signed contract** — `/contracts/upload-signed` for artist/customer; contract flips to `fully_signed` when both upload
-- **Expanded media types** — `audio, document, press_kit, brand_deck, clip` accepted; 12 MB binary cap (BSON limit)
-- **Rich profile fields** — `awards, certifications, faqs, youtube_url, instagram_url, spotify_url, onboarding_step`
-- **Premium HTML emails** — booking confirmation email + OTP email both branded
-- **Backend: 64/64 pytest passing** · Frontend E2E (customer booking + artist counter modal) verified via Playwright
+### Backlog (P1/P2)
+- **P1** — KYC approval workflow polish (UI exists; backend stub)
+- **P1** — Coupon usage tracking + redemption ledger
+- **P1** — Live chat (WebSocket) between customer & artist
+- **P2** — Photo/video reviews + moderation
+- **P2** — S3/Cloudinary migration for media (currently MongoDB binary)
+- **P2** — Push notifications via FCM (channel scaffolded, no key)
+- **P2** — Real WhatsApp/SMS via Twilio / Gupshup (channel scaffolded, no key)
+- **P2** — Agency dashboard + roster management
+- **P2** — Corporate dashboard + bulk booking
 
-### Iteration 5 — Profile Picture / Cover Banner Upload Fix (current)
-**Root-cause of reported bug**: backend was correctly saving uploaded `profile_image` and `cover_image` IDs, but the **frontend never actually rendered them** — `ArtistProfile.jsx` only displayed the emoji placeholder. The "second-attempt success" was an illusion: every upload worked, the UI just refused to show it.
-- Public artist profile (`/artist/:id`) now renders the uploaded cover banner + circular profile picture
-- Landing + Search artist cards now use cover/profile image when available
-- ProfileEditor in artist dashboard got dedicated **Profile Picture** + **Cover Banner** widgets with click-to-upload, drag-and-drop, **upload-progress percentage**, instant UI refresh (no page reload), success toast
-- File input is **reset after upload** (`inputRef.current.value = ""`) so re-uploading the same file works on the first click
-- Backend automatically **deletes the previous orphan** when uploading a new profile/cover and updates `artist_profiles.updated_at` so frontend cache-busting URLs (`?v=updated_at`) work correctly
-- Drag-and-drop support added in Media Manager (`onDrop` / `onDragOver`)
-- Media Manager now accepts audio + PDFs and renders icons for them
-- Validated end-to-end via Playwright: priya logs in → Profile tab → uploads profile pic + cover → both render instantly with cache-busted URLs
+### Tech Debt
+- `server.py` is 2400+ lines → split into `/app/backend/routes/{auth,booking,media,...}.py`
+- React admin components could move to per-feature folders
 
+## Key Endpoints (Iter7 additions)
+| Endpoint | Method | Notes |
+| --- | --- | --- |
+| `/api/catalog/{entity}` | GET | public — categories/cities/event-types/languages |
+| `/api/admin/master/{entity}` | GET/POST/PUT/DELETE | admin CRUD |
+| `/api/faqs`, `/api/admin/faqs` | public read / admin CRUD | |
+| `/api/cms/{slug}`, `/api/admin/cms` | public read / admin CRUD | |
+| `/api/admin/settings`, `/api/admin/settings/{key}` | admin | system settings |
+| `/api/admin/templates` | admin CRUD | notification templates |
+| `/api/admin/notifications/broadcast` | POST | multi-channel blast |
+| `/api/admin/notifications/log` | GET | audit channel attempts |
+| `/api/admin/audit-logs` | GET | all admin write history |
+| `/api/boost/packages`, `/api/boost/purchase`, `/api/boost/mine` | artist | |
+| `/api/admin/boost/packages`, `/admin/boost/subscriptions`, `/admin/boost/{id}/cancel`, `/admin/boost/manual-assign` | admin | |
+| `/api/search/artists` | GET | full-filter, paginated, boost-ranked |
+| `/api/search/suggestions`, `/search/popular`, `/search/saved`, `/search/history` | mixed | |
+| `/api/admin/reports/revenue`, `/api/admin/reports/top-artists` | admin | |
 
-- **Artist Onboarding Wizard** — 5-step modal that auto-shows for new artists (`/onboarding/me` + `/onboarding/complete` endpoints)
-- **Booking confirmation email** auto-sent on artist accept (uses Resend; mock-logs when no key)
-- **Auto-block date** when booking is confirmed — `db.availability` upserted to `status='booked'` with the booking_id
-- **Smart alternative artists** — when customer tries to book a blocked date, API returns 400 with 3 alternative artists (same category+city → category-only → city-only fallback) + frontend modal
-- **Counter-offer flow** — artist counters with new price, customer can accept (locks in price) or reject (reverts), both with notifications
-- **Upload signed contract** — `/contracts/upload-signed` for artist/customer; contract flips to `fully_signed` when both upload
-- **Expanded media types** — `audio, document, press_kit, brand_deck, clip` accepted; 12 MB binary cap (BSON limit)
-- **Rich profile fields** — `awards, certifications, faqs, youtube_url, instagram_url, spotify_url, onboarding_step`
-- **Premium HTML emails** — booking confirmation email + OTP email both branded
-- **Backend: 64/64 pytest passing** · Frontend E2E (customer booking + artist counter modal) verified via Playwright
+## Storage
+Media remains in MongoDB binary with Pillow compression (12 MB cap, 400×400 thumbs).
+S3/Cloudinary migration deferred to backlog.
 
-## Switching to live integrations (no code change)
-Add to `/app/backend/.env`, then `sudo supervisorctl restart backend`:
-```env
-RESEND_API_KEY=re_xxxxxxxxxxxx
-SENDER_EMAIL="BookTalent <noreply@yourdomain.com>"
-
-RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxx
-RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxx
-RAZORPAY_WEBHOOK_SECRET=xxxxxxxxxxxxxx
-```
-
-## Currently MOCKED (highlighted)
-- **Email** — `RESEND_API_KEY` empty → OTP returned in API + shown in UI hint
-- **Razorpay** — `RAZORPAY_KEY_ID` empty → mock OTP `123456` accepted to confirm bookings
-- **Booking confirmation email** — logs to console in mock mode
-
-## Decisions per user
-- ✅ Email verification (not SMS)
-- ✅ Local storage in MongoDB (base64) — no Cloudinary/S3
-- ✅ Razorpay keys dummy/empty — integration wired and ready
-
-## Backlog
-### P1
-- Real-time chat via WebSocket (currently REST polling)
-- Digital-signature pad on contracts (vs. file upload)
-- AI semantic search over artist bios
-- Agency dashboard (multi-artist management)
-- Booking analytics charts (recharts)
-- Counter-decision UI on customer side (backend ready; needs button in customer dashboard)
-- Wizard auto-show: persist a "skip until X" flag in localStorage
-- Hash OTPs at rest + throttle wrong-attempt attempts
-
-### P2
-- Email notifications for additional events (review, withdrawal, KYC)
-- Referral program
-- 2FA
-- i18n (Hindi + English)
-- Move base64 → GridFS for >12MB media support (or Cloudinary)
-- Split server.py (~2300 lines) into routers/
-
-## Test Credentials — see /app/memory/test_credentials.md
-- Admin: `admin@booktalent.com / Admin@123`
-- Customer: `customer@booktalent.com / Customer@123`
-- Artist: `priya@booktalent.com / Artist@123`
-- Mock email OTP: `123456`
-- Mock payment OTP: `123456`
+## Iter7 Test Results
+- Backend: 104/105 pytest pass (30 new iter7 tests + 74 regression).
+- Frontend: AdminDashboard Coupons crash fixed (`useEffect(reload, [])` → `useEffect(() => { reload(); }, [])`).
+  All 17 sidebar tabs render. Search page renders with 14 cards + advanced filters.
+- See `/app/test_reports/iteration_5.json` (audit) and `/app/test_reports/iteration_6.json` (iter7).

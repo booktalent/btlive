@@ -349,7 +349,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             ctx={"title": body.title, "body": body.body},
         )
         await audit(user, "notification.broadcast", "broadcast", None, body.dict())
-        return result
+        return {"ok": True, **result}
 
     @r.get("/admin/notifications/log")
     async def admin_notification_log(limit: int = 200, event: Optional[str] = None, _: dict = Depends(admin_only)):
@@ -470,6 +470,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         subs = await db.boost_subscriptions.find({"artist_id": user["id"]}).sort("created_at", -1).to_list(200)
         # Auto-expire
         now = datetime.now(timezone.utc)
+        any_expired = False
         for s in subs:
             try:
                 exp = datetime.fromisoformat(s["expires_at"])
@@ -478,8 +479,23 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
                 if s["status"] == "active" and exp < now:
                     await db.boost_subscriptions.update_one({"id": s["id"]}, {"$set": {"status": "expired"}})
                     s["status"] = "expired"
+                    any_expired = True
             except Exception:
                 pass
+        # If we expired some, recompute the artist's profile flags & boost_rank
+        if any_expired:
+            active = [s for s in subs if s["status"] == "active"]
+            rank_map = {"search_priority": 100, "category_top": 90, "homepage_banner": 80, "featured_artist": 70, "trending": 60, "recommended": 50, "city_featured": 40, "premium_badge": 20, "verified_badge": 10}
+            new_rank = max((rank_map.get(s["type"], 0) for s in active), default=0)
+            updates = {
+                "boost_rank": new_rank,
+                "is_featured": any(s["type"] in ("featured_artist", "city_featured", "homepage_banner") for s in active),
+                "is_trending": any(s["type"] == "trending" for s in active),
+                "is_recommended": any(s["type"] == "recommended" for s in active),
+                "premium_badge": any(s["type"] == "premium_badge" for s in active),
+                "verified_badge": any(s["type"] == "verified_badge" for s in active),
+            }
+            await db.artist_profiles.update_one({"user_id": user["id"]}, {"$set": updates})
         return [clean(s) for s in subs]
 
     @r.get("/admin/boost/subscriptions")
