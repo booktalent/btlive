@@ -33,7 +33,36 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
-## Iter 13 — server.py Modularisation (this round)
+## Iter 16-18 — Self-Hosted VPS Deployment Ready (this round)
+Blocker fix for user setting up on Hostinger AlmaLinux 10.2:
+- `pip install -r requirements.txt` failed with 'emergentintegrations not found'.
+- **Fix**: removed `emergentintegrations==0.2.0` + internal-URL `litellm` wheel
+  from `requirements.txt`; created `requirements-emergent.txt` (optional).
+- Existing try/except in `iter11_routes.py` handles missing package — AI Search
+  silently falls back to a regex + synonym + city-alias filter that returns
+  real seed data.
+
+**Fallback quality lifted from cosmetic to production-ready**:
+- Greedy price regex — parses 50000 / 30k / ₹80,000 / 1.5 lakh / 2 lakh
+- CATEGORY_ALIASES — 'Singer' → Bollywood Vocalist / Playback, 'DJ' → DJ/Music Producer, etc.
+- CITY_ALIASES — 'Delhi'↔'Delhi NCR', 'Mumbai'↔'Bombay', 'Bangalore'↔'Bengaluru'
+- Stop-word filter on free-form keywords
+
+**Deploy artifacts under `/app/deploy/`**:
+- `README-almalinux.md` — beginner-friendly AlmaLinux 10 step-by-step guide
+- `README.md` — Ubuntu 22.04 variant
+- `nginx.conf` — reverse-proxy + WebSocket + SSL + rate-limit + security headers
+- `systemd/booktalent-backend.service` — uvicorn @ 4 workers, hardened
+- `scripts/deploy.sh` — one-shot pull → install → build → restart
+- `scripts/backup_mongo.sh` — daily mongodump, 14-day retention
+- `scripts/export_db_from_emergent.sh` — one-liner to dump DB out of Emergent pod
+- `cron/booktalent.cron` + `logrotate/booktalent` + `.env` templates
+
+Test: `test_iter16_deploy.py` + `test_iter17_search.py` + `test_iter18_city_aliases.py`
+— **23/23 assertions pass**, including a subprocess run that blocks
+`emergentintegrations` and proves the pure-fallback path returns real seed data.
+
+## Iter 13 — server.py Modularisation
 Pure structural refactor — no business logic touched.
 
 `/app/backend/server.py` shrunk from 2,868 → 2,378 lines by extracting 6 domain
