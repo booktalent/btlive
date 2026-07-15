@@ -43,7 +43,7 @@ export default function AdminDashboard() {
     if (!user) { nav("/login"); return; }
     if (user.role !== "admin") { nav("/"); return; }
     api.get("/admin/stats").then(r => setStats(r.data));
-    // eslint-disable-next-line
+     
   }, [user]);
 
   if (!user || user.role !== "admin") return null;
@@ -198,7 +198,7 @@ function AdminKYC({ toast }) {
   const [status, setStatus] = useState("pending");
   const [expanded, setExpanded] = useState(null);
   const reload = () => api.get(`/admin/kyc?status=${status}`).then((r) => setList(r.data));
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [status]);
+  useEffect(() => { reload();   }, [status]);
 
   const decide = async (artist_id, decision) => {
     let reason = "";

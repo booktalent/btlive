@@ -68,7 +68,7 @@ export default function BookingFlow() {
       }
     });
     api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
-    // eslint-disable-next-line
+     
   }, [id]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));

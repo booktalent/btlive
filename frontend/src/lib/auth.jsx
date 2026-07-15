@@ -38,7 +38,12 @@ export const AuthProvider = ({ children }) => {
     try {
       const r = await api.get("/auth/me");
       setUser(r.data);
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      // Non-fatal — network hiccup or expired token. Log for observability
+      // but never surface to the user; the axios interceptor will 401-log-out
+      // on the next authenticated call if the session is truly gone.
+      if (typeof console !== "undefined") console.warn("refreshMe failed:", e?.message || e);
+    }
   };
 
   return (

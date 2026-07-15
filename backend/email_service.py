@@ -5,7 +5,7 @@ Falls back to console-log when RESEND_API_KEY is empty (test mode).
 import os
 import asyncio
 import logging
-import random
+import secrets
 from typing import Optional
 
 log = logging.getLogger("booktalent.email")
@@ -29,10 +29,15 @@ def is_email_enabled() -> bool:
 
 
 def generate_otp() -> str:
-    """6-digit numeric OTP. In mock mode we still use 123456 for deterministic testing."""
+    """6-digit numeric OTP.
+
+    Uses the ``secrets`` module (cryptographically secure) rather than ``random``
+    to avoid predictable OTPs. In mock mode we still return the deterministic
+    ``123456`` so local tests and E2E automation stay reproducible.
+    """
     if not RESEND_ENABLED:
         return "123456"
-    return f"{random.randint(100000, 999999)}"
+    return f"{secrets.randbelow(900000) + 100000}"
 
 
 def _otp_html(name: str, otp: str) -> str:

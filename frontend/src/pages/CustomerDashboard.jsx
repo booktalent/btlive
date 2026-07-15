@@ -20,7 +20,7 @@ export default function CustomerDashboard() {
     if (user.role === "artist") { nav("/artist"); return; }
     if (user.role === "admin") { nav("/admin"); return; }
     refresh();
-    // eslint-disable-next-line
+     
   }, [user]);
 
   const refresh = async () => {

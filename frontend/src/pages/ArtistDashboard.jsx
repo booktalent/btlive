@@ -7,6 +7,27 @@ import { useToast } from "../lib/toast";
 import { BookingsTable } from "./CustomerDashboard";
 import OnboardingWizard from "../components/OnboardingWizard";
 
+/**
+ * Media thumbnail with a graceful React-state fallback when the thumb URL 404s
+ * or the image decode fails. Replaces the earlier `insertAdjacentHTML` hack
+ * flagged by the code review — no DOM mutation, no XSS surface.
+ */
+function MediaThumb({ id, title }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 48 }}>📎</div>
+    );
+  }
+  return (
+    <img
+      src={`${api.defaults.baseURL}/media/${id}/thumb`}
+      alt={title}
+      onError={() => setBroken(true)}
+    />
+  );
+}
+
 const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
   { id: "profile", label: "👤 Profile" },
@@ -51,7 +72,7 @@ export default function ArtistDashboard() {
     if (!user) { nav("/login"); return; }
     if (user.role !== "artist") { nav(user.role === "admin" ? "/admin" : "/customer"); return; }
     refresh();
-    // eslint-disable-next-line
+     
   }, [user]);
 
   const refresh = async () => {
@@ -241,10 +262,16 @@ function ProfileEditor({ user, refreshMe, toast }) {
         r.readAsDataURL(file);
       });
       // Delete previous image of this type to avoid orphans
-      try {
-        const existing = profile[type === "profile" ? "profile_image" : "cover_image"];
-        if (existing) await api.delete(`/media/${existing}`).catch(() => {});
-      } catch (_) {}
+      const existing = profile[type === "profile" ? "profile_image" : "cover_image"];
+      if (existing) {
+        try {
+          await api.delete(`/media/${existing}`);
+        } catch (delErr) {
+          // Non-fatal — orphaned media will be cleaned up by the nightly job.
+          // Log so we can spot patterns instead of silently swallowing.
+          if (typeof console !== "undefined") console.warn("orphan-media delete failed:", delErr?.message || delErr);
+        }
+      }
       await api.post("/media/upload", { type, data_url: dataUrl, title: `${type}-${file.name}` }, {
         onUploadProgress: (e) => {
           if (e.total) setProgress((p) => ({ ...p, [type]: Math.round((e.loaded / e.total) * 100) }));
@@ -604,7 +631,7 @@ function MediaManager({ data, refresh, toast }) {
             ) : m.mime === "application/pdf" ? (
               <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 48 }}>📄</div>
             ) : m.mime?.startsWith("image/") ? (
-              <img src={`${api.defaults.baseURL}/media/${m.id}/thumb`} alt={m.title || ""} onError={(e) => { e.target.style.display = "none"; e.target.parentElement.insertAdjacentHTML("beforeend", '<div style="display:grid;place-items:center;height:100%;font-size:48px">📎</div>'); }} />
+              <MediaThumb id={m.id} title={m.title || ""} />
             ) : (
               <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 48 }}>📎</div>
             )}

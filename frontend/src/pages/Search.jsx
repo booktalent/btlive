@@ -81,7 +81,7 @@ export default function Search() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { run(1); /* eslint-disable-next-line */ }, [category, city, sort, language, eventType, minRating, minExperience, gender, featuredOnly, verifiedOnly, premiumOnly, instantOnly]);
+  useEffect(() => { run(1);   }, [category, city, sort, language, eventType, minRating, minExperience, gender, featuredOnly, verifiedOnly, premiumOnly, instantOnly]);
 
   // Live suggestions
   useEffect(() => {

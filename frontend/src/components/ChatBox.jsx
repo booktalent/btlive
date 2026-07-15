@@ -49,7 +49,7 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", payment
   useEffect(() => {
     if (!access?.enabled) return;
     loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [bookingId, access?.enabled]);
 
   // WebSocket
