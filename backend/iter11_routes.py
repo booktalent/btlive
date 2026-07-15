@@ -8,6 +8,7 @@ Iteration 11 — final P3 utilities:
 from __future__ import annotations
 
 import os
+import re
 import csv
 import io
 import uuid
@@ -251,43 +252,93 @@ def make_iter11_router(db, get_current_user, admin_only) -> APIRouter:
                 if city in q_low:
                     filters["city"] = label
                     break
-            # Price: capture both "60000", "60k", "₹60,000"
-            mprice = _re.search(r"(?:under|below|less than|max(?:imum)?)\s*(?:₹|rs\.?\s*)?(\d{1,3}(?:[,\s]?\d{3})*)\s*(k|lakh|l)?",
-                                q_low)
+            # Price capture: handles "60000", "60,000", "60 000", "60k", "₹60,000",
+            # "1.5 lakh". Greedy `[\d,.\s]+` grabs the whole numeric run; we then
+            # strip separators + parse the (possibly-decimal) unit multiplier.
+            mprice = _re.search(
+                r"(?:under|below|less than|max(?:imum)?)\s*(?:₹|rs\.?\s*)?"
+                r"([\d][\d,.\s]*)\s*(k|lakh|l)?\b",
+                q_low,
+            )
             if mprice:
-                val_raw = mprice.group(1).replace(",", "").replace(" ", "")
-                price = int(val_raw)
-                if mprice.group(2) in ("k",):
-                    price *= 1000
-                elif mprice.group(2) in ("lakh", "l"):
-                    price *= 100000
-                filters["max_price"] = price
+                val_raw = _re.sub(r"[,\s]", "", mprice.group(1)).rstrip(".")
+                try:
+                    val = float(val_raw)
+                    unit = mprice.group(2)
+                    if unit == "k":
+                        val *= 1_000
+                    elif unit in ("lakh", "l"):
+                        val *= 100_000
+                    filters["max_price"] = int(val)
+                except ValueError:
+                    pass
             filters["keywords"] = raw_q
             rationale = rationale or "regex"
 
+        # ── Category synonyms — the artist catalogue uses genre-specific labels
+        # (e.g. "Bollywood Vocalist", "Stand-up Comedian", "DJ / Music Producer")
+        # while the AI / regex layer emits a canonical token ("Singer", "Comedian",
+        # "DJ"). Expand the query into all known aliases so real-world artist
+        # profiles match. Keeps the search useful even when only the fallback runs.
+        CATEGORY_ALIASES = {
+            "singer":    ["singer", "vocalist", "bollywood", "playback"],
+            "vocalist":  ["vocalist", "singer", "bollywood"],
+            "dj":        ["dj", "music producer", "electronic"],
+            "comedian":  ["comedian", "stand-up", "stand up", "comic"],
+            "dancer":    ["dancer", "choreographer"],
+            "anchor":    ["anchor", "host", "emcee", "mc"],
+            "band":      ["band", "musician"],
+            "magician":  ["magician", "illusionist"],
+            "folk":      ["folk", "traditional"],
+            "bollywood": ["bollywood", "hindi", "vocalist"],
+        }
+
+        def _expand(term: str) -> list[str]:
+            if not term:
+                return []
+            key = str(term).strip().lower()
+            aliases = CATEGORY_ALIASES.get(key, [])
+            return [key] + [a for a in aliases if a != key]
+
         # Run a structured search. Strict-AND on city + price + min_rating;
-        # category goes into the keyword OR list so close-match aliases work
-        # (e.g. "Singer" matches "Bollywood Vocalist", "Folk", etc.).
+        # category-like terms fan out into the keyword OR list so aliases match
+        # (e.g. "Singer" matches "Bollywood Vocalist", "Playback", "Folk").
         q: Dict[str, Any] = {}
         if filters.get("city"):
             q["city"] = {"$regex": filters["city"], "$options": "i"}
-        # max_price is applied post-hoc against packages (no base_price field on profile)
         if filters.get("language"):
             q["languages"] = {"$regex": filters["language"], "$options": "i"}
         if filters.get("min_rating"):
             q["rating_avg"] = {"$gte": float(filters["min_rating"])}
 
         or_terms = []
-        for term in (filters.get("category"), filters.get("category_hint"),
-                     filters.get("event_type"), filters.get("keywords")):
-            if not term:
+        seen_kw: set[str] = set()
+        for term in (filters.get("category"), filters.get("category_hint"), filters.get("event_type")):
+            for kw in _expand(term):
+                if kw in seen_kw:
+                    continue
+                seen_kw.add(kw)
+                or_terms.extend([
+                    {"stage_name": {"$regex": kw, "$options": "i"}},
+                    {"bio":        {"$regex": kw, "$options": "i"}},
+                    {"tagline":    {"$regex": kw, "$options": "i"}},
+                    {"category":   {"$regex": kw, "$options": "i"}},
+                ])
+        # `keywords` — search only meaningful tokens, not the entire raw sentence
+        # (a full-sentence regex like "singer in mumbai under 50000" matches nothing).
+        raw_kw = filters.get("keywords") or ""
+        STOP = {"in", "for", "under", "below", "less", "than", "max", "maximum",
+                "the", "a", "an", "and", "or", "with", "at", "on", "of",
+                "rs", "inr", "₹", "k", "lakh", "l"}
+        for tok in re.findall(r"[a-z]{3,}", str(raw_kw).lower()):
+            if tok in STOP or tok in seen_kw:
                 continue
-            kw = str(term)
+            seen_kw.add(tok)
             or_terms.extend([
-                {"stage_name": {"$regex": kw, "$options": "i"}},
-                {"bio": {"$regex": kw, "$options": "i"}},
-                {"tagline": {"$regex": kw, "$options": "i"}},
-                {"category": {"$regex": kw, "$options": "i"}},
+                {"stage_name": {"$regex": tok, "$options": "i"}},
+                {"bio":        {"$regex": tok, "$options": "i"}},
+                {"tagline":    {"$regex": tok, "$options": "i"}},
+                {"category":   {"$regex": tok, "$options": "i"}},
             ])
         if or_terms:
             q["$or"] = or_terms
