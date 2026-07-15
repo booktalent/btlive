@@ -275,11 +275,11 @@ def make_iter11_router(db, get_current_user, admin_only) -> APIRouter:
             filters["keywords"] = raw_q
             rationale = rationale or "regex"
 
-        # ── Category synonyms — the artist catalogue uses genre-specific labels
-        # (e.g. "Bollywood Vocalist", "Stand-up Comedian", "DJ / Music Producer")
-        # while the AI / regex layer emits a canonical token ("Singer", "Comedian",
-        # "DJ"). Expand the query into all known aliases so real-world artist
-        # profiles match. Keeps the search useful even when only the fallback runs.
+        # ── Category + city synonyms — the artist catalogue uses genre-specific
+        # labels ('Bollywood Vocalist', 'Stand-up Comedian') while the AI / regex
+        # layer emits canonical tokens ('Singer', 'Comedian', 'DJ'). Same story
+        # for cities — the AI canonicalises 'Delhi' to 'Delhi NCR' but seed
+        # rows may store either. Expand both directions so results match.
         CATEGORY_ALIASES = {
             "singer":    ["singer", "vocalist", "bollywood", "playback"],
             "vocalist":  ["vocalist", "singer", "bollywood"],
@@ -291,6 +291,15 @@ def make_iter11_router(db, get_current_user, admin_only) -> APIRouter:
             "magician":  ["magician", "illusionist"],
             "folk":      ["folk", "traditional"],
             "bollywood": ["bollywood", "hindi", "vocalist"],
+        }
+        CITY_ALIASES = {
+            "delhi":      ["Delhi", "Delhi NCR", "New Delhi", "NCR"],
+            "delhi ncr":  ["Delhi", "Delhi NCR", "New Delhi", "NCR"],
+            "new delhi":  ["Delhi", "Delhi NCR", "New Delhi"],
+            "mumbai":     ["Mumbai", "Bombay"],
+            "bangalore":  ["Bangalore", "Bengaluru"],
+            "kolkata":    ["Kolkata", "Calcutta"],
+            "chennai":    ["Chennai", "Madras"],
         }
 
         def _expand(term: str) -> list[str]:
@@ -305,7 +314,12 @@ def make_iter11_router(db, get_current_user, admin_only) -> APIRouter:
         # (e.g. "Singer" matches "Bollywood Vocalist", "Playback", "Folk").
         q: Dict[str, Any] = {}
         if filters.get("city"):
-            q["city"] = {"$regex": filters["city"], "$options": "i"}
+            city_key = str(filters["city"]).strip().lower()
+            aliases = CITY_ALIASES.get(city_key)
+            if aliases:
+                q["city"] = {"$in": aliases}
+            else:
+                q["city"] = {"$regex": filters["city"], "$options": "i"}
         if filters.get("language"):
             q["languages"] = {"$regex": filters["language"], "$options": "i"}
         if filters.get("min_rating"):
