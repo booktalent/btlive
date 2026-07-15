@@ -212,11 +212,26 @@ cd /opt/booktalent/backend
 sudo -u booktalent python3.11 -m venv .venv
 sudo -u booktalent ./.venv/bin/pip install --upgrade pip
 sudo -u booktalent ./.venv/bin/pip install -r requirements.txt
+```
 
-# Emergent integrations (private index — needed for AI Search)
-sudo -u booktalent ./.venv/bin/pip install emergentintegrations \
+> ✅ **This will now install cleanly on any VPS.** The `emergentintegrations`
+> package has been moved to `requirements-emergent.txt` (optional).
+
+**OPTIONAL — install `emergentintegrations` for AI Semantic Search**
+
+The AI-powered natural-language search (`/api/search/ai`) uses Emergent's
+private LLM library. If you skip this, the endpoint automatically falls back
+to a fast regex-based keyword search — **zero code changes, zero errors**.
+
+To enable full AI search, install the optional package:
+
+```bash
+sudo -u booktalent ./.venv/bin/pip install -r requirements-emergent.txt \
     --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
 ```
+
+You'll also need `EMERGENT_LLM_KEY` in your `backend/.env` — get it from
+https://emergent.sh → Profile → Universal Key.
 
 ### C4. Create backend `.env`
 

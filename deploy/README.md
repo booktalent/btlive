@@ -110,9 +110,12 @@ sudo -u booktalent python3.11 -m venv .venv
 sudo -u booktalent ./.venv/bin/pip install --upgrade pip
 sudo -u booktalent ./.venv/bin/pip install -r requirements.txt
 
-# Emergent integrations (private index)
-sudo -u booktalent ./.venv/bin/pip install emergentintegrations \
-    --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+# OPTIONAL: install emergentintegrations for AI Semantic Search.
+# Only needed if you have EMERGENT_LLM_KEY. Skipping is safe — the AI-search
+# endpoint auto-falls-back to a regex keyword search with zero errors.
+sudo -u booktalent ./.venv/bin/pip install -r requirements-emergent.txt \
+    --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ || \
+    echo "  (skipped — no EMERGENT_LLM_KEY, or private index unreachable)"
 ```
 
 ### Create the backend `.env`

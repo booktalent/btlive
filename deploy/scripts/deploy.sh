@@ -17,10 +17,18 @@ sudo -u "$APP_USER" git pull --rebase
 echo "▶ Backend — installing Python deps…"
 cd "$APP_DIR/backend"
 sudo -u "$APP_USER" ./.venv/bin/pip install --upgrade -r requirements.txt
-# Emergent integrations lives on a private index
-sudo -u "$APP_USER" ./.venv/bin/pip install --upgrade \
-    emergentintegrations \
-    --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+
+# OPTIONAL: install emergentintegrations for AI Semantic Search.
+# If EMERGENT_LLM_KEY is set in .env, we install; otherwise skip cleanly.
+if grep -q '^EMERGENT_LLM_KEY=..' "$APP_DIR/backend/.env" 2>/dev/null; then
+    echo "▶ Installing optional AI Search deps (emergentintegrations)…"
+    sudo -u "$APP_USER" ./.venv/bin/pip install --upgrade \
+        -r requirements-emergent.txt \
+        --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ || \
+        echo "  (skipped — private index unreachable; AI search will use regex fallback)"
+else
+    echo "▶ No EMERGENT_LLM_KEY set — skipping AI Search deps (regex fallback in effect)."
+fi
 
 echo "▶ Frontend — installing + building React bundle…"
 cd "$APP_DIR/frontend"
