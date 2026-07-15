@@ -81,7 +81,11 @@ export default function Search() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { run(1);   }, [category, city, sort, language, eventType, minRating, minExperience, gender, featuredOnly, verifiedOnly, premiumOnly, instantOnly]);
+  // Filters trigger a fresh page-1 fetch. `run` is redefined every render so
+  // including it would loop; it closes over the current filter state, so we
+  // list all filter deps explicitly instead.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { run(1); }, [category, city, sort, language, eventType, minRating, minExperience, gender, featuredOnly, verifiedOnly, premiumOnly, instantOnly]);
 
   // Live suggestions
   useEffect(() => {

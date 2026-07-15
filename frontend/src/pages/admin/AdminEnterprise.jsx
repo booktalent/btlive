@@ -11,7 +11,9 @@ export function AdminMaster({ toast }) {
   const [editing, setEditing] = useState(null);
 
   const load = () => api.get(`/admin/master/${entity}`).then((r) => setList(r.data));
-  useEffect(() => { load();   }, [entity]);
+  // `load` is redefined every render; including it would infinite-loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [entity]);
 
   const save = async () => {
     if (!form.name.trim()) return toast("Name is required");
@@ -198,7 +200,8 @@ export function AdminTemplates({ toast }) {
   const [form, setForm] = useState({ channel: "email", code: "", subject: "", body: "", active: true });
 
   const load = () => api.get(`/admin/templates?channel=${channel}`).then((r) => setList(r.data));
-  useEffect(() => { load(); setForm({ ...form, channel });   }, [channel]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); setForm({ ...form, channel }); }, [channel]);
 
   const save = async () => {
     if (!form.code.trim() || !form.body.trim()) return toast("Code & body required");
@@ -466,7 +469,8 @@ export function AdminReports() {
     api.get(`/admin/reports/revenue?days=${days}`).then((r) => setRevenue(r.data));
     api.get(`/admin/reports/top-artists?limit=10`).then((r) => setTop(r.data));
   };
-  useEffect(() => { load();   }, [days]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [days]);
   return (
     <div className="card" data-testid="admin-reports">
       <div className="card-head" style={{ justifyContent: "space-between", display: "flex", alignItems: "center" }}>
@@ -519,7 +523,8 @@ export function AdminReviewsModeration({ toast }) {
   const [status, setStatus] = useState("pending");
   const [list, setList] = useState([]);
   const load = () => api.get(`/admin/reviews?status=${status}`).then((r) => setList(r.data));
-  useEffect(() => { load();   }, [status]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [status]);
 
   const decide = async (rid, decision) => {
     let reason = "";

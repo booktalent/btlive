@@ -43,7 +43,8 @@ export default function AdminDashboard() {
     if (!user) { nav("/login"); return; }
     if (user.role !== "admin") { nav("/"); return; }
     api.get("/admin/stats").then(r => setStats(r.data));
-     
+    // `nav` from react-router is stable; only re-run when `user` changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   if (!user || user.role !== "admin") return null;
@@ -198,7 +199,9 @@ function AdminKYC({ toast }) {
   const [status, setStatus] = useState("pending");
   const [expanded, setExpanded] = useState(null);
   const reload = () => api.get(`/admin/kyc?status=${status}`).then((r) => setList(r.data));
-  useEffect(() => { reload();   }, [status]);
+  // `reload` is a new closure every render — including it triggers infinite fetch.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); }, [status]);
 
   const decide = async (artist_id, decision) => {
     let reason = "";

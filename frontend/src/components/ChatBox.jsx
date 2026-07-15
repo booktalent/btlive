@@ -49,7 +49,8 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", payment
   useEffect(() => {
     if (!access?.enabled) return;
     loadHistory();
-     
+    // `loadHistory` is a new closure every render; including it loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId, access?.enabled]);
 
   // WebSocket

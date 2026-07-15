@@ -68,7 +68,9 @@ export default function BookingFlow() {
       }
     });
     api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
-     
+    // Fetch only when the artist/package `id` changes. Adding `form.package_id`
+    // would refetch on every form key-stroke; adding `nav`/`user` would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));

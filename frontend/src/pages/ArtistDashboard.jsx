@@ -72,7 +72,7 @@ export default function ArtistDashboard() {
     if (!user) { nav("/login"); return; }
     if (user.role !== "artist") { nav(user.role === "admin" ? "/admin" : "/customer"); return; }
     refresh();
-     
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const refresh = async () => {

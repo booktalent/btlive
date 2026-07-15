@@ -20,7 +20,10 @@ export default function CustomerDashboard() {
     if (user.role === "artist") { nav("/artist"); return; }
     if (user.role === "admin") { nav("/admin"); return; }
     refresh();
-     
+    // `refresh` is defined below in the same render — adding it would cause a
+    // new closure each render → infinite re-fetch. `nav` from react-router is
+    // stable per its own docs. Intentional narrow dep list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const refresh = async () => {
