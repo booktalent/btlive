@@ -786,7 +786,131 @@ option:checked, option:hover {
   .container { max-width: 1520px; }
 }
 
-/* Small utility used by the new NotFound page and other Sprint-1 additions */
+/* ─── Universal form-input dark-theme fallback ────────────────────────────
+   Fixes the "text not visible when filling forms" bug where components use
+   `className="input"` (undefined) or a bare <input> without any class —
+   both would inherit the browser default (white bg, dark text) and become
+   invisible against the dark theme. This rule catches every native form
+   element globally; components that already have `.field-input` keep their
+   more specific styling. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+textarea,
+.input {
+  background-color: var(--bg2);
+  color: var(--white);
+  border: 1px solid var(--glass-hover);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 120ms ease, background 120ms ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+input:focus:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+textarea:focus,
+.input:focus {
+  border-color: var(--gold);
+  background-color: rgba(212, 175, 55, 0.04);
+}
+input::placeholder,
+textarea::placeholder,
+.input::placeholder {
+  color: var(--white-dim);
+  opacity: 1;
+}
+textarea, textarea.input { min-height: 96px; resize: vertical; }
+input[disabled], textarea[disabled], .input[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+/* Autofill safety — Chrome/Safari repaint yellow autofilled inputs to white */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--white) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--bg2) inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: var(--white);
+}
+
+/* ─── Mobile navigation drawer ─────────────────────────────────────────────
+   Sprint-1 hid `.nav-links` on mobile — user asked for a hamburger. The
+   .mobile-nav-toggle button (added in Nav.jsx) shows only on ≤767px and
+   toggles the drawer via aria-expanded. */
+.mobile-nav-toggle {
+  display: none;
+  background: var(--glass);
+  border: 1px solid var(--glass-hover);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--white);
+  cursor: pointer;
+}
+.mobile-nav-toggle:hover { background: var(--glass-hover); }
+.mobile-nav-drawer {
+  display: none;
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: 84vw;
+  max-width: 320px;
+  background: var(--bg1);
+  border-left: 1px solid var(--glass-hover);
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.55);
+  z-index: 1000;
+  padding: 20px 22px;
+  overflow-y: auto;
+  animation: slideInDrawer 220ms ease-out;
+}
+.mobile-nav-drawer .drawer-close {
+  background: none;
+  border: none;
+  color: var(--white-muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  align-self: flex-end;
+}
+.mobile-nav-drawer nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+.mobile-nav-drawer nav a,
+.mobile-nav-drawer nav .drawer-link {
+  display: block;
+  padding: 12px 14px;
+  color: var(--white);
+  font-size: 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.mobile-nav-drawer nav a:hover,
+.mobile-nav-drawer nav a.active {
+  background: var(--glass);
+  border-color: var(--gold-border);
+  color: var(--gold-light);
+}
+.mobile-nav-scrim {
+  display: none;
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px); z-index: 999;
+  animation: fadeIn 220ms ease-out;
+}
+@keyframes slideInDrawer { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 767px) {
+  .mobile-nav-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+  .mobile-nav-drawer.open { display: flex; flex-direction: column; }
+  .mobile-nav-scrim.open { display: block; }
+  /* Keep only logo + hamburger + primary CTA on the top bar */
+  .nav-actions .btn:not(.btn-gold):not(.mobile-nav-toggle) { display: none; }
+}
+
+
+/* Small utility used by the NotFound page and other centered-empty states */
 .center-viewport {
   min-height: 70vh;
   display: grid;
