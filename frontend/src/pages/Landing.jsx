@@ -21,7 +21,19 @@ export default function Landing() {
   const [cities, setCities] = useState([]);
 
   useEffect(() => {
-    api.get("/artists/featured?limit=8").then(r => setFeatured(r.data)).finally(() => setLoading(false));
+    api.get("/artists/featured?limit=8").then(r => {
+      // Dedupe by user_id — the backend aggregator sometimes returns the same
+      // artist twice when they qualify for multiple sections (Featured +
+      // Premium + Verified). Guard React against duplicate keys.
+      const seen = new Set();
+      const unique = (r.data || []).filter((a) => {
+        const k = a?.user_id;
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      setFeatured(unique);
+    }).finally(() => setLoading(false));
     api.get("/cities").then(r => setCities(r.data));
   }, []);
 

@@ -13,6 +13,6 @@ Mount order in server.py:
 This split was introduced in Iter 13 to break the monolithic server.py
 (~2.8k lines) into smaller, domain-focused files for production maintenance.
 """
-from . import reviews, wallet, coupons, blogs, disputes, kyc
+from . import reviews, wallet, coupons, blogs, disputes, kyc, uploads
 
-__all__ = ["reviews", "wallet", "coupons", "blogs", "disputes", "kyc"]
+__all__ = ["reviews", "wallet", "coupons", "blogs", "disputes", "kyc", "uploads"]

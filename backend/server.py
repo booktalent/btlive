@@ -22,7 +22,7 @@ from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List, Literal, Any, Dict
 
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, UploadFile, File, Form, Query
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
@@ -43,6 +43,7 @@ from routes import coupons as routes_coupons
 from routes import blogs as routes_blogs
 from routes import disputes as routes_disputes
 from routes import kyc as routes_kyc
+from routes import uploads as routes_uploads
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -776,6 +777,13 @@ async def media_thumb(media_id: str):
     doc = await db.media.find_one({"id": media_id})
     if not doc:
         raise HTTPException(404, "Not found")
+    # New filesystem-stored media (Sprint 2 chunked uploads) — serve the JPEG thumb from disk
+    if doc.get("storage") == "filesystem" and doc.get("thumb_path"):
+        from pathlib import Path as _P
+        tp = _P(doc["thumb_path"])
+        if tp.exists():
+            return FileResponse(tp, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=300"})
+    # Legacy base64-in-Mongo media path
     if doc.get("thumb"):
         raw = base64.b64decode(doc["thumb"])
         return StreamingResponse(io.BytesIO(raw), media_type="image/jpeg", headers={"Cache-Control": "public, max-age=300"})
@@ -2342,6 +2350,15 @@ app.include_router(
 app.include_router(
     routes_kyc.make_router(get_current_user=get_current_user, admin_only=admin_only,
                            notify_dispatch=notify_dispatch, log=log, **_common_deps),
+    prefix="/api",
+)
+# Sprint 2 — chunked / resumable filesystem uploads (up to 5 GB per file)
+app.include_router(
+    routes_uploads.make_router(
+        get_current_user=get_current_user, log=log,
+        compress_image=compress_image, make_thumbnail=make_thumbnail,
+        **_common_deps,
+    ),
     prefix="/api",
 )
 
