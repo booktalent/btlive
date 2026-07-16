@@ -1,5 +1,56 @@
 # BookTalent — Product Requirements Document
 
+## 🔒 PERMANENT PRODUCTION CHARTER (Iter 21 — immutable)
+BookTalent is deployed on a Linux VPS (Nginx + FastAPI + React + systemd).
+Every future code change MUST preserve this deployment architecture.
+
+### Frontend rules
+- React SPA served as static files by Nginx from `/var/www/btlive/frontend/build`.
+- **API base URL is ALWAYS the relative path `/api`**:
+  ```js
+  export const API = "/api";
+  axios.create({ baseURL: API });
+  ```
+  Never change it to `http://localhost:8000`, `api`, or
+  `process.env.REACT_APP_BACKEND_URL`. Relative `/api` works identically in
+  Emergent preview (Kubernetes ingress) and on the VPS (Nginx proxy).
+- React Router only — every route must survive `try_files $uri /index.html;`.
+- WebSocket URLs derive from `window.location.host` — never hardcode a host.
+
+### Backend rules
+- FastAPI under uvicorn, run as a systemd unit (`booktalent.service`).
+- Existing API paths are backwards-compatible — never rename a route without
+  updating every frontend caller in the same commit.
+- Backend binds to `127.0.0.1:8000` in production (Nginx proxies to it).
+
+### VPS deploy architecture (do not break)
+```
+React build → Nginx (/var/www/btlive/frontend/build)
+              ↓
+              /              → try_files $uri /index.html
+              /api/*         → proxy_pass http://127.0.0.1:8000/api/
+```
+
+### Deploy contract
+After every future update, deployment must be **just**:
+```
+git pull
+cd frontend && npm install && npm run build
+systemctl reload nginx
+systemctl restart booktalent
+```
+No manual source-code edits on the VPS are ever required. The GitHub repo is
+the single source of truth.
+
+### Code-hygiene rules
+- Never rewrite complete files unless necessary — modify only the required
+  section. Keep existing component names, API contracts, and folder structure.
+- Use optional chaining (`?.`) at every API-response access point.
+- No new dependencies unless strictly required; keep React 19, CRACO, FastAPI,
+  Motor at their current versions.
+
+---
+
 ## Original Problem Statement
 Premium full-stack marketplace (React + FastAPI + MongoDB) for booking artists across India.
 UI is the design source of truth — preserve exactly. Only backend functionality and business logic.

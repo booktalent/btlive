@@ -59,8 +59,12 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", payment
     if (!access?.enabled) return; // payment gate
     const token = localStorage.getItem("bt_token");
     if (!token) return;
-    const base = (api.defaults.baseURL || "").replace(/^http/, "ws");
-    const url = `${base}/ws/chat/${bookingId}?token=${encodeURIComponent(token)}`;
+    // WebSocket needs an absolute URL. `api.defaults.baseURL` is the relative
+    // "/api" per production charter, so derive the wss host from the browser
+    // origin — works identically in Emergent preview (ingress) and on the VPS
+    // (Nginx WebSocket proxy).
+    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${wsProto}//${window.location.host}/api/ws/chat/${bookingId}?token=${encodeURIComponent(token)}`;
     let ws;
     try {
       ws = new WebSocket(url);

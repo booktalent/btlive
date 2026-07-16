@@ -1,7 +1,16 @@
 import axios from "axios";
 
-const BACKEND = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BACKEND}/api`;
+// ─────────────────────────────────────────────────────────────────────────────
+// Production charter (BookTalent Permanent Project Rules):
+// API base URL MUST ALWAYS be the relative path "/api". This works identically
+// in every deployment target because the browser hits the same origin that
+// serves the frontend:
+//   - Emergent preview  → Kubernetes ingress routes /api/* → backend:8001
+//   - User's VPS (prod) → Nginx routes /api/* → FastAPI 127.0.0.1:8000
+// Do NOT change this to `http://localhost:8000`, to `api`, or to
+// `process.env.REACT_APP_BACKEND_URL` — any of those would break the VPS build.
+// ─────────────────────────────────────────────────────────────────────────────
+export const API = "/api";
 
 const client = axios.create({ baseURL: API });
 
