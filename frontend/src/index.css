@@ -607,3 +607,189 @@ textarea.field-input { min-height: 100px; resize: vertical; }
 /* Skeleton */
 .skeleton { background: linear-gradient(90deg, var(--glass), var(--glass-hover), var(--glass)); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+
+/* ═════════════════════════════════════════════════════════════════════════
+   Sprint 1 (Iter 22) — Dark-theme dropdown fix + full responsive layer.
+   Purely additive: no existing rule is touched, so the desktop UI is
+   pixel-identical. Every rule below either targets `<select>`/`<option>`
+   directly OR is inside a media query.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Dropdown / Select — dark-theme option list ─────────────────────────
+   Browsers render <option> with the OS's default light background, which
+   ends up invisible/washed-out on our dark palette. Force a solid dark
+   background + light text on every native select and option globally. */
+select {
+  background-color: var(--bg2);
+  color: var(--white);
+  border: 1px solid var(--glass-hover);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='%23d4af37'><path d='M6 8L0 0h12z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px;
+  padding-right: 32px;
+  cursor: pointer;
+}
+select:focus, select:hover {
+  border-color: var(--gold-border);
+  background-color: var(--bg3);
+}
+select:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Native <option> — every major browser respects these two properties. */
+option, optgroup {
+  background-color: #0f0f14 !important;
+  color: #f5f5f5 !important;
+  padding: 8px 12px;
+}
+option:checked, option:hover {
+  background: linear-gradient(0deg, rgba(212,175,55,0.2), rgba(212,175,55,0.2)) #0f0f14 !important;
+  color: var(--gold-light) !important;
+}
+/* Shadcn/Radix Select popovers use these roles */
+[role="listbox"], [role="menu"], [data-radix-popper-content-wrapper] > * {
+  background-color: #0f0f14 !important;
+  color: #f5f5f5 !important;
+  border: 1px solid var(--glass-hover) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55) !important;
+}
+[role="option"], [role="menuitem"] {
+  background-color: transparent !important;
+  color: #f5f5f5 !important;
+  padding: 10px 14px !important;
+  cursor: pointer;
+}
+[role="option"]:hover, [role="option"][data-highlighted],
+[role="menuitem"]:hover, [role="menuitem"][data-highlighted] {
+  background-color: rgba(212,175,55,0.15) !important;
+  color: var(--gold-light) !important;
+}
+[role="option"][aria-selected="true"], [role="option"][data-state="checked"] {
+  background-color: rgba(212,175,55,0.25) !important;
+  color: var(--gold-light) !important;
+}
+
+/* ─── Responsive tokens ─────────────────────────────────────────────────
+   Tablet ≤ 1024, Mobile ≤ 768, Small ≤ 480, Ultra-wide ≥ 1920.
+   All rules below stack, shrink, and re-flow — no colour or font-family
+   changes so the design language stays identical. */
+
+/* Tablet & below — stack heavy grids, shrink container padding.
+   Uses max-width: 1024px which stops exactly BEFORE 1025 — 768 stays in tablet band. */
+@media (max-width: 1024px) and (min-width: 768px) {
+  .container, .container-sm { padding: 0 20px; }
+  .nav-inner { gap: 12px; }
+  .nav-links { gap: 2px; }
+  .nav-link { padding: 8px 12px; font-size: 12px; }
+  .card-pad, .card-body { padding: 18px; }
+  .grid-3 { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* Mobile ≤ 767 — single-column, hide sidebars, scrollable tables.
+   Note: 767 (not 768) so that tablets on exactly 768 wide still get the
+   tablet layer above, per the responsive-tokens spec. */
+@media (max-width: 767px) {
+  html, body { overflow-x: hidden; }
+  html { font-size: 14px; }
+  .container, .container-sm { padding: 0 16px; max-width: 100vw; }
+
+  /* Nav — hide desktop links; keep logo + primary CTA */
+  .nav-inner { flex-wrap: wrap; padding: 12px 0; gap: 8px; }
+  .nav-links { display: none; }
+  .nav-actions { flex-shrink: 0; }
+  .nav-actions .btn:not(.btn-gold) { display: none; }
+  .logo { font-size: 16px; }
+  .logo-mark { width: 32px; height: 32px; font-size: 16px; }
+
+  /* Hero / typography — scale down without changing the family */
+  h1 { font-size: 32px !important; line-height: 1.1 !important; }
+  h2 { font-size: 24px !important; }
+  h3 { font-size: 18px !important; }
+
+  /* All grids collapse to 1 col on mobile */
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr !important; gap: 14px !important; }
+
+  /* Cards + forms */
+  .card-pad, .card-body { padding: 16px; }
+  .card-head { padding: 14px 16px; }
+  .field { margin-bottom: 12px; }
+  .btn-lg { padding: 12px 22px; font-size: 13px; }
+
+  /* Tables → horizontal scroll instead of overflow */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+
+  /* Modals should be full-width and scrollable */
+  .modal-card { width: 92vw !important; max-width: 92vw !important; max-height: 88vh; overflow-y: auto; }
+
+  /* ─── Dashboards — 3 pages all use <main className="dash-content"> ─── */
+  .dashboard-shell { flex-direction: column !important; }
+  .dashboard-shell .sidebar,
+  aside.sidebar { display: none !important; }
+  .dashboard-shell .main,
+  .dashboard-shell .dash-content,
+  .dash-content {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    padding: 20px 16px !important;
+    box-sizing: border-box;
+  }
+  .dash-head { flex-direction: column !important; align-items: flex-start !important; gap: 10px; }
+  .dash-head h1 { font-size: 22px !important; }
+  .kpi-grid { grid-template-columns: 1fr 1fr !important; gap: 10px !important; margin-bottom: 16px !important; }
+
+  /* Artist cards */
+  .artist-card { width: 100% !important; }
+
+  /* Landing category strip — chips overflow-scroll horizontally without
+     pushing the html scrollWidth beyond the viewport. */
+  .cat-strip {
+    max-width: 100vw;
+    padding: 0 16px 8px !important;
+    scroll-snap-type: x mandatory;
+  }
+  .cat-chip { scroll-snap-align: start; flex-shrink: 0; }
+
+  /* Search/filters bar */
+  .filters-bar { flex-wrap: wrap; gap: 8px; }
+  .filters-bar > * { flex: 1 1 45%; min-width: 0; }
+
+  /* Ambient orbs — mute so they don't cost repaint budget */
+  .orb { display: none; }
+
+  /* Belt-and-braces — no descendant can push horizontal overflow */
+  * { max-width: 100vw; }
+  img, video { max-width: 100%; height: auto; }
+}
+
+/* Extra-small ≤ 480 — tighten further */
+@media (max-width: 480px) {
+  .container, .container-sm { padding: 0 12px; }
+  h1 { font-size: 26px !important; }
+  h2 { font-size: 20px !important; }
+  .card-pad, .card-body { padding: 12px; }
+  .btn { padding: 9px 16px; font-size: 12px; }
+  .btn-sm { padding: 6px 12px; font-size: 11px; }
+  .filters-bar > * { flex: 1 1 100%; }
+}
+
+/* Ultra-wide ≥ 1920 — tighten reading width so lines don't stretch */
+@media (min-width: 1920px) {
+  .container { max-width: 1520px; }
+}
+
+/* Small utility used by the new NotFound page and other Sprint-1 additions */
+.center-viewport {
+  min-height: 70vh;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}

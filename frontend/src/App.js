@@ -13,6 +13,7 @@ import CustomerDashboard from "./pages/CustomerDashboard";
 import ArtistDashboard from "./pages/ArtistDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import { AgencyDashboard, CorporateDashboard } from "./pages/RoleDashboards";
+import NotFound from "./pages/NotFound";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -40,7 +41,7 @@ function App() {
               <Route path="/agency" element={<Protected roles={["agency"]}><AgencyDashboard /></Protected>} />
               <Route path="/corporate" element={<Protected roles={["corporate"]}><CorporateDashboard /></Protected>} />
               <Route path="/admin" element={<Protected roles={["admin"]}><AdminDashboard /></Protected>} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </ToastProvider>
         </AuthProvider>
