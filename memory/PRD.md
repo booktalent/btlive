@@ -84,6 +84,56 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
+## Iter 27 — Sprint 3 UI + Sprint 4 Travel & Accommodation (this round)
+Completes the enterprise roadmap through Sprint 4.
+
+### Sprint 3 (Artist Add-ons) — Frontend wired
+- New "🎁 Add-ons" sidebar tab in Artist Dashboard (`sb-addons`)
+- Full CRUD in Artist Dashboard: create / edit / toggle active / delete
+  add-ons with fields (name, description, price, max_quantity, gst_pct,
+  is_mandatory, active). Soft-delete preserves historical booking snapshots.
+- BookingFlow step 1 renders "🎁 Artist Add-ons" — mandatory ones are
+  pre-selected & non-toggleable; optional ones toggle + quantity +/- buttons.
+- Booking POST now sends `addon_selections: [{addon_id, quantity}]`.
+- Summary panel shows artist add-ons line: `summary-artist-addons`.
+- Backend enforces mandatory selection (400 if any active mandatory add-on
+  is missing from the customer's selection).
+
+### Sprint 4 (Travel & Accommodation) — Full stack
+- `PackageBody` extended with 9 travel/accommodation fields: `travel_required`,
+  `accommodation_required`, `hotel_category`, `flight_class`, `team_size`,
+  `arrival_buffer_days`, `local_transport_required`, `meals_required`,
+  `travel_notes`.
+- Package modal shows a "✈️ Travel & Accommodation Rider" section with
+  conditional flight_class / hotel_category / team_size / arrival_buffer
+  fields when travel or accommodation is enabled.
+- `create_booking` snapshots the package's travel requirements into the
+  booking doc as `travel_requirements` (immutable — future edits to the
+  package don't rewrite history).
+- BookingFlow step 4 renders `review-travel-block` with all fields plus a
+  mandatory acknowledgement checkbox (`travel-ack-checkbox`) that gates the
+  "Proceed to Payment" button.
+- `_format_travel_reqs` helper prints the rider block into the contract PDF.
+- Business rule preserved — travel/accommodation costs are BORNE BY THE
+  CUSTOMER SEPARATELY. They never enter `pricing.total`. BookTalent still
+  invoices only 5% + 18% GST.
+
+### Test coverage
+- 6/6 pytest cases pass (`/app/backend/tests/test_iter27_travel.py`)
+- Frontend E2E: Sprint 3 CRUD + booking-integration + Sprint 4 package
+  modal + booking review + full confirmed booking with correct snapshots
+- Booking BT-260717-4F6A8C created via UI carries full addon_snapshots +
+  travel_requirements as regression fixture.
+
+### Files touched this iteration
+- `/app/backend/server.py` — PackageBody schema, create_booking snapshot,
+  _format_travel_reqs helper, contract text
+- `/app/frontend/src/pages/ArtistDashboard.jsx` — SIDEBAR, Addons + AddonModal,
+  extended PackageModal
+- `/app/frontend/src/pages/BookingFlow.jsx` — artistAddons state + helpers,
+  step-1 Artist Add-ons UI, step-4 travel block + travel_ack gate, summary
+- `/app/backend/tests/test_iter27_travel.py` — NEW
+
 ## Iter 16-18 — Self-Hosted VPS Deployment Ready (this round)
 Blocker fix for user setting up on Hostinger AlmaLinux 10.2:
 - `pip install -r requirements.txt` failed with 'emergentintegrations not found'.
