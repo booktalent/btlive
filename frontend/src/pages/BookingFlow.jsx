@@ -403,7 +403,7 @@ export default function BookingFlow() {
                 </div>
 
                 {/* Outstation Business Rule — auto-shown when event city ≠ artist city */}
-                {form.city && artist?.city && form.city.trim().toLowerCase() !== artist.city.trim().toLowerCase() && (
+                {form.city && artist?.profile?.city && form.city.trim().toLowerCase() !== artist.profile.city.trim().toLowerCase() && (
                   <div
                     className="card card-pad mb-16"
                     style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.35)" }}
@@ -418,7 +418,7 @@ export default function BookingFlow() {
                         <div className="fs-13" style={{ lineHeight: 1.5 }}>
                           {(platformSettings.outstation_notice ||
                             "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
-                            .replace("{artist_city}", artist.city)
+                            .replace("{artist_city}", artist.profile.city)
                             .replace("{event_city}", form.city)}
                         </div>
                       </div>
@@ -530,7 +530,7 @@ export default function BookingFlow() {
                 </div>
 
                 {/* Outstation Notice + acknowledgement — always required when cities differ */}
-                {form.city && artist?.city && form.city.trim().toLowerCase() !== artist.city.trim().toLowerCase() && (
+                {form.city && artist?.profile?.city && form.city.trim().toLowerCase() !== artist.profile.city.trim().toLowerCase() && (
                   <div
                     className="card card-pad mb-16"
                     style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.35)" }}
@@ -542,7 +542,7 @@ export default function BookingFlow() {
                     <div className="fs-13 mb-8" style={{ lineHeight: 1.5 }}>
                       {(platformSettings.outstation_notice ||
                         "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
-                        .replace("{artist_city}", artist.city)
+                        .replace("{artist_city}", artist.profile.city)
                         .replace("{event_city}", form.city)}
                     </div>
                     <label className="flex items-center gap-8">
@@ -559,7 +559,7 @@ export default function BookingFlow() {
                     onClick={() => setStep(5)}
                     disabled={
                       (pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes) && !form.travel_ack) ||
-                      (form.city && artist?.city && form.city.trim().toLowerCase() !== artist.city.trim().toLowerCase() && !form.outstation_ack)
+                      (form.city && artist?.profile?.city && form.city.trim().toLowerCase() !== artist.profile.city.trim().toLowerCase() && !form.outstation_ack)
                     }
                     data-testid="step4-next"
                   >🔐 Proceed to Payment →</button>
