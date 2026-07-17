@@ -84,6 +84,74 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
+## Iter 35 — City Aliases + Outstation Analytics + Data Cleanup (this round)
+
+Four cleanup / analytics items requested by the user.
+
+### 1. Drop Orphan Data
+- Ran mongo drop on `rider_vendors` — verified: collection no longer
+  listed. 7 orphan docs purged.
+
+### 2. Contract PDF Cleanup — verified as no-op
+- Scanned all 22 stored contracts for rider-wallet / Taj / IndiGo etc.
+  strings — **zero matches**. Rider-wallet content was only ever in the
+  BookingFlow UI, never in the persisted contract text. No regeneration
+  needed. Cleanup pass documented in this PRD as a formal audit.
+
+### 3. City Aliases (Delhi/NCR, Mumbai/Bombay etc.)
+- New `/app/backend/routes/city_aliases.py` — 16 default groups (Delhi,
+  Mumbai, Bengaluru, Kolkata, Chennai, Pune, Hyderabad, Gurgaon, Noida,
+  Kochi, Trivandrum, Puducherry, Vizag, Prayagraj, Varanasi, Vadodara)
+  each with 2-5 aliases. Persisted in `system_settings.city_aliases` so
+  admins can extend without redeploy.
+- `_outstation_check` in server.py now canonicalises both cities before
+  comparing → "Delhi" / "New Delhi" / "Delhi NCR" all treated as one
+  place. Module cache warmed lazily on first booking + refreshable via
+  admin edit.
+- `city_aliases` added to PUBLIC_SETTING_KEYS so the frontend can use the
+  same map for the live UI notice.
+- New endpoints: `GET /admin/city-aliases`, `POST /admin/city-aliases/reset`
+- Frontend BookingFlow adds a `canonicalCity()` helper + memoized
+  `isOutstation` bool that reads `platformSettings.city_aliases`. All 3
+  outstation checks (Step 3 notice, Step 4 review notice, step4-next
+  disable) now use the alias-aware helper.
+
+### 4. Outstation Analytics
+- New `/app/backend/routes/outstation_report.py` — aggregation endpoint
+  `GET /admin/reports/outstation?days=30` returns:
+    • totals: total_bookings, outstation_bookings, outstation_pct,
+      total_gmv_outstation, avg_performance_fee
+    • top_routes: [{artist_city, event_city, count, avg_fee, total_fee}]
+    • top_artist_cities / top_event_cities aggregations
+- New admin UI: `AdminOutstationReport.jsx` with 4 KPI cards, gradient
+  top-route bars, source/destination city tables, time-window selector
+  (30/90/180/365 days / all time). Wired as `sb-outstation-report` in
+  Admin sidebar.
+
+### Test coverage (Iter 34 report)
+- 18/18 backend pytest + 34/34 verified scenarios pass 100%.
+- Key wins: "Bombay" → treats as Mumbai (no outstation), "Delhi NCR"/
+  "New Delhi" → both canonicalise to Delhi (outstation triggers correctly
+  when artist is in Mumbai). Admin report shows Mumbai→Delhi as top route
+  in current dataset.
+
+### Cleanup
+- Removed stale test files `test_iter29_concierge_homepage_rider.py` and
+  `test_iter31_partners_insights_concierge.py` — they referenced the
+  deleted `/rider-wallet` + `/partners` routes.
+
+### Files added / modified
+- NEW: `/app/backend/routes/city_aliases.py`
+- NEW: `/app/backend/routes/outstation_report.py`
+- NEW: `/app/frontend/src/pages/admin/AdminOutstationReport.jsx`
+- NEW: `/app/backend/tests/test_iter35_city_aliases_outstation_report.py`
+- MOD: `/app/backend/server.py` — imports, cache, outstation-check helper, router regs
+- MOD: `/app/backend/iter7_routes.py` — city_aliases in PUBLIC_SETTING_KEYS
+- MOD: `/app/frontend/src/pages/AdminDashboard.jsx` — sb-outstation-report tab
+- MOD: `/app/frontend/src/pages/BookingFlow.jsx` — canonicalCity + isOutstation
+- DEL: `/app/backend/tests/test_iter29_*.py`, `test_iter31_*.py` (stale)
+- Mongo: dropped `rider_vendors` collection
+
 ## Iter 34 — Rider Wallet / Partners Directory Removed (this round)
 
 Per user request, the Rider Wallet + Public Partners Directory features
