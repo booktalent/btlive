@@ -176,6 +176,31 @@ async def get_current_user_optional(authorization: str | None) -> dict | None:
         return None
 
 
+# ─── httpOnly cookie helpers (defense-in-depth against XSS token theft) ──
+# Setting the JWT as an httpOnly cookie prevents JavaScript from reading it,
+# which shuts down the classic XSS-token-exfiltration path. The frontend
+# still stores the same token in localStorage so WebSocket auth (which can't
+# send headers) keeps working via the ?token= query param.
+_COOKIE_NAME = "access_token"
+_COOKIE_MAX_AGE = 60 * 60 * 24 * 7  # 7 days — matches JWT expiry
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=_COOKIE_NAME,
+        value=token,
+        max_age=_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,      # HTTPS-only (both Emergent preview + user's VPS are HTTPS)
+        samesite="lax",   # allows normal navigation, blocks cross-site CSRF
+        path="/",
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(key=_COOKIE_NAME, path="/")
+
+
 async def require_role(roles: list[str]):
     async def _dep(user: dict = Depends(get_current_user)) -> dict:
         if user.get("role") not in roles:
@@ -517,17 +542,26 @@ async def register(body: RegisterBody, response: Response):
     token = make_token(uid, body.role)
     user_doc.pop("password_hash", None)
     user_doc.pop("_id", None)
+    _set_auth_cookie(response, token)
     return {"token": token, "user": user_doc}
 
 
 @api.post("/auth/login")
-async def login(body: LoginBody):
+async def login(body: LoginBody, response: Response):
     email = body.email.lower()
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user.get("password_hash", "")):
         raise HTTPException(401, "Invalid email or password")
     token = make_token(user["id"], user["role"])
+    _set_auth_cookie(response, token)
     return {"token": token, "user": clean(user)}
+
+
+@api.post("/auth/logout")
+async def logout(response: Response):
+    """Clear the httpOnly auth cookie. The frontend must also clear localStorage."""
+    _clear_auth_cookie(response)
+    return {"ok": True}
 
 
 @api.get("/auth/config")
@@ -550,7 +584,7 @@ async def otp_send(body: OTPBody):
 
 
 @api.post("/auth/otp/verify")
-async def otp_verify(body: OTPBody):
+async def otp_verify(body: OTPBody, response: Response):
     rec = await db.otps.find_one({"phone": body.phone})
     if not rec or body.otp != "123456":
         raise HTTPException(400, "Invalid OTP")
@@ -558,6 +592,7 @@ async def otp_verify(body: OTPBody):
     user = await db.users.find_one({"phone": body.phone})
     if user:
         token = make_token(user["id"], user["role"])
+        _set_auth_cookie(response, token)
         return {"verified": True, "token": token, "user": clean(user)}
     return {"verified": True, "token": None}
 

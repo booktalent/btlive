@@ -178,7 +178,7 @@ export default function ArtistProfile() {
                       <div className="pkg-name">{p.name}</div>
                       <div className="text-muted fs-12 mb-12">⏱ {p.duration}</div>
                       <div className="pkg-price">{fmtINRFull(p.price)} <span style={{ fontSize: 12, color: "var(--white-muted)", fontWeight: 400 }}>/event</span></div>
-                      <ul className="pkg-features">{p.features.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                      <ul className="pkg-features">{p.features.map((f, i) => <li key={`${p.id}-f-${i}-${f}`}>{f}</li>)}</ul>
                     </div>
                   ))}
                 </div>

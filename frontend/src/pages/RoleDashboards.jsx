@@ -210,9 +210,12 @@ export function CorporateDashboard() {
   const [stats, setStats] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [artists, setArtists] = useState([]);
-  const [rows, setRows] = useState([
-    { artist_id: "", package_id: "", event_date: "", venue: "", city: "", cost_centre: "", po_number: "", headcount: 100 },
-  ]);
+  // Track a stable per-row id so React keys stay correct even when rows are
+  // removed from the middle of the list (avoids the classic index-as-key bug).
+  const nextRowKey = React.useRef(1);
+  const _newRow = () => ({ _key: nextRowKey.current++, artist_id: "", package_id: "", event_date: "", venue: "", city: "", cost_centre: "", po_number: "", headcount: 100 });
+
+  const [rows, setRows] = useState([_newRow()]);
   const [pkgsByArtist, setPkgsByArtist] = useState({});
 
   const refresh = () => {
@@ -235,7 +238,7 @@ export function CorporateDashboard() {
     setRows(next);
   };
 
-  const addRow = () => setRows([...rows, { artist_id: "", package_id: "", event_date: "", venue: "", city: "", cost_centre: "", po_number: "", headcount: 100 }]);
+  const addRow = () => setRows([...rows, _newRow()]);
   const removeRow = (i) => setRows(rows.filter((_, x) => x !== i));
 
   const submitBulk = async () => {
@@ -244,7 +247,7 @@ export function CorporateDashboard() {
     try {
       const r = await api.post("/corporate/bulk-bookings", { bookings: valid });
       toast(`✓ Created ${r.data.created} booking(s)${r.data.errors.length ? ` · ${r.data.errors.length} error(s)` : ""}`);
-      setRows([{ artist_id: "", package_id: "", event_date: "", venue: "", city: "", cost_centre: "", po_number: "", headcount: 100 }]);
+      setRows([_newRow()]);
       refresh();
     } catch (e) { toast(formatApiError(e), "error"); }
   };
@@ -289,7 +292,7 @@ export function CorporateDashboard() {
               <div className="card-head"><div className="card-title">➕ Bulk Booking</div></div>
               <div style={{ padding: 14 }}>
                 {rows.map((r, i) => (
-                  <div key={i} className="card card-pad mb-12" data-testid={`bulk-row-${i}`}>
+                  <div key={r._key} className="card card-pad mb-12" data-testid={`bulk-row-${i}`}>
                     <div className="grid grid-3 gap-12" style={{ marginBottom: 8 }}>
                       <select className="field-input" value={r.artist_id} onChange={(e) => updateRow(i, "artist_id", e.target.value)} data-testid={`bulk-artist-${i}`}>
                         <option value="">Select Artist…</option>

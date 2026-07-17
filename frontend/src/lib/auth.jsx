@@ -30,6 +30,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    // Clear the httpOnly cookie server-side. Non-fatal if it fails (already
+    // wiping localStorage below shuts down further auth actions).
+    api.post("/auth/logout").catch(() => {});
     localStorage.removeItem("bt_token");
     setUser(null);
   };

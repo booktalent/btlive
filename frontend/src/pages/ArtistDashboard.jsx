@@ -477,7 +477,7 @@ function Packages({ data, refresh, toast }) {
             <div className="pkg-name">{p.name}</div>
             <div className="text-muted fs-12 mb-12">⏱ {p.duration}</div>
             <div className="pkg-price">{fmtINRFull(p.price)}</div>
-            <ul className="pkg-features">{(p.features || []).map((f, i) => <li key={i}>{f}</li>)}</ul>
+            <ul className="pkg-features">{(p.features || []).map((f, i) => <li key={`${p.id || "new"}-f-${i}-${f}`}>{f}</li>)}</ul>
             <div className="flex gap-8 mt-16">
               <button className="btn btn-ghost btn-xs" onClick={() => setModal(p)} data-testid={`edit-pkg-${p.id}`}>Edit</button>
               <button className="btn btn-red btn-xs" onClick={() => del(p.id)} data-testid={`del-pkg-${p.id}`}>Delete</button>

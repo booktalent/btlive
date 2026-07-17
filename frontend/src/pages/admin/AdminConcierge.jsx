@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import api, { formatApiError } from "../../lib/api";
 
 /**
@@ -17,33 +17,34 @@ export default function AdminConcierge({ toast }) {
   const [sending, setSending] = useState(false);
   const listRef = useRef(null);
 
-  const loadThreads = async () => {
+  const loadThreads = useCallback(async () => {
     try {
       const q = statusFilter ? `?status=${statusFilter}` : "";
       const r = await api.get(`/admin/concierge/threads${q}`);
       setThreads(r.data);
     } catch (e) { toast(formatApiError(e), "error"); }
-  };
+  }, [statusFilter, toast]);
 
-  const loadMessages = async (tid) => {
+  const loadMessages = useCallback(async (tid) => {
     try {
       const r = await api.get(`/admin/concierge/${tid}/messages`);
       setMessages(r.data.messages || []);
       setActive(r.data.thread);
       setTimeout(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, 50);
     } catch (e) { toast(formatApiError(e), "error"); }
-  };
+  }, [toast]);
 
-  useEffect(() => { loadThreads(); }, [statusFilter]); // eslint-disable-line
+  useEffect(() => { loadThreads(); }, [loadThreads]);
   useEffect(() => {
-    // Poll for new threads / replies every 15s
+    // Poll for new threads / replies every 15s. `loadThreads` / `loadMessages`
+    // are stable references thanks to useCallback so the interval sees the
+    // freshest closure without churning.
     const iv = setInterval(() => {
       loadThreads();
       if (active) loadMessages(active.id);
     }, 15000);
     return () => clearInterval(iv);
-    // eslint-disable-next-line
-  }, [active, statusFilter]);
+  }, [active, loadThreads, loadMessages]);
 
   const send = async () => {
     if (!text.trim() || !active || sending) return;

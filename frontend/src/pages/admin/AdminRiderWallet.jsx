@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import api, { formatApiError } from "../../lib/api";
 
 /**
@@ -10,13 +10,13 @@ export default function AdminRiderWallet({ toast }) {
   const [modal, setModal] = useState(null);
   const [typeFilter, setTypeFilter] = useState("");
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const r = await api.get("/admin/rider-wallet/vendors");
       setList(r.data);
     } catch (e) { toast(formatApiError(e), "error"); }
-  };
-  useEffect(() => { refresh(); }, []); // eslint-disable-line
+  }, [toast]);
+  useEffect(() => { refresh(); }, [refresh]);
 
   const save = async (v) => {
     try {
