@@ -442,8 +442,24 @@ export default function BookingFlow() {
                   </div>
                 )}
                 <div className="field">
-                  <div className="field-label">Special Instructions</div>
-                  <textarea className="field-input" value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Song dedications, special requests…" data-testid="booking-notes" />
+                  <div className="field-label">Song Requests / Dedications</div>
+                  <textarea className="field-input" value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Song dedications, playlist ideas, special requests…" data-testid="booking-notes" />
+                </div>
+                <div className="field">
+                  <div className="field-label">
+                    Special Instructions
+                    {isOutstation && <span className="text-gold fs-11" style={{ marginLeft: 8 }}>· recommended for outstation bookings</span>}
+                  </div>
+                  <textarea
+                    className="field-input"
+                    value={form.special_instructions || ""}
+                    onChange={(e) => set("special_instructions", e.target.value)}
+                    placeholder={isOutstation
+                      ? "Outstation asks: hotel preference, flight class, arrival/departure timing, dietary needs, green-room setup, security…"
+                      : "Anything else the artist should know — dietary needs, green-room setup, dress code, load-in access…"}
+                    rows={3}
+                    data-testid="booking-special-instructions"
+                  />
                 </div>
                 <div className="field">
                   <div className="field-label">Coupon Code (optional)</div>
@@ -508,6 +524,12 @@ export default function BookingFlow() {
                   <div className="flex justify-between mb-8"><span className="text-muted">Date</span><span>{form.event_date} · {form.event_time}</span></div>
                   <div className="flex justify-between mb-8"><span className="text-muted">Venue</span><span>{form.venue}, {form.city}</span></div>
                   <div className="flex justify-between"><span className="text-muted">Type</span><span>{form.event_type}</span></div>
+                  {(form.special_instructions || "").trim() && (
+                    <div className="mt-12" data-testid="review-special-instructions">
+                      <div className="text-muted fs-11 mb-4" style={{ textTransform: "uppercase", letterSpacing: 1 }}>Special Instructions</div>
+                      <div className="fs-13" style={{ whiteSpace: "pre-line" }}>{form.special_instructions}</div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Outstation Notice + acknowledgement — always required when cities differ (alias-aware) */}

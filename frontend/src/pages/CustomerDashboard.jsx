@@ -198,6 +198,11 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                 <td>
                   <div className="fw-600">{b.event_type}</div>
                   <div className="text-muted fs-11">{b.venue}, {b.city}</div>
+                  {(b.special_instructions || "").trim() && (
+                    <div className="text-muted fs-11 mt-4" title={b.special_instructions} data-testid={`si-preview-${b.id}`} style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      📝 {b.special_instructions}
+                    </div>
+                  )}
                 </td>
                 <td className="fs-12">{b.event_date}<br/><span className="text-muted">{b.event_time}</span></td>
                 <td className="text-gold font-serif fs-18 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>

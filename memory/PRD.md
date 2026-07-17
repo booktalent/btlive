@@ -84,7 +84,49 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
-## Iter 35 — City Aliases + Outstation Analytics + Data Cleanup (this round)
+## Iter 36 — Booking Special Instructions Field (this round)
+
+Small focused feature — a distinct free-text field for the customer to
+document outstation asks / dietary / green-room / access requirements
+inline with the booking.
+
+### Backend
+- `BookingCreate` gets a new optional `special_instructions: str = ""`.
+- Persisted (stripped) into the booking doc alongside the existing generic
+  `notes` field so both parties + admin can see it later.
+- `_create_contract` prints a `SPECIAL INSTRUCTIONS FROM CLIENT` block
+  right after the outstation clause and before financial terms — only
+  when the field is non-empty.
+
+### Frontend
+- BookingFlow Step 3 renames the existing textarea to
+  **"Song Requests / Dedications"** (matches its placeholder) and adds a
+  distinct **"Special Instructions"** textarea.
+- Placeholder is context-aware: when `isOutstation` is true it hints at
+  "Outstation asks: hotel preference, flight class, arrival timing,
+  dietary needs, green-room setup…". When same-city it's more neutral.
+- A subtle "· recommended for outstation bookings" hint appears on the
+  label the moment the outstation check flips on.
+- Review Step 4 shows a `review-special-instructions` block echoing back
+  the text so the customer can double-check before payment.
+- Shared `BookingsTable` (used by both Customer + Artist dashboards)
+  renders a truncated `📝` preview on each row with the full text in a
+  hover tooltip — so both parties see the ask at a glance.
+
+### Test coverage
+- 4/4 backend pytest cases pass (`test_iter36_special_instructions.py`):
+  parametric outstation flag (Delhi/Mumbai/Bombay), empty-field default,
+  backwards-compat (missing field).
+- Frontend visual verified — the field renders correctly on Step 3 with
+  context-aware placeholder.
+
+### Files touched
+- MOD: `/app/backend/server.py` — BookingCreate model + persistence + contract print
+- MOD: `/app/frontend/src/pages/BookingFlow.jsx` — Step 3 field + Step 4 echo
+- MOD: `/app/frontend/src/pages/CustomerDashboard.jsx` — table preview
+- NEW: `/app/backend/tests/test_iter36_special_instructions.py`
+
+## Iter 35 — City Aliases + Outstation Analytics + Data Cleanup
 
 Four cleanup / analytics items requested by the user.
 

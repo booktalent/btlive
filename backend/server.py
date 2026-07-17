@@ -352,6 +352,10 @@ class BookingCreate(BaseModel):
     guests: Optional[str] = None
     language_pref: Optional[str] = None
     notes: str = ""
+    # Iter 36 — Customer-facing free-text field for outstation asks,
+    # dietary requirements, green-room needs etc. Persisted to booking doc,
+    # surfaced to artist + printed in the contract PDF.
+    special_instructions: str = ""
     coupon_code: Optional[str] = None
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
@@ -1318,6 +1322,7 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         "guests": body.guests,
         "language_pref": body.language_pref,
         "notes": body.notes,
+        "special_instructions": (body.special_instructions or "").strip(),
         "customer_name": body.customer_name or f"{user.get('first_name','')} {user.get('last_name','')}".strip(),
         "customer_phone": body.customer_phone or user.get("phone"),
         "customer_email": body.customer_email or user.get("email"),
@@ -1565,7 +1570,7 @@ EVENT DETAILS:
 
 TRAVEL & ACCOMMODATION (borne by Client, in addition to the Artist Fee):
 {_format_travel_reqs(booking.get('travel_requirements') or {})}
-{outstation_block}FINANCIAL TERMS:
+{outstation_block}{"SPECIAL INSTRUCTIONS FROM CLIENT:" + chr(10) + "  " + (booking.get("special_instructions") or "").strip() + chr(10) + chr(10) if (booking.get("special_instructions") or "").strip() else ""}FINANCIAL TERMS:
   Artist Performance Fee (paid by Client directly to Artist) : ₹{booking['pricing'].get('artist_fee', booking['pricing'].get('package_fee', 0) + booking['pricing'].get('addons_total', 0)):.2f}
 
   Platform Service Fee (5% — payable to BookTalent)          : ₹{booking['pricing']['platform_fee']:.2f}
