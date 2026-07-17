@@ -84,6 +84,75 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
+## Iter 30 — Code Quality Hardening (this round)
+
+Applied user's code-review report — with pragmatic triage (skipped false
+positives and risky metric-chasing refactors, applied real fixes only).
+
+### Real fixes applied
+- **httpOnly cookie auth**: `_set_auth_cookie()` / `_clear_auth_cookie()`
+  helpers in `server.py`. Login / register / OTP-verify now emit a
+  `Set-Cookie: access_token=<jwt>; HttpOnly; Secure; SameSite=Lax;
+  Max-Age=604800; Path=/`. `POST /auth/logout` clears it. Backend already
+  had the cookie fallback in `get_current_user` — REST is now covered by
+  either the httpOnly cookie or the Bearer header. XSS-based token
+  exfiltration through `localStorage` is defanged for REST calls.
+- **Frontend axios `withCredentials: true`** — same-origin cookie flows
+  automatically. Kept the localStorage bearer token for the WebSocket
+  handshake compat (browsers don't send headers on `new WebSocket`).
+- **auth.jsx logout** now calls `/api/auth/logout` before wiping local
+  state — server-side cookie is properly cleared.
+- **Corporate bulk-booking rows**: replaced `key={i}` with a stable per-row
+  `_key` from a `useRef` counter — removing a middle row no longer shifts
+  data into the wrong input.
+- **Feature list keys** (ArtistProfile + ArtistDashboard): stable
+  `${pkg.id}-f-${i}-${text}` keys prevent React reconciliation bugs when
+  features are re-ordered.
+- **AdminConcierge / AdminRiderWallet fetchers** wrapped in `useCallback`
+  — no more stale closure over `statusFilter` in the poll interval.
+- **Test-fixture creds** in `test_iter25_uploads.py` moved to environment
+  variables with sensible fallbacks.
+- **Bonus fix**: RoleDashboards was hitting `/api/artists?limit=200`
+  (404) — corrected to `/api/artists/search?limit=200` and unwraps
+  `data.items`. The Corporate bulk-booking artist dropdown now populates.
+
+### False positives — skipped
+- `notification_service.py:46` — `token = "{" + k + "}"` is a Python
+  template placeholder, not a credential. Static analyser mistake.
+- Skeleton loader `key={i}` in fixed-length `[...Array(n)]` maps — the
+  list never re-orders so React reuses correctly. Left as-is.
+- Most of the 60 missing-hook-deps warnings — adding `run`/`load` to deps
+  causes infinite render loops in this codebase (already suppressed with
+  explicit deps + eslint-disable, which is the right pattern).
+
+### Risky metric-chasing refactors — skipped
+- `iter7_routes.make_router` (779 lines), `iter11_routes.ai_search` (185
+  lines), `chat_routes.make_chat_router` (176 lines) — 100% test-covered
+  files, zero reported bugs. Coding guidelines explicitly forbid
+  refactoring for its own sake.
+- `BookingFlow.jsx` / `ChatBox.jsx` / `OnboardingWizard.jsx` splits —
+  same reasoning; splitting risks regressions on the checkout + chat
+  flows just verified in iter 27-29.
+
+### Test coverage
+- 20/20 pytest cases pass (`/app/backend/tests/test_iter30_cookie_auth.py`)
+- Playwright verified: cookie flags on login, cookie cleared on logout,
+  cookie-only REST auth works, Bearer-only REST auth works, personalized
+  homepage rails render for logged-in customer, stable bulk-booking rows.
+- Regression: all iter 27-29 flows still green.
+
+### Files touched
+- MOD: `/app/backend/server.py` — Cookie helpers + login/register/otp/logout
+- MOD: `/app/backend/tests/test_iter25_uploads.py` — env-based fixtures
+- MOD: `/app/frontend/src/lib/api.js` — `withCredentials: true`
+- MOD: `/app/frontend/src/lib/auth.jsx` — logout hits backend
+- MOD: `/app/frontend/src/pages/RoleDashboards.jsx` — stable row keys + fixed artist endpoint
+- MOD: `/app/frontend/src/pages/ArtistProfile.jsx` — stable feature keys
+- MOD: `/app/frontend/src/pages/ArtistDashboard.jsx` — stable feature keys
+- MOD: `/app/frontend/src/pages/admin/AdminConcierge.jsx` — useCallback
+- MOD: `/app/frontend/src/pages/admin/AdminRiderWallet.jsx` — useCallback
+- NEW: `/app/backend/tests/test_iter30_cookie_auth.py`
+
 ## Iter 29 — Elite Concierge + Smart Homepage + Rider Wallet (this round)
 
 ### Elite Concierge Chat (Platinum + Elite only)

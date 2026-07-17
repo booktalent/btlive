@@ -221,7 +221,7 @@ export function CorporateDashboard() {
   const refresh = () => {
     api.get("/corporate/stats").then((r) => setStats(r.data)).catch(() => {});
     api.get("/corporate/bookings").then((r) => setBookings(r.data)).catch(() => {});
-    api.get("/artists?limit=200").then((r) => setArtists(r.data)).catch(() => {});
+    api.get("/artists/search?limit=200").then((r) => setArtists(r.data.items || [])).catch(() => {});
   };
   useEffect(() => { refresh(); }, []);
 
