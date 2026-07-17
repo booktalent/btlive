@@ -648,15 +648,15 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
 
         sort_spec: List[tuple] = []
         if sort == "price_asc":
-            sort_spec = [("boost_rank", -1), ("base_price", 1)]
+            sort_spec = [("plan_rank", -1), ("boost_rank", -1), ("base_price", 1)]
         elif sort == "price_desc":
-            sort_spec = [("boost_rank", -1), ("base_price", -1)]
+            sort_spec = [("plan_rank", -1), ("boost_rank", -1), ("base_price", -1)]
         elif sort == "rating":
-            sort_spec = [("boost_rank", -1), ("rating_avg", -1)]
+            sort_spec = [("plan_rank", -1), ("boost_rank", -1), ("rating_avg", -1)]
         elif sort == "newest":
-            sort_spec = [("boost_rank", -1), ("created_at", -1)]
+            sort_spec = [("plan_rank", -1), ("boost_rank", -1), ("created_at", -1)]
         else:
-            sort_spec = [("boost_rank", -1), ("is_featured", -1), ("rating_avg", -1)]
+            sort_spec = [("plan_rank", -1), ("boost_rank", -1), ("is_featured", -1), ("rating_avg", -1)]
 
         skip = max(0, (page - 1) * limit)
         cur = db.artist_profiles.find(filt).sort(sort_spec).skip(skip).limit(limit)

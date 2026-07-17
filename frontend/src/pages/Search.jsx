@@ -14,6 +14,8 @@ export default function Search() {
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [cities, setCities] = useState([]);
   const [categories, setCategories] = useState([]);
   const [languages, setLanguages] = useState([]);
@@ -51,8 +53,8 @@ export default function Search() {
     if (user) api.get("/search/saved").then((r) => setSaved(r.data)).catch(() => {});
   }, [user]);
 
-  const run = async (pg = 1) => {
-    setLoading(true);
+  const run = async (pg = 1, append = false) => {
+    if (append) setLoadingMore(true); else setLoading(true);
     const p = new URLSearchParams();
     if (q) p.set("q", q);
     if (category) p.set("category", category);
@@ -71,14 +73,18 @@ export default function Search() {
     p.set("sort", sort);
     p.set("page", pg);
     p.set("limit", "24");
-    setParams(p);
+    // Preserve URL only for the base page (not the infinite append calls)
+    if (!append) setParams(p);
     setPage(pg);
     try {
       const r = await api.get(`/search/artists?${p.toString()}`);
-      setItems(r.data.items);
+      setItems(append ? [...items, ...r.data.items] : r.data.items);
       setTotal(r.data.total);
       setPages(r.data.pages);
-    } finally { setLoading(false); }
+      setHasMore(pg < r.data.pages);
+    } finally {
+      if (append) setLoadingMore(false); else setLoading(false);
+    }
   };
 
   // Filters trigger a fresh page-1 fetch. `run` is redefined every render so
@@ -86,6 +92,20 @@ export default function Search() {
   // list all filter deps explicitly instead.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { run(1); }, [category, city, sort, language, eventType, minRating, minExperience, gender, featuredOnly, verifiedOnly, premiumOnly, instantOnly]);
+
+  // Sprint 6 — Infinite scroll via IntersectionObserver on a sentinel element
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    if (!sentinelRef.current || !hasMore) return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && !loadingMore && !loading && hasMore) {
+        run(page + 1, true);
+      }
+    }, { rootMargin: "400px" });
+    io.observe(sentinelRef.current);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasMore, page, loadingMore, loading]);
 
   // Live suggestions
   useEffect(() => {
@@ -280,7 +300,9 @@ export default function Search() {
                       placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>}
                     >
                       {a.is_featured && <span className="boost-tag">★ FEATURED</span>}
-                      {a.premium_badge && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #c084fc, #7c3aed)" }}>💎 PREMIUM</span>}
+                      {a.plan_code === "elite" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #f472b6, #d4af37)" }}>👑 ELITE</span>}
+                      {a.plan_code === "platinum" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #a78bfa, #7c3aed)" }}>💎 PLATINUM</span>}
+                      {a.plan_code === "gold" && !a.is_featured && <span className="boost-tag" style={{ background: "linear-gradient(135deg, #fbbf24, #d4af37)" }}>🥇 GOLD</span>}
                     </ArtistCardThumb>
                     <div className="artist-card-body">
                       <div className="artist-card-name">
@@ -301,11 +323,20 @@ export default function Search() {
               })}
             </div>
 
-            {pages > 1 && (
-              <div className="flex justify-center gap-8 mt-24" style={{ marginTop: 24, justifyContent: "center" }} data-testid="pagination">
-                <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => run(page - 1)} data-testid="page-prev">← Prev</button>
-                <div className="text-muted fs-13" style={{ alignSelf: "center" }}>Page {page} of {pages}</div>
-                <button className="btn btn-ghost btn-sm" disabled={page >= pages} onClick={() => run(page + 1)} data-testid="page-next">Next →</button>
+            {pages > 1 && hasMore && (
+              <div ref={sentinelRef} style={{ padding: 32, textAlign: "center" }} data-testid="infinite-scroll-sentinel">
+                {loadingMore ? (
+                  <div className="grid grid-4" style={{ marginTop: 12 }}>
+                    {[...Array(4)].map((_, i) => <div key={`m${i}`} className="skeleton" style={{ height: 320 }} />)}
+                  </div>
+                ) : (
+                  <div className="text-muted fs-13">Scroll to load more…</div>
+                )}
+              </div>
+            )}
+            {pages > 1 && !hasMore && (
+              <div className="text-muted text-center fs-13" style={{ padding: 24 }} data-testid="infinite-scroll-end">
+                — End of results —
               </div>
             )}
           </>

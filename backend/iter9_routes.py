@@ -223,6 +223,25 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             raise HTTPException(404, "Artist not in your roster")
         return {"ok": True}
 
+    @r.patch("/agency/roster/{artist_id}/commission")
+    async def agency_update_commission(artist_id: str, body: dict, user: dict = Depends(get_current_user)):
+        """Sprint 6 — update an artist's commission % for this agency."""
+        if user["role"] != "agency":
+            raise HTTPException(403, "Agency only")
+        try:
+            pct = float(body.get("commission_pct"))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "commission_pct is required")
+        if pct < 0 or pct > 50:
+            raise HTTPException(400, "commission_pct must be 0-50")
+        result = await db.agency_roster.update_one(
+            {"agency_id": user["id"], "artist_id": artist_id, "status": "active"},
+            {"$set": {"commission_pct": pct, "updated_at": utcnow()}},
+        )
+        if result.matched_count == 0:
+            raise HTTPException(404, "Artist not in your active roster")
+        return {"ok": True, "commission_pct": pct}
+
     @r.get("/agency/bookings")
     async def agency_bookings(user: dict = Depends(get_current_user)):
         if user["role"] != "agency":

@@ -45,6 +45,8 @@ from routes import disputes as routes_disputes
 from routes import kyc as routes_kyc
 from routes import uploads as routes_uploads
 from routes import addons as routes_addons
+from routes import subscriptions as routes_subscriptions
+from routes import homepage as routes_homepage
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -2430,6 +2432,18 @@ app.include_router(
 # Sprint 3 — artist-defined add-ons
 app.include_router(
     routes_addons.make_router(get_current_user=get_current_user, **_common_deps),
+    prefix="/api",
+)
+# Sprint 5 — premium subscription plans
+app.include_router(
+    routes_subscriptions.make_router(
+        get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
+    ),
+    prefix="/api",
+)
+# Sprint 5 — dynamic homepage sections (public)
+app.include_router(
+    routes_homepage.make_router(**_common_deps),
     prefix="/api",
 )
 

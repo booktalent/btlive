@@ -43,6 +43,21 @@ export function AgencyDashboard() {
     refresh();
   };
 
+  // Sprint 6 — inline commission edit
+  const [editing, setEditing] = useState({}); // { artist_id: newPctString }
+  const startEdit = (row) => setEditing({ ...editing, [row.artist_id]: String(row.commission_pct) });
+  const cancelEdit = (id) => { const n = { ...editing }; delete n[id]; setEditing(n); };
+  const saveEdit = async (id) => {
+    const pct = Number(editing[id]);
+    if (isNaN(pct) || pct < 0 || pct > 50) { toast("Commission must be 0-50%", "error"); return; }
+    try {
+      await api.patch(`/agency/roster/${id}/commission`, { commission_pct: pct });
+      toast("Commission updated");
+      cancelEdit(id);
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
   if (!user) return null;
 
   const SIDEBAR = [
@@ -98,11 +113,39 @@ export function AgencyDashboard() {
                         <td>{row.artist?.category || "—"}</td>
                         <td>{row.artist?.city || "—"}</td>
                         <td>★ {row.artist?.rating_avg || 0} ({row.artist?.review_count || 0})</td>
-                        <td>{row.commission_pct}%</td>
+                        <td>
+                          {editing[row.artist_id] !== undefined ? (
+                            <div className="flex gap-4 items-center">
+                              <input
+                                type="number" min={0} max={50}
+                                className="field-input"
+                                style={{ width: 70, padding: "4px 6px" }}
+                                value={editing[row.artist_id]}
+                                onChange={(e) => setEditing({ ...editing, [row.artist_id]: e.target.value })}
+                                data-testid={`commission-input-${row.artist_id}`}
+                              />
+                              <span>%</span>
+                            </div>
+                          ) : (
+                            <span data-testid={`commission-${row.artist_id}`}>{row.commission_pct}%</span>
+                          )}
+                        </td>
                         <td><span className={`pill pill-${row.status === "active" ? "green" : row.status === "pending" ? "amber" : "red"}`}>{row.status}</span></td>
                         <td>
                           {row.status === "active" && (
-                            <button className="btn btn-red btn-xs" onClick={() => remove(row.artist_id)} data-testid={`remove-${row.artist_id}`}>Remove</button>
+                            <div className="flex gap-4">
+                              {editing[row.artist_id] !== undefined ? (
+                                <>
+                                  <button className="btn btn-gold btn-xs" onClick={() => saveEdit(row.artist_id)} data-testid={`commission-save-${row.artist_id}`}>Save</button>
+                                  <button className="btn btn-ghost btn-xs" onClick={() => cancelEdit(row.artist_id)}>Cancel</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button className="btn btn-ghost btn-xs" onClick={() => startEdit(row)} data-testid={`commission-edit-${row.artist_id}`}>Edit %</button>
+                                  <button className="btn btn-red btn-xs" onClick={() => remove(row.artist_id)} data-testid={`remove-${row.artist_id}`}>Remove</button>
+                                </>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>

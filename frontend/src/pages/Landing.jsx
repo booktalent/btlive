@@ -16,24 +16,16 @@ const CATEGORIES = [
 export default function Landing() {
   const [q, setQ] = useState("");
   const [city, setCity] = useState("");
-  const [featured, setFeatured] = useState([]);
+  const [rails, setRails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cities, setCities] = useState([]);
 
   useEffect(() => {
-    api.get("/artists/featured?limit=8").then(r => {
-      // Dedupe by user_id — the backend aggregator sometimes returns the same
-      // artist twice when they qualify for multiple sections (Featured +
-      // Premium + Verified). Guard React against duplicate keys.
-      const seen = new Set();
-      const unique = (r.data || []).filter((a) => {
-        const k = a?.user_id;
-        if (!k || seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-      setFeatured(unique);
-    }).finally(() => setLoading(false));
+    // Sprint 5 — dynamic homepage rails
+    const geo = localStorage.getItem("bt_city") || "";
+    api.get(`/homepage/sections?limit=8${geo ? `&city=${encodeURIComponent(geo)}` : ""}`).then((r) => {
+      setRails(r.data || []);
+    }).catch(() => setRails([])).finally(() => setLoading(false));
     api.get("/cities").then(r => setCities(r.data));
   }, []);
 
@@ -41,7 +33,10 @@ export default function Landing() {
     e?.preventDefault();
     const p = new URLSearchParams();
     if (q) p.set("q", q);
-    if (city) p.set("city", city);
+    if (city) {
+      p.set("city", city);
+      localStorage.setItem("bt_city", city);
+    }
     window.location.href = `/search?${p.toString()}`;
   };
 
@@ -114,44 +109,14 @@ export default function Landing() {
 
       <section className="section">
         <div className="container">
-          <div className="section-head">
-            <div>
-              <h2 className="section-title">
-                <span className="gold-grad">Featured</span> Artists
-              </h2>
-              <p className="section-sub">Top-rated, verified talent ready to make your event unforgettable</p>
-            </div>
-            <Link to="/search" className="btn btn-ghost btn-sm" data-testid="view-all-artists">View All →</Link>
-          </div>
-
           {loading ? (
             <div className="grid grid-4">
               {[...Array(4)].map((_, i) => <div key={i} className="skeleton" style={{ height: 320 }} />)}
             </div>
           ) : (
-            <div className="grid grid-4">
-              {featured.map((a) => {
-                return (
-                <Link to={`/artist/${a.user_id}`} key={a.user_id} className="artist-card" data-testid={`featured-card-${a.user_id}`}>
-                  <ArtistCardThumb
-                    artist={a}
-                    className="artist-card-cover"
-                    placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>}
-                  >
-                    {a.is_boosted && <span className="boost-tag">★ FEATURED</span>}
-                  </ArtistCardThumb>
-                  <div className="artist-card-body">
-                    <div className="artist-card-name">{a.stage_name}</div>
-                    <div className="artist-card-meta">{a.category} · 📍 {a.city}</div>
-                    <div className="artist-card-foot">
-                      <span className="artist-card-rating">★ {a.rating_avg.toFixed(1)} <span style={{ color: "var(--white-muted)", fontWeight: 400 }}>({a.review_count})</span></span>
-                      <span className="artist-card-price">{a.starting_price ? fmtINRFull(a.starting_price) : "—"}<small>/event</small></span>
-                    </div>
-                  </div>
-                </Link>
-                );
-              })}
-            </div>
+            rails.map((rail) => (
+              <HomeRail key={rail.code} rail={rail} />
+            ))
           )}
         </div>
       </section>
@@ -173,6 +138,59 @@ export default function Landing() {
       <footer style={{ padding: "40px 24px", textAlign: "center", borderTop: "1px solid var(--glass-border)", color: "var(--white-muted)", fontSize: 13 }}>
         © 2026 BookTalent · India's Premium Talent Marketplace
       </footer>
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// Sprint 5 — Dynamic homepage rail. Horizontal-scrolling artist row.
+// ────────────────────────────────────────────────────────────────────────
+function HomeRail({ rail }) {
+  if (!rail?.items?.length) return null;
+  // Dedupe by user_id to guard against duplicate-key warnings
+  const seen = new Set();
+  const items = rail.items.filter((a) => {
+    if (!a?.user_id || seen.has(a.user_id)) return false;
+    seen.add(a.user_id);
+    return true;
+  });
+  return (
+    <div className="mb-32" data-testid={`rail-${rail.code}`} style={{ marginBottom: 40 }}>
+      <div className="section-head">
+        <div>
+          <h2 className="section-title" style={{ fontSize: 24 }}>{rail.title}</h2>
+          <p className="section-sub">{rail.subtitle}</p>
+        </div>
+        <Link to={`/search?section=${encodeURIComponent(rail.code)}`} className="btn btn-ghost btn-sm" data-testid={`rail-more-${rail.code}`}>View All →</Link>
+      </div>
+      <div className="grid grid-4">
+        {items.map((a) => (
+          <Link to={`/artist/${a.user_id}`} key={a.user_id} className="artist-card" data-testid={`rail-card-${rail.code}-${a.user_id}`}>
+            <ArtistCardThumb
+              artist={a}
+              className="artist-card-cover"
+              placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>}
+            >
+              {a.is_boosted && <span className="boost-tag">★ BOOSTED</span>}
+              {a.plan_code === "elite" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #f472b6, #d4af37)" }}>👑 ELITE</span>}
+              {a.plan_code === "platinum" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #a78bfa, #7c3aed)" }}>💎 PLATINUM</span>}
+              {a.plan_code === "gold" && !a.is_boosted && <span className="boost-tag" style={{ background: "linear-gradient(135deg, #fbbf24, #d4af37)" }}>🥇 GOLD</span>}
+            </ArtistCardThumb>
+            <div className="artist-card-body">
+              <div className="artist-card-name">
+                {a.stage_name}
+                {a.verified_badge && <span style={{ color: "var(--gold)", marginLeft: 6 }}>✓</span>}
+              </div>
+              <div className="artist-card-meta">{a.category} · 📍 {a.city}</div>
+              <div className="artist-card-foot">
+                <span className="artist-card-rating">★ {(a.rating_avg || 0).toFixed(1)} <span style={{ color: "var(--white-muted)", fontWeight: 400 }}>({a.review_count || 0})</span></span>
+                <span className="artist-card-price">{a.starting_price ? fmtINRFull(a.starting_price) : "—"}<small>/event</small></span>
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

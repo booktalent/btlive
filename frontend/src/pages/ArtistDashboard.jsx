@@ -39,6 +39,7 @@ const SIDEBAR = [
   { id: "wallet", label: "💰 Wallet" },
   { id: "reviews", label: "⭐ Reviews" },
   { id: "boost", label: "🚀 Boost Profile" },
+  { id: "subscription", label: "💎 Subscription" },
   { id: "kyc", label: "🪪 KYC" },
 ];
 
@@ -146,6 +147,7 @@ export default function ArtistDashboard() {
           {tab === "wallet" && <Wallet data={data} refresh={refresh} toast={toast} />}
           {tab === "reviews" && <Reviews data={data} refresh={refresh} toast={toast} />}
           {tab === "boost" && <Boost refresh={refresh} toast={toast} />}
+          {tab === "subscription" && <Subscription toast={toast} />}
           {tab === "kyc" && <KYC toast={toast} refresh={refresh} />}
         </div>
       </main>
@@ -1296,3 +1298,115 @@ function KYC({ toast, refresh }) {
     </div>
   );
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Sprint 5 — Premium Subscription (Free / Silver / Gold / Platinum / Elite)
+// ────────────────────────────────────────────────────────────────────────
+const PLAN_STYLE = {
+  free:     { bg: "linear-gradient(135deg, #64748b, #475569)", accent: "#94a3b8", icon: "🎫" },
+  silver:   { bg: "linear-gradient(135deg, #cbd5e1, #94a3b8)", accent: "#e2e8f0", icon: "🥈" },
+  gold:     { bg: "linear-gradient(135deg, #fbbf24, #d4af37)", accent: "#fde68a", icon: "🥇" },
+  platinum: { bg: "linear-gradient(135deg, #a78bfa, #7c3aed)", accent: "#c4b5fd", icon: "💎" },
+  elite:    { bg: "linear-gradient(135deg, #f472b6, #d4af37)", accent: "#fbcfe8", icon: "👑" },
+};
+
+function Subscription({ toast }) {
+  const [plans, setPlans] = useState([]);
+  const [current, setCurrent] = useState(null);
+  const [cycle, setCycle] = useState("monthly");
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const [p, me] = await Promise.all([api.get("/subscriptions/plans"), api.get("/subscriptions/me")]);
+      setPlans(p.data);
+      setCurrent(me.data);
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+  useEffect(() => { refresh(); }, []); // eslint-disable-line
+
+  const subscribe = async (planCode) => {
+    if (busy) return;
+    if (planCode === current?.plan?.code) return;
+    if (planCode !== "free" && !window.confirm(`Upgrade to ${planCode.toUpperCase()}? (mock payment — no charge in demo)`)) return;
+    setBusy(true);
+    try {
+      await api.post("/subscriptions/subscribe", { plan: planCode, billing_cycle: cycle });
+      toast(planCode === "free" ? "Downgraded to Free" : `🎉 Welcome to ${planCode.toUpperCase()}!`);
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setBusy(false);
+  };
+
+  const currentCode = current?.plan?.code || "free";
+
+  return (
+    <div data-testid="subscription-tab">
+      <div className="flex justify-between mb-16" style={{ flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 className="font-serif fs-20 fw-700">💎 Premium Subscription</h2>
+          <p className="text-muted fs-13">Unlock premium visibility, higher search ranking, priority support and richer profile perks.</p>
+        </div>
+        <div className="flex items-center gap-8" data-testid="billing-cycle-toggle">
+          <button className={`btn btn-xs ${cycle === "monthly" ? "btn-gold" : "btn-ghost"}`} onClick={() => setCycle("monthly")} data-testid="cycle-monthly">Monthly</button>
+          <button className={`btn btn-xs ${cycle === "yearly" ? "btn-gold" : "btn-ghost"}`} onClick={() => setCycle("yearly")} data-testid="cycle-yearly">Yearly (save ~17%)</button>
+        </div>
+      </div>
+
+      {current?.subscription && (
+        <div className="card card-pad mb-24" style={{ background: PLAN_STYLE[currentCode]?.bg, color: "#0b0616" }} data-testid="current-plan-banner">
+          <div className="flex justify-between items-center" style={{ flexWrap: "wrap" }}>
+            <div>
+              <div className="fs-13" style={{ opacity: 0.85 }}>Currently on</div>
+              <div className="font-serif fs-24 fw-700">{PLAN_STYLE[currentCode]?.icon} {current.plan.name}</div>
+              {current.subscription.expires_at && <div className="fs-12">Renews on {current.subscription.expires_at.slice(0, 10)}</div>}
+            </div>
+            {currentCode !== "free" && (
+              <button className="btn btn-ghost btn-sm" style={{ background: "rgba(0,0,0,0.15)" }} onClick={() => subscribe("free")} data-testid="cancel-plan-btn">Downgrade to Free</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-3 gap-16">
+        {plans.map((p) => {
+          const style = PLAN_STYLE[p.code] || PLAN_STYLE.free;
+          const isCurrent = p.code === currentCode;
+          const price = cycle === "yearly" ? p.price_yearly : p.price_monthly;
+          return (
+            <div key={p.code} className={`pkg-card ${isCurrent ? "selected" : ""}`} data-testid={`plan-card-${p.code}`}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: style.bg, display: "grid", placeItems: "center", fontSize: 22 }}>{style.icon}</div>
+                <div>
+                  <div className="fw-700 font-serif fs-18">{p.name}</div>
+                  {p.badge && <div className="text-muted fs-11">{p.badge} badge</div>}
+                </div>
+              </div>
+              <div className="pkg-price" style={{ fontSize: 28 }}>{price === 0 ? "Free" : fmtINRFull(price)}</div>
+              <div className="text-muted fs-11 mb-12">{price === 0 ? "forever" : `per ${cycle === "yearly" ? "year" : "month"}`}</div>
+              <ul className="pkg-features">
+                <li>Up to {p.features.max_media} media uploads</li>
+                <li>Up to {p.features.max_addons} add-ons</li>
+                <li>{p.features.response_sla_hours}h response SLA</li>
+                <li>{Math.round(p.features.boost_multiplier * 100)}% search-rank boost</li>
+                {p.features.verified_badge && <li>✓ Verified badge</li>}
+                {p.features.priority_support && <li>⚡ Priority support</li>}
+                {p.features.elite_rail && <li>💎 Elite homepage rail</li>}
+                {p.features.commission_discount_pct > 0 && <li>{p.features.commission_discount_pct}% commission discount</li>}
+              </ul>
+              <button
+                className={`btn ${isCurrent ? "btn-ghost" : "btn-gold"} btn-block mt-16`}
+                disabled={isCurrent || busy}
+                onClick={() => subscribe(p.code)}
+                data-testid={`subscribe-${p.code}`}
+              >
+                {isCurrent ? "✓ Current Plan" : p.code === "free" ? "Downgrade" : `Upgrade to ${p.name}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
