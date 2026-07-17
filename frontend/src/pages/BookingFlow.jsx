@@ -33,12 +33,14 @@ export default function BookingFlow() {
 
   const [artist, setArtist] = useState(null);
   const [packages, setPackages] = useState([]);
+  const [artistAddons, setArtistAddons] = useState([]); // Sprint 3
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(1);
 
   const [form, setForm] = useState({
     package_id: params.get("pkg") || "",
     addons: [],
+    addon_selections: [],  // Sprint 3: [{addon_id, quantity}]
     event_date: "",
     event_time: "",
     event_type: "Wedding / Sangeet",
@@ -67,6 +69,13 @@ export default function BookingFlow() {
         setForm((f) => ({ ...f, package_id: pop.id }));
       }
     });
+    // Sprint 3 — load artist-defined add-ons
+    api.get(`/artists/${id}/addons`).then((r) => {
+      setArtistAddons(r.data || []);
+      // Auto-select mandatory add-ons
+      const mandatory = (r.data || []).filter((a) => a.is_mandatory).map((a) => ({ addon_id: a.id, quantity: 1 }));
+      if (mandatory.length) setForm((f) => ({ ...f, addon_selections: mandatory }));
+    }).catch(() => setArtistAddons([]));
     api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
     // Fetch only when the artist/package `id` changes. Adding `form.package_id`
     // would refetch on every form key-stroke; adding `nav`/`user` would loop.
@@ -76,13 +85,43 @@ export default function BookingFlow() {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const toggleAddon = (a) => set("addons", form.addons.includes(a) ? form.addons.filter(x => x !== a) : [...form.addons, a]);
 
+  // Sprint 3 — Artist-defined add-on helpers
+  const isAddonSelected = (id) => form.addon_selections.some((x) => x.addon_id === id);
+  const addonQty = (id) => form.addon_selections.find((x) => x.addon_id === id)?.quantity || 0;
+  const toggleArtistAddon = (a) => {
+    if (a.is_mandatory) return; // cannot deselect mandatory
+    setForm((f) => ({
+      ...f,
+      addon_selections: isAddonSelected(a.id)
+        ? f.addon_selections.filter((x) => x.addon_id !== a.id)
+        : [...f.addon_selections, { addon_id: a.id, quantity: 1 }],
+    }));
+  };
+  const setArtistAddonQty = (a, qty) => {
+    const q = Math.max(1, Math.min(a.max_quantity || 1, Number(qty) || 1));
+    setForm((f) => ({
+      ...f,
+      addon_selections: f.addon_selections.map((x) =>
+        x.addon_id === a.id ? { ...x, quantity: q } : x,
+      ),
+    }));
+  };
+
   const pkg = packages.find((p) => p.id === form.package_id);
   const addonsTotal = form.addons.reduce((s, a) => s + (ADDONS.find(x => x.id === a)?.price || 0), 0);
+  // Sprint 3 — artist add-ons total (unit_price * qty + gst_pct)
+  const artistAddonsTotal = form.addon_selections.reduce((s, sel) => {
+    const a = artistAddons.find((x) => x.id === sel.addon_id);
+    if (!a) return s;
+    const sub = a.price * sel.quantity;
+    const gst = sub * (a.gst_pct || 0) / 100;
+    return s + sub + gst;
+  }, 0);
   const pkgPrice = pkg?.price || 0;
   // ── BookTalent business model ─────────────────────────────────────
   // We only collect Platform Service Fee (5% of Artist Fee) + 18% GST on it.
   // The Artist Performance Fee is settled directly between Customer and Artist.
-  const artistFee = pkgPrice + addonsTotal;            // paid directly to artist
+  const artistFee = pkgPrice + addonsTotal + artistAddonsTotal;  // paid directly to artist
   const platformFee = Math.round(artistFee * 0.05);    // BookTalent service charge
   const gst = Math.round(platformFee * 0.18);          // 18% on platform fee only
   const total = platformFee + gst;                      // amount payable to BookTalent
@@ -238,6 +277,47 @@ export default function BookingFlow() {
                     </div>
                   ))}
                 </div>
+
+                {/* Sprint 3 — Artist-defined add-ons */}
+                {artistAddons.length > 0 && (
+                  <>
+                    <h3 className="fs-13 fw-600 mt-24 mb-12 text-gold" style={{ textTransform: "uppercase", letterSpacing: 1 }}>🎁 Artist Add-ons</h3>
+                    <div className="flex-col gap-10">
+                      {artistAddons.map((a) => {
+                        const selected = isAddonSelected(a.id);
+                        return (
+                          <div
+                            key={a.id}
+                            onClick={() => toggleArtistAddon(a)}
+                            className={`pkg-card ${selected ? "selected" : ""} ${a.is_mandatory ? "popular" : ""}`}
+                            style={{ padding: 14, cursor: a.is_mandatory ? "default" : "pointer" }}
+                            data-testid={`artist-addon-${a.id}`}
+                          >
+                            {a.is_mandatory && <span className="popular-tag">★ Mandatory</span>}
+                            <div className="flex justify-between items-center" style={{ marginTop: a.is_mandatory ? 12 : 0 }}>
+                              <div style={{ flex: 1 }}>
+                                <div className="fw-600 fs-14">{a.name}</div>
+                                {a.description && <div className="text-muted fs-12">{a.description}</div>}
+                                {a.gst_pct > 0 && <div className="text-muted fs-11">+{a.gst_pct}% GST</div>}
+                              </div>
+                              <div className="text-right">
+                                <div className="text-gold fw-700 fs-15">+{fmtINRFull(a.price)}</div>
+                                {selected && a.max_quantity > 1 && (
+                                  <div className="flex items-center gap-8 mt-8" onClick={(e) => e.stopPropagation()}>
+                                    <button className="btn btn-ghost btn-xs" onClick={() => setArtistAddonQty(a, addonQty(a.id) - 1)} data-testid={`artist-addon-qty-dec-${a.id}`}>−</button>
+                                    <span className="fs-13 fw-600" data-testid={`artist-addon-qty-${a.id}`}>{addonQty(a.id)}</span>
+                                    <button className="btn btn-ghost btn-xs" onClick={() => setArtistAddonQty(a, addonQty(a.id) + 1)} data-testid={`artist-addon-qty-inc-${a.id}`}>+</button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
                 <div className="flex justify-between mt-24">
                   <div />
                   <button className="btn btn-gold" disabled={!form.package_id} onClick={() => setStep(2)} data-testid="step1-next">Continue to Schedule →</button>
@@ -338,8 +418,44 @@ export default function BookingFlow() {
                   <h3 className="fw-600 fs-13 mb-12 text-gold" style={{ textTransform: "uppercase" }}>Performance Package</h3>
                   <div className="flex justify-between mb-8"><span className="text-muted">Package</span><span>{pkg?.name}</span></div>
                   <div className="flex justify-between mb-8"><span className="text-muted">Duration</span><span>{pkg?.duration}</span></div>
-                  <div className="flex justify-between"><span className="text-muted">Add-ons</span><span>{form.addons.length || "None"}</span></div>
+                  <div className="flex justify-between mb-8"><span className="text-muted">Add-ons</span><span>{form.addons.length || "None"}</span></div>
+                  {form.addon_selections.length > 0 && (
+                    <div className="flex justify-between"><span className="text-muted">Artist add-ons</span><span data-testid="review-artist-addons">{form.addon_selections.length}</span></div>
+                  )}
                 </div>
+
+                {/* Sprint 4 — Travel & Accommodation Rider */}
+                {pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes) && (
+                  <div className="card card-pad mb-16" data-testid="review-travel-block">
+                    <h3 className="fw-600 fs-13 mb-12 text-gold" style={{ textTransform: "uppercase" }}>✈️ Travel & Accommodation Rider</h3>
+                    <div className="text-muted fs-11 mb-12">Borne by you (not billed by BookTalent). Will be captured in the signed agreement.</div>
+                    {pkg.travel_required && (
+                      <div className="flex justify-between mb-8"><span className="text-muted">Flight / Travel</span><span>{pkg.flight_class || "economy"} · {pkg.team_size || 1} person(s)</span></div>
+                    )}
+                    {pkg.accommodation_required && (
+                      <div className="flex justify-between mb-8"><span className="text-muted">Accommodation</span><span>{pkg.hotel_category || "3-star"} · {pkg.team_size || 1} person(s)</span></div>
+                    )}
+                    {pkg.arrival_buffer_days ? (
+                      <div className="flex justify-between mb-8"><span className="text-muted">Arrival buffer</span><span>{pkg.arrival_buffer_days} day(s) prior</span></div>
+                    ) : null}
+                    {pkg.local_transport_required && (
+                      <div className="flex justify-between mb-8"><span className="text-muted">Local transport</span><span>Required</span></div>
+                    )}
+                    {pkg.meals_required && (
+                      <div className="flex justify-between mb-8"><span className="text-muted">Meals</span><span>Required during stay</span></div>
+                    )}
+                    {pkg.travel_notes && (
+                      <div className="mt-8">
+                        <div className="text-muted fs-12 mb-4">Additional notes</div>
+                        <div className="fs-13">{pkg.travel_notes}</div>
+                      </div>
+                    )}
+                    <label className="flex items-center gap-8 mt-12" data-testid="travel-ack">
+                      <input type="checkbox" checked={!!form.travel_ack} onChange={(e) => set("travel_ack", e.target.checked)} data-testid="travel-ack-checkbox" />
+                      <span className="fs-12">I acknowledge and agree to bear these travel & accommodation costs.</span>
+                    </label>
+                  </div>
+                )}
                 <div className="card card-pad mb-16">
                   <h3 className="fw-600 fs-13 mb-12 text-gold" style={{ textTransform: "uppercase" }}>Event Details</h3>
                   <div className="flex justify-between mb-8"><span className="text-muted">Date</span><span>{form.event_date} · {form.event_time}</span></div>
@@ -348,7 +464,12 @@ export default function BookingFlow() {
                 </div>
                 <div className="flex justify-between mt-24">
                   <button className="btn btn-ghost" onClick={() => setStep(3)} data-testid="step4-back">← Back</button>
-                  <button className="btn btn-gold" onClick={() => setStep(5)} data-testid="step4-next">🔐 Proceed to Payment →</button>
+                  <button
+                    className="btn btn-gold"
+                    onClick={() => setStep(5)}
+                    disabled={pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes) && !form.travel_ack}
+                    data-testid="step4-next"
+                  >🔐 Proceed to Payment →</button>
                 </div>
               </div>
             )}
@@ -465,7 +586,10 @@ export default function BookingFlow() {
                 <div className="divider" style={{ margin: "12px 0" }} />
                 <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Artist Performance Fee</span><span>{fmtINRFull(artistFee)}</span></div>
                 {addonsTotal > 0 && (
-                  <div className="flex justify-between mb-8 fs-11" style={{ marginLeft: 12 }}><span className="text-muted">  Package {fmtINRFull(pkgPrice)} + add-ons {fmtINRFull(addonsTotal)}</span></div>
+                  <div className="flex justify-between mb-8 fs-11" style={{ marginLeft: 12 }}><span className="text-muted">  Package {fmtINRFull(pkgPrice)} + basic add-ons {fmtINRFull(addonsTotal)}</span></div>
+                )}
+                {artistAddonsTotal > 0 && (
+                  <div className="flex justify-between mb-8 fs-11" style={{ marginLeft: 12 }} data-testid="summary-artist-addons"><span className="text-muted">  + Artist add-ons {fmtINRFull(Math.round(artistAddonsTotal))}</span></div>
                 )}
                 <div className="divider" style={{ margin: "8px 0" }} />
                 <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee (5%)</span><span>{fmtINRFull(platformFee)}</span></div>

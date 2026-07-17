@@ -32,6 +32,7 @@ const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
   { id: "profile", label: "👤 Profile" },
   { id: "packages", label: "📦 Packages" },
+  { id: "addons", label: "🎁 Add-ons" },
   { id: "media", label: "🎬 Media" },
   { id: "calendar", label: "📅 Availability" },
   { id: "bookings", label: "🎟️ Bookings" },
@@ -138,6 +139,7 @@ export default function ArtistDashboard() {
           {tab === "overview" && <Overview data={data} doAction={doAction} />}
           {tab === "profile" && <ProfileEditor user={user} refreshMe={refreshMe} toast={toast} />}
           {tab === "packages" && <Packages data={data} refresh={refresh} toast={toast} />}
+          {tab === "addons" && <Addons toast={toast} />}
           {tab === "media" && <MediaManager data={data} refresh={refresh} toast={toast} />}
           {tab === "calendar" && <Availability refresh={refresh} toast={toast} />}
           {tab === "bookings" && <ArtistBookings data={data} doAction={doAction} />}
@@ -485,12 +487,21 @@ function Packages({ data, refresh, toast }) {
 
 function PackageModal({ pkg, onSave, onClose }) {
   const [p, setP] = useState({
+    travel_required: false,
+    accommodation_required: false,
+    hotel_category: "",
+    flight_class: "",
+    team_size: "",
+    arrival_buffer_days: "",
+    local_transport_required: false,
+    meals_required: false,
+    travel_notes: "",
     ...pkg,
     features: Array.isArray(pkg.features) ? pkg.features.join("\n") : "",
   });
   return (
     <div className="modal-bg" onClick={onClose} data-testid="pkg-modal">
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "90vh", overflowY: "auto" }}>
         <div className="modal-title">{pkg.id ? "Edit" : "New"} Package</div>
         <div className="field"><div className="field-label">Name</div>
           <input className="field-input" value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} data-testid="pkg-name" /></div>
@@ -506,9 +517,210 @@ function PackageModal({ pkg, onSave, onClose }) {
           <input type="checkbox" checked={p.is_popular} onChange={(e) => setP({ ...p, is_popular: e.target.checked })} data-testid="pkg-popular" />
           <span>Mark as Most Popular</span>
         </label>
+
+        {/* Sprint 4 — Travel & Accommodation Requirements */}
+        <div className="divider" style={{ margin: "16px 0" }} />
+        <div className="fw-700 fs-13 mb-8 text-gold" style={{ textTransform: "uppercase", letterSpacing: 1 }}>✈️ Travel & Accommodation Rider</div>
+        <div className="text-muted fs-11 mb-12">These requirements are borne by the customer directly (not billed by BookTalent). They will be included in the booking agreement.</div>
+
+        <div className="field-row">
+          <label className="flex items-center gap-8">
+            <input type="checkbox" checked={!!p.travel_required} onChange={(e) => setP({ ...p, travel_required: e.target.checked })} data-testid="pkg-travel-required" />
+            <span>Travel required</span>
+          </label>
+          <label className="flex items-center gap-8">
+            <input type="checkbox" checked={!!p.accommodation_required} onChange={(e) => setP({ ...p, accommodation_required: e.target.checked })} data-testid="pkg-accommodation-required" />
+            <span>Accommodation required</span>
+          </label>
+        </div>
+
+        {(p.travel_required || p.accommodation_required) && (
+          <>
+            <div className="field-row">
+              <div className="field">
+                <div className="field-label">Flight class</div>
+                <select className="field-input" value={p.flight_class || ""} onChange={(e) => setP({ ...p, flight_class: e.target.value })} data-testid="pkg-flight-class">
+                  <option value="">—</option>
+                  <option value="economy">Economy</option>
+                  <option value="premium-economy">Premium Economy</option>
+                  <option value="business">Business</option>
+                  <option value="first">First</option>
+                </select>
+              </div>
+              <div className="field">
+                <div className="field-label">Hotel category</div>
+                <select className="field-input" value={p.hotel_category || ""} onChange={(e) => setP({ ...p, hotel_category: e.target.value })} data-testid="pkg-hotel-category">
+                  <option value="">—</option>
+                  <option value="3-star">3-Star</option>
+                  <option value="4-star">4-Star</option>
+                  <option value="5-star">5-Star</option>
+                  <option value="luxury">Luxury / Boutique</option>
+                </select>
+              </div>
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <div className="field-label">Team size (people)</div>
+                <input className="field-input" type="number" min="1" value={p.team_size || ""} onChange={(e) => setP({ ...p, team_size: Number(e.target.value) || "" })} data-testid="pkg-team-size" />
+              </div>
+              <div className="field">
+                <div className="field-label">Arrival buffer (days before event)</div>
+                <input className="field-input" type="number" min="0" value={p.arrival_buffer_days || ""} onChange={(e) => setP({ ...p, arrival_buffer_days: Number(e.target.value) || "" })} data-testid="pkg-arrival-buffer" />
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="field-row">
+          <label className="flex items-center gap-8">
+            <input type="checkbox" checked={!!p.local_transport_required} onChange={(e) => setP({ ...p, local_transport_required: e.target.checked })} data-testid="pkg-local-transport" />
+            <span>Local transport required</span>
+          </label>
+          <label className="flex items-center gap-8">
+            <input type="checkbox" checked={!!p.meals_required} onChange={(e) => setP({ ...p, meals_required: e.target.checked })} data-testid="pkg-meals" />
+            <span>Meals during stay</span>
+          </label>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Additional rider notes</div>
+          <textarea className="field-input" rows={3} value={p.travel_notes || ""} onChange={(e) => setP({ ...p, travel_notes: e.target.value })} placeholder="e.g. vegetarian meals, specific hotel brand preference, green room requirements…" data-testid="pkg-travel-notes" />
+        </div>
+
         <div className="flex gap-12">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-gold" style={{ flex: 1 }} onClick={() => onSave({ ...p, features: p.features.split("\n").map(s => s.trim()).filter(Boolean) })} data-testid="pkg-save">Save</button>
+          <button className="btn btn-gold" style={{ flex: 1 }} onClick={() => onSave({
+            ...p,
+            features: p.features.split("\n").map(s => s.trim()).filter(Boolean),
+            team_size: p.team_size ? Number(p.team_size) : null,
+            arrival_buffer_days: p.arrival_buffer_days !== "" ? Number(p.arrival_buffer_days) : null,
+          })} data-testid="pkg-save">Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Sprint 3 — Artist-defined Add-ons management (CRUD + toggle active)
+// ────────────────────────────────────────────────────────────────────────
+function Addons({ toast }) {
+  const [items, setItems] = useState([]);
+  const [modal, setModal] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = async () => {
+    try {
+      const r = await api.get("/artist/addons");
+      setItems(r.data);
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setLoading(false);
+  };
+
+  useEffect(() => { refresh(); }, []); // eslint-disable-line
+
+  const save = async (a) => {
+    try {
+      if (a.id) {
+        const { id, artist_id, created_at, updated_at, deleted, ...patch } = a;
+        await api.patch(`/artist/addons/${id}`, patch);
+      } else {
+        await api.post("/artist/addons", a);
+      }
+      toast("Add-on saved");
+      setModal(null);
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  const toggleActive = async (a) => {
+    try {
+      await api.patch(`/artist/addons/${a.id}`, { active: !a.active });
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Delete this add-on? Historical bookings will keep their snapshot.")) return;
+    try {
+      await api.delete(`/artist/addons/${id}`);
+      toast("Add-on deleted");
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  return (
+    <div data-testid="addons-tab">
+      <div className="flex justify-between mb-16">
+        <div>
+          <h2 className="font-serif fs-20 fw-700">Booking Add-ons</h2>
+          <p className="text-muted fs-13">Extras customers can pick when they book you (extra hour, sound system, extra performer, etc.).</p>
+        </div>
+        <button className="btn btn-gold btn-sm" onClick={() => setModal({ name: "", description: "", price: 0, is_mandatory: false, max_quantity: 1, gst_pct: 0, active: true })} data-testid="add-addon-btn">+ New Add-on</button>
+      </div>
+      {loading ? (
+        <div className="loading"><div className="spinner" /></div>
+      ) : items.length === 0 ? (
+        <div className="empty"><div className="empty-icon">🎁</div><div className="empty-title">No add-ons yet</div><p className="fs-13 text-muted">Add extras to boost your booking value.</p></div>
+      ) : (
+        <div className="grid grid-3">
+          {items.map((a) => (
+            <div key={a.id} className={`pkg-card ${a.is_mandatory ? "popular" : ""}`} data-testid={`addon-item-${a.id}`}>
+              {a.is_mandatory && <span className="popular-tag">★ Mandatory</span>}
+              <div className="pkg-name" style={{ marginTop: a.is_mandatory ? 12 : 0 }}>{a.name}</div>
+              {a.description && <div className="text-muted fs-12 mb-8">{a.description}</div>}
+              <div className="pkg-price">{fmtINRFull(a.price)}</div>
+              <div className="text-muted fs-11">Up to {a.max_quantity} · {a.gst_pct}% GST</div>
+              <div className="flex gap-8 mt-16 items-center">
+                <label className="flex items-center gap-8 fs-12" style={{ marginRight: "auto" }}>
+                  <input type="checkbox" checked={!!a.active} onChange={() => toggleActive(a)} data-testid={`addon-toggle-${a.id}`} />
+                  <span>{a.active ? "Active" : "Inactive"}</span>
+                </label>
+                <button className="btn btn-ghost btn-xs" onClick={() => setModal(a)} data-testid={`edit-addon-${a.id}`}>Edit</button>
+                <button className="btn btn-red btn-xs" onClick={() => del(a.id)} data-testid={`del-addon-${a.id}`}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {modal && <AddonModal item={modal} onSave={save} onClose={() => setModal(null)} />}
+    </div>
+  );
+}
+
+function AddonModal({ item, onSave, onClose }) {
+  const [a, setA] = useState(item);
+  return (
+    <div className="modal-bg" onClick={onClose} data-testid="addon-modal">
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "90vh", overflowY: "auto" }}>
+        <div className="modal-title">{item.id ? "Edit" : "New"} Add-on</div>
+        <div className="field"><div className="field-label">Name *</div>
+          <input className="field-input" value={a.name} onChange={(e) => setA({ ...a, name: e.target.value })} placeholder="e.g. Extra Hour of Performance" data-testid="addon-name" /></div>
+        <div className="field"><div className="field-label">Description</div>
+          <textarea className="field-input" rows={2} value={a.description || ""} onChange={(e) => setA({ ...a, description: e.target.value })} placeholder="Short pitch for the customer" data-testid="addon-desc" /></div>
+        <div className="field-row">
+          <div className="field"><div className="field-label">Price (₹) *</div>
+            <input className="field-input" type="number" min="0" value={a.price} onChange={(e) => setA({ ...a, price: Number(e.target.value) })} data-testid="addon-price" /></div>
+          <div className="field"><div className="field-label">Max Quantity</div>
+            <input className="field-input" type="number" min="1" max="100" value={a.max_quantity} onChange={(e) => setA({ ...a, max_quantity: Number(e.target.value) })} data-testid="addon-maxq" /></div>
+        </div>
+        <div className="field-row">
+          <div className="field"><div className="field-label">GST % (on add-on)</div>
+            <input className="field-input" type="number" min="0" max="28" value={a.gst_pct} onChange={(e) => setA({ ...a, gst_pct: Number(e.target.value) })} data-testid="addon-gst" /></div>
+          <div className="field" style={{ display: "flex", alignItems: "flex-end", paddingBottom: 8 }}>
+            <label className="flex items-center gap-8">
+              <input type="checkbox" checked={!!a.is_mandatory} onChange={(e) => setA({ ...a, is_mandatory: e.target.checked })} data-testid="addon-mandatory" />
+              <span>Mandatory (customer must select)</span>
+            </label>
+          </div>
+        </div>
+        <label className="flex items-center gap-8 mb-16">
+          <input type="checkbox" checked={!!a.active} onChange={(e) => setA({ ...a, active: e.target.checked })} data-testid="addon-active" />
+          <span>Active (visible to customers)</span>
+        </label>
+        <div className="flex gap-12">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-gold" style={{ flex: 1 }} disabled={!a.name || a.price < 0} onClick={() => onSave(a)} data-testid="addon-save">Save Add-on</button>
         </div>
       </div>
     </div>

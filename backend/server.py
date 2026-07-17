@@ -237,6 +237,16 @@ class PackageBody(BaseModel):
     duration: str = ""
     features: List[str] = []
     is_popular: bool = False
+    # Sprint 4 — Travel & Accommodation requirements (borne by customer separately)
+    travel_required: bool = False
+    accommodation_required: bool = False
+    hotel_category: Optional[str] = None            # e.g. "3-star", "4-star", "5-star"
+    flight_class: Optional[str] = None              # e.g. "economy", "premium-economy", "business"
+    team_size: Optional[int] = None                 # number of people to accommodate
+    arrival_buffer_days: Optional[int] = None       # days needed before event
+    local_transport_required: bool = False
+    meals_required: bool = False
+    travel_notes: str = ""                          # free-form additional rider notes
 
 
 class MediaUploadBody(BaseModel):
@@ -1192,6 +1202,19 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         "package_name": pkg["name"],
         "addons": body.addons,
         "addon_snapshots": addon_snapshots,
+        # Sprint 4 — snapshot the travel/accommodation requirements from the package
+        # at booking creation time so future edits to the package don't change history
+        "travel_requirements": {
+            "travel_required": bool(pkg.get("travel_required")),
+            "accommodation_required": bool(pkg.get("accommodation_required")),
+            "hotel_category": pkg.get("hotel_category"),
+            "flight_class": pkg.get("flight_class"),
+            "team_size": pkg.get("team_size"),
+            "arrival_buffer_days": pkg.get("arrival_buffer_days"),
+            "local_transport_required": bool(pkg.get("local_transport_required")),
+            "meals_required": bool(pkg.get("meals_required")),
+            "travel_notes": pkg.get("travel_notes", ""),
+        },
         "event_date": body.event_date,
         "event_time": body.event_time,
         "event_type": body.event_type,
@@ -1376,6 +1399,32 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
     return {"ok": True, "status": new_status}
 
 
+def _format_travel_reqs(reqs: dict) -> str:
+    """Sprint 4 — render travel/accommodation snapshot for the contract PDF."""
+    if not reqs or not (
+        reqs.get("travel_required") or reqs.get("accommodation_required")
+        or reqs.get("meals_required") or reqs.get("local_transport_required")
+        or reqs.get("travel_notes")
+    ):
+        return "  None specified.\n"
+    lines = []
+    if reqs.get("travel_required"):
+        cls = reqs.get("flight_class") or "economy"
+        lines.append(f"  Flight/Travel     : Yes ({cls}) for {reqs.get('team_size') or 1} person(s)")
+    if reqs.get("accommodation_required"):
+        cat = reqs.get("hotel_category") or "3-star"
+        lines.append(f"  Accommodation     : Yes — {cat} hotel for {reqs.get('team_size') or 1} person(s)")
+    if reqs.get("arrival_buffer_days"):
+        lines.append(f"  Arrival buffer    : {reqs['arrival_buffer_days']} day(s) prior to event")
+    if reqs.get("local_transport_required"):
+        lines.append("  Local transport   : Required (airport pickup + venue transfers)")
+    if reqs.get("meals_required"):
+        lines.append("  Meals             : Required (all meals during stay)")
+    if reqs.get("travel_notes"):
+        lines.append(f"  Additional notes  : {reqs['travel_notes']}")
+    return "\n".join(lines) + "\n"
+
+
 async def _create_contract(booking: dict) -> str:
     cid = new_id()
     artist = await db.users.find_one({"id": booking["artist_id"]})
@@ -1396,6 +1445,8 @@ EVENT DETAILS:
   Venue      : {booking.get('venue')}, {booking.get('city')}
   Package    : {booking.get('package_name')}
 
+TRAVEL & ACCOMMODATION (borne by Client, in addition to the Artist Fee):
+{_format_travel_reqs(booking.get('travel_requirements') or {})}
 FINANCIAL TERMS:
   Artist Performance Fee (paid by Client directly to Artist) : ₹{booking['pricing'].get('artist_fee', booking['pricing'].get('package_fee', 0) + booking['pricing'].get('addons_total', 0)):.2f}
 
