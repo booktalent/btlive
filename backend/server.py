@@ -44,6 +44,7 @@ from routes import blogs as routes_blogs
 from routes import disputes as routes_disputes
 from routes import kyc as routes_kyc
 from routes import uploads as routes_uploads
+from routes import addons as routes_addons
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -255,10 +256,16 @@ class AvailabilityBody(BaseModel):
     status: Literal["available", "blocked", "booked"]
 
 
+class AddonSelection(BaseModel):
+    addon_id: str
+    quantity: int = 1
+
+
 class BookingCreate(BaseModel):
     artist_id: str
     package_id: str
-    addons: List[str] = []
+    addons: List[str] = []                       # legacy: hardcoded slugs (dhol/anchor/photo/extra-hour)
+    addon_selections: List[AddonSelection] = []  # Sprint 3: artist-defined add-ons
     event_date: str
     event_time: str
     event_type: str
@@ -1153,6 +1160,13 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
 
     addon_total = sum(ADDON_PRICES.get(a, 0) for a in body.addons)
 
+    # Sprint 3 — artist-defined add-ons on top of the legacy slug-based ones
+    from routes.addons import snapshot_addons
+    addon_snapshots, addon_v2_total = await snapshot_addons(
+        db, body.artist_id, [s.model_dump() for s in body.addon_selections],
+    )
+    addon_total += addon_v2_total
+
     coupon_discount = 0
     coupon_doc = None
     if body.coupon_code:
@@ -1177,6 +1191,7 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         "package_id": body.package_id,
         "package_name": pkg["name"],
         "addons": body.addons,
+        "addon_snapshots": addon_snapshots,
         "event_date": body.event_date,
         "event_time": body.event_time,
         "event_type": body.event_type,
@@ -2359,6 +2374,11 @@ app.include_router(
         compress_image=compress_image, make_thumbnail=make_thumbnail,
         **_common_deps,
     ),
+    prefix="/api",
+)
+# Sprint 3 — artist-defined add-ons
+app.include_router(
+    routes_addons.make_router(get_current_user=get_current_user, **_common_deps),
     prefix="/api",
 )
 
