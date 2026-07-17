@@ -84,6 +84,50 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
+## Iter 32-33 — Outstation Business Rule (this round)
+
+Implemented user's explicit Travel & Outstation booking policy across the
+platform without introducing separate travel packages.
+
+### Backend
+- `iter7_routes.py` seeds 3 admin-editable settings on first boot:
+  `outstation_notice`, `booking_fee_note`, `outstation_clause`.
+- **New public endpoint** `GET /api/settings/public` — returns a whitelisted
+  subset (display strings only, no secrets).
+- `create_booking` snapshots `artist_city`, `event_city`, `is_outstation`
+  into every booking doc.
+- `_create_contract` injects an `OUTSTATION LOGISTICS` block (admin-editable
+  clause) when `is_outstation` is true + a always-on `FEE INCLUSION NOTE`.
+
+### Frontend
+- BookingFlow renders `outstation-notice` (Step 3) + `review-outstation-notice`
+  + `outstation-ack` gate (Step 4). `step4-next` disabled until acked.
+- `booking-fee-note` always visible in the right-hand summary panel.
+- Admin can edit copy via existing settings endpoint — reflects in UI without
+  redeploy.
+
+### Testing
+- 9/9 backend pytest + 27/27 frontend Playwright scenarios all pass (Iter 33).
+- 5% + 18% GST math intact; Sprint 3-6 flows regression clean.
+
+## Iter 31 — Partners Directory + Insights + Leaderboard + Concierge Notifications
+
+- **Public Partners Directory** — `/partners` list + `/partners/:slug` detail
+  with SEO title/meta + click-tracking beacon. Every rider vendor now has a
+  stable `slug` field (auto-backfilled on startup).
+- **Booking Insights** — new `/api/artist/insights` route → funnel (views →
+  created → confirmed → completed), conversion %, top cities, top event
+  types, revenue summary. UI: 📈 Insights tab in Artist Dashboard with KPI
+  cards + gradient funnel bars.
+- **Partner Leaderboard** — `POST /rider-wallet/vendors/{vid}/click`
+  increments count; `GET /admin/rider-wallet/leaderboard` ranks by clicks;
+  `POST /admin/rider-wallet/rotate-featured?top_n=3` auto-features the
+  top-N per type. Admin UI has catalog/leaderboard toggle + rotate button.
+- **Concierge Notifications** — admin reply on a Platinum/Elite concierge
+  thread now fires `notify_dispatch` with `email + whatsapp + in_app`
+  channels (SLA hours in ctx). Falls back to mock-log when provider keys
+  aren't set — never crashes the admin-send path.
+
 ## Iter 30 — Code Quality Hardening (this round)
 
 Applied user's code-review report — with pragmatic triage (skipped false
