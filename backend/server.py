@@ -49,6 +49,8 @@ from routes import subscriptions as routes_subscriptions
 from routes import homepage as routes_homepage
 from routes import concierge as routes_concierge
 from routes import insights as routes_insights
+from routes import city_aliases as routes_city_aliases
+from routes import outstation_report as routes_outstation_report
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -199,6 +201,26 @@ def _set_auth_cookie(response: Response, token: str) -> None:
 
 def _clear_auth_cookie(response: Response) -> None:
     response.delete_cookie(key=_COOKIE_NAME, path="/")
+
+
+# ─── City alias canonicalisation (Iter 35) ─────────────────────────────
+# Module-level cache — refreshed lazily on the first booking after startup so
+# admin edits via /admin/settings/city_aliases don't require a redeploy.
+_CITY_ALIAS_MAP: dict = {}
+
+
+async def _refresh_city_aliases() -> None:
+    global _CITY_ALIAS_MAP
+    _CITY_ALIAS_MAP = await routes_city_aliases.load_alias_map(db)
+
+
+def _outstation_check(artist_city: str | None, event_city: str | None, alias_map: dict) -> bool:
+    """True when the two cities are DIFFERENT after alias canonicalisation."""
+    if not artist_city or not event_city:
+        return False
+    a = routes_city_aliases.canonical_city(artist_city, alias_map)
+    b = routes_city_aliases.canonical_city(event_city, alias_map)
+    return a != b
 
 
 async def require_role(roles: list[str]):
@@ -1187,6 +1209,9 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         raise HTTPException(404, "Artist not found")
     # Load artist profile once for outstation detection + suggestions below.
     artist_profile = await db.artist_profiles.find_one({"user_id": body.artist_id}) or {}
+    # Warm the city-alias cache on first use — subsequent bookings reuse it.
+    if not _CITY_ALIAS_MAP:
+        await _refresh_city_aliases()
 
     # check availability
     av = await db.availability.find_one({"user_id": body.artist_id, "date": body.event_date})
@@ -1281,12 +1306,14 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         # Outstation Business Rule — snapshot both cities and flag mismatch at
         # booking-creation time so history is immutable even if the artist
         # profile city or the customer's event city is edited later.
+        # City aliases (Delhi/NCR/New Delhi etc.) are canonicalised first so
+        # intra-region events don't wrongly trigger the outstation gate.
         "artist_city": artist_profile.get("city") if artist_profile else None,
         "event_city": body.city,
-        "is_outstation": bool(
-            artist_profile
-            and body.city
-            and (artist_profile.get("city") or "").strip().lower() != body.city.strip().lower()
+        "is_outstation": _outstation_check(
+            artist_profile.get("city") if artist_profile else None,
+            body.city,
+            _CITY_ALIAS_MAP,
         ),
         "guests": body.guests,
         "language_pref": body.language_pref,
@@ -2549,6 +2576,16 @@ app.include_router(
 # Booking Insights — artist self-service analytics
 app.include_router(
     routes_insights.make_router(get_current_user=get_current_user, **_common_deps),
+    prefix="/api",
+)
+# City-alias admin management (Iter 35)
+app.include_router(
+    routes_city_aliases.make_router(admin_only=admin_only, **_common_deps),
+    prefix="/api",
+)
+# Outstation Analytics — Admin report
+app.include_router(
+    routes_outstation_report.make_router(admin_only=admin_only, **_common_deps),
     prefix="/api",
 )
 

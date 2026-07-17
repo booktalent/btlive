@@ -293,6 +293,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         "outstation_notice",
         "booking_fee_note",
         "outstation_clause",
+        "city_aliases",
         "platform_fee_pct",
         "gst_pct",
         "support_email",

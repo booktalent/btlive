@@ -78,8 +78,7 @@ export default function BookingFlow() {
       if (mandatory.length) setForm((f) => ({ ...f, addon_selections: mandatory }));
     }).catch(() => setArtistAddons([]));
     // Outstation policy strings — admin-editable via /admin/settings
-    api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});
-    api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
+    api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});    api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
     // Fetch only when the artist/package `id` changes. Adding `form.package_id`
     // would refetch on every form key-stroke; adding `nav`/`user` would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -87,6 +86,26 @@ export default function BookingFlow() {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const toggleAddon = (a) => set("addons", form.addons.includes(a) ? form.addons.filter(x => x !== a) : [...form.addons, a]);
+
+  // Iter 35 — Canonicalise cities before comparing so intra-region events
+  // (Delhi/New Delhi/NCR, Mumbai/Bombay, Bengaluru/Bangalore, ...) don't
+  // wrongly trigger the outstation gate. Uses the same alias table as the
+  // backend, exposed via /settings/public.
+  const canonicalCity = (name) => {
+    const key = (name || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!key) return "";
+    const table = platformSettings.city_aliases || {};
+    for (const [canon, aliases] of Object.entries(table)) {
+      if (canon.toLowerCase() === key) return canon.toLowerCase();
+      if (Array.isArray(aliases) && aliases.some((a) => (a || "").toLowerCase() === key)) return canon.toLowerCase();
+    }
+    return key;
+  };
+  const isOutstation = !!(
+    form.city &&
+    artist?.profile?.city &&
+    canonicalCity(form.city) !== canonicalCity(artist.profile.city)
+  );
 
   // Sprint 3 — Artist-defined add-on helpers
   const isAddonSelected = (id) => form.addon_selections.some((x) => x.addon_id === id);
@@ -399,8 +418,8 @@ export default function BookingFlow() {
                   </div>
                 </div>
 
-                {/* Outstation Business Rule — auto-shown when event city ≠ artist city */}
-                {form.city && artist?.profile?.city && form.city.trim().toLowerCase() !== artist.profile.city.trim().toLowerCase() && (
+                {/* Outstation Business Rule — auto-shown when event city ≠ artist city (alias-aware) */}
+                {isOutstation && (
                   <div
                     className="card card-pad mb-16"
                     style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.35)" }}
@@ -491,8 +510,8 @@ export default function BookingFlow() {
                   <div className="flex justify-between"><span className="text-muted">Type</span><span>{form.event_type}</span></div>
                 </div>
 
-                {/* Outstation Notice + acknowledgement — always required when cities differ */}
-                {form.city && artist?.profile?.city && form.city.trim().toLowerCase() !== artist.profile.city.trim().toLowerCase() && (
+                {/* Outstation Notice + acknowledgement — always required when cities differ (alias-aware) */}
+                {isOutstation && (
                   <div
                     className="card card-pad mb-16"
                     style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.35)" }}
@@ -521,7 +540,7 @@ export default function BookingFlow() {
                     onClick={() => setStep(5)}
                     disabled={
                       (pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes) && !form.travel_ack) ||
-                      (form.city && artist?.profile?.city && form.city.trim().toLowerCase() !== artist.profile.city.trim().toLowerCase() && !form.outstation_ack)
+                      (isOutstation && !form.outstation_ack)
                     }
                     data-testid="step4-next"
                   >🔐 Proceed to Payment →</button>
