@@ -49,6 +49,7 @@ from routes import subscriptions as routes_subscriptions
 from routes import homepage as routes_homepage
 from routes import concierge as routes_concierge
 from routes import rider_wallet as routes_rider_wallet
+from routes import insights as routes_insights
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -2503,7 +2504,8 @@ app.include_router(
 # Elite Concierge Chat (Platinum + Elite gate)
 app.include_router(
     routes_concierge.make_router(
-        get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
+        get_current_user=get_current_user, admin_only=admin_only,
+        notify_dispatch=notify_dispatch, **_common_deps,
     ),
     prefix="/api",
 )
@@ -2512,6 +2514,11 @@ app.include_router(
     routes_rider_wallet.make_router(
         get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
     ),
+    prefix="/api",
+)
+# Booking Insights — artist self-service analytics
+app.include_router(
+    routes_insights.make_router(get_current_user=get_current_user, **_common_deps),
     prefix="/api",
 )
 

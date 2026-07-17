@@ -9,14 +9,31 @@ export default function AdminRiderWallet({ toast }) {
   const [list, setList] = useState([]);
   const [modal, setModal] = useState(null);
   const [typeFilter, setTypeFilter] = useState("");
+  const [view, setView] = useState("catalog");           // catalog | leaderboard
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [rotating, setRotating] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const r = await api.get("/admin/rider-wallet/vendors");
       setList(r.data);
+      // Also refresh leaderboard so click counts stay in sync
+      const lb = await api.get("/admin/rider-wallet/leaderboard?limit=30");
+      setLeaderboard(lb.data);
     } catch (e) { toast(formatApiError(e), "error"); }
   }, [toast]);
   useEffect(() => { refresh(); }, [refresh]);
+
+  const rotateFeatured = async () => {
+    if (!window.confirm("Auto-feature the top 3 vendors in each type by click count?")) return;
+    setRotating(true);
+    try {
+      const r = await api.post("/admin/rider-wallet/rotate-featured?top_n=3");
+      toast(`✨ Rotated: ${r.data.featured_count} vendors now featured`);
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setRotating(false);
+  };
 
   const save = async (v) => {
     try {
@@ -45,28 +62,62 @@ export default function AdminRiderWallet({ toast }) {
 
   return (
     <div className="card" data-testid="admin-rider-wallet">
-      <div className="card-head" style={{ justifyContent: "space-between" }}>
-        <div className="card-title">✈️ Rider Wallet ({filtered.length})</div>
-        <div className="flex gap-8">
-          <select className="field-input" style={{ maxWidth: 160 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} data-testid="rider-type-filter">
-            <option value="">All Types</option>
-            <option value="hotel">Hotels</option>
-            <option value="flight">Flights</option>
-            <option value="transport">Transport</option>
-          </select>
-          <button className="btn btn-gold btn-sm" onClick={() => setModal({ type: "hotel", name: "", tagline: "", city: "", discount_pct: 10, cta_label: "Get Quote", is_active: true, is_featured: false })} data-testid="add-vendor-btn">+ Add Vendor</button>
+      <div className="card-head" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <div className="flex items-center gap-8">
+          <div className="card-title" style={{ margin: 0 }}>✈️ Rider Wallet</div>
+          <button className={`btn btn-xs ${view === "catalog" ? "btn-gold" : "btn-ghost"}`} onClick={() => setView("catalog")} data-testid="view-catalog">Catalog ({filtered.length})</button>
+          <button className={`btn btn-xs ${view === "leaderboard" ? "btn-gold" : "btn-ghost"}`} onClick={() => setView("leaderboard")} data-testid="view-leaderboard">🏆 Leaderboard</button>
         </div>
+        {view === "catalog" ? (
+          <div className="flex gap-8">
+            <select className="field-input" style={{ maxWidth: 160 }} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} data-testid="rider-type-filter">
+              <option value="">All Types</option>
+              <option value="hotel">Hotels</option>
+              <option value="flight">Flights</option>
+              <option value="transport">Transport</option>
+            </select>
+            <button className="btn btn-gold btn-sm" onClick={() => setModal({ type: "hotel", name: "", tagline: "", city: "", discount_pct: 10, cta_label: "Get Quote", is_active: true, is_featured: false })} data-testid="add-vendor-btn">+ Add Vendor</button>
+          </div>
+        ) : (
+          <button className="btn btn-gold btn-sm" onClick={rotateFeatured} disabled={rotating} data-testid="rotate-featured-btn">
+            {rotating ? "Rotating…" : "🔁 Auto-Feature Top 3"}
+          </button>
+        )}
       </div>
-      <div className="table-wrap">
+      {view === "leaderboard" ? (
+        <div className="table-wrap">
+          <table className="table" data-testid="leaderboard-table">
+            <thead><tr><th>#</th><th>Vendor</th><th>Type</th><th>Coverage</th><th>Click Requests</th><th>Discount</th><th>Featured</th><th>Status</th></tr></thead>
+            <tbody>
+              {leaderboard.map((v, idx) => (
+                <tr key={v.id} data-testid={`leaderboard-row-${idx}`}>
+                  <td className="fw-700 text-gold">{idx + 1}</td>
+                  <td><div className="fw-600">{v.name}</div><div className="text-muted fs-11">{v.tagline}</div></td>
+                  <td>{TYPE_ICON[v.type]} {v.type}</td>
+                  <td>{v.city || "Nationwide"}</td>
+                  <td className="fw-700" data-testid={`click-count-${v.id}`}>{v.click_count || 0} 📈</td>
+                  <td>{v.discount_pct}%</td>
+                  <td>{v.is_featured ? "★" : "—"}</td>
+                  <td><span className={`pill ${v.is_active ? "pill-green" : "pill-red"}`}>{v.is_active ? "Active" : "Off"}</span></td>
+                </tr>
+              ))}
+              {leaderboard.length === 0 && <tr><td colSpan={8} className="text-muted text-center" style={{ padding: 20 }}>No click activity yet</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>Type</th><th>Name</th><th>Coverage</th><th>Discount</th><th>Featured</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Type</th><th>Name</th><th>Slug</th><th>Coverage</th><th>Discount</th><th>Clicks</th><th>Featured</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {filtered.map((v) => (
               <tr key={v.id} data-testid={`vendor-${v.id}`}>
                 <td>{TYPE_ICON[v.type]} {v.type}</td>
                 <td><div className="fw-600">{v.name}</div><div className="text-muted fs-11">{v.tagline}</div></td>
+                <td><code className="fs-11" style={{ color: "var(--gold)" }}>/{v.slug}</code></td>
                 <td>{v.city || "Nationwide"}</td>
                 <td className="text-gold fw-700">{v.discount_pct}%</td>
+                <td>{v.click_count || 0}</td>
                 <td>{v.is_featured ? "★" : "—"}</td>
                 <td><span className={`pill ${v.is_active ? "pill-green" : "pill-red"}`}>{v.is_active ? "Active" : "Off"}</span></td>
                 <td>
@@ -75,10 +126,11 @@ export default function AdminRiderWallet({ toast }) {
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && <tr><td colSpan={7} className="text-muted text-center" style={{ padding: 20 }}>No vendors yet</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={9} className="text-muted text-center" style={{ padding: 20 }}>No vendors yet</td></tr>}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
       {modal && <VendorModal item={modal} onSave={save} onClose={() => setModal(null)} />}
     </div>
   );

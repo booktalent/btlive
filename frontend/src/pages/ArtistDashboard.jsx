@@ -36,6 +36,7 @@ const SIDEBAR = [
   { id: "media", label: "🎬 Media" },
   { id: "calendar", label: "📅 Availability" },
   { id: "bookings", label: "🎟️ Bookings" },
+  { id: "insights", label: "📈 Insights" },
   { id: "wallet", label: "💰 Wallet" },
   { id: "reviews", label: "⭐ Reviews" },
   { id: "boost", label: "🚀 Boost Profile" },
@@ -146,6 +147,7 @@ export default function ArtistDashboard() {
           {tab === "media" && <MediaManager data={data} refresh={refresh} toast={toast} />}
           {tab === "calendar" && <Availability refresh={refresh} toast={toast} />}
           {tab === "bookings" && <ArtistBookings data={data} doAction={doAction} />}
+          {tab === "insights" && <Insights toast={toast} />}
           {tab === "wallet" && <Wallet data={data} refresh={refresh} toast={toast} />}
           {tab === "reviews" && <Reviews data={data} refresh={refresh} toast={toast} />}
           {tab === "boost" && <Boost refresh={refresh} toast={toast} />}
@@ -1566,6 +1568,127 @@ function Concierge({ toast }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// 📈 Insights — Artist self-service analytics dashboard
+// ────────────────────────────────────────────────────────────────────────
+function Insights({ toast }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get("/artist/insights").then((r) => setData(r.data)).catch((e) => toast(formatApiError(e), "error")).finally(() => setLoading(false));
+  }, []); // eslint-disable-line
+
+  if (loading) return <div className="loading"><div className="spinner" /></div>;
+  if (!data) return <div className="empty"><div className="empty-icon">📈</div><div className="empty-title">Insights unavailable</div></div>;
+
+  const f = data.funnel || {};
+  const rev = data.revenue || {};
+  const maxCity = Math.max(1, ...(data.top_cities || []).map((c) => c.count));
+  const maxEt = Math.max(1, ...(data.top_event_types || []).map((c) => c.count));
+
+  return (
+    <div data-testid="insights-tab">
+      <div className="mb-16">
+        <h2 className="font-serif fs-20 fw-700">📈 Insights</h2>
+        <p className="text-muted fs-13">See where demand is coming from, and how well your profile converts.</p>
+      </div>
+
+      {/* Funnel KPIs */}
+      <div className="grid grid-4 gap-12 mb-24">
+        <KpiCard label="Profile Views" value={f.profile_views} icon="👀" testid="kpi-views" />
+        <KpiCard label="Bookings Created" value={f.bookings_created} icon="🎟️" testid="kpi-created" />
+        <KpiCard label="Conversion Rate" value={`${f.conversion_pct || 0}%`} icon="⚡" testid="kpi-conv" sub={`${f.bookings_created} of ${f.profile_views} views`} />
+        <KpiCard label="Total Earnings" value={fmtINRFull(rev.total_earnings || 0)} icon="💰" testid="kpi-earn" sub={`avg ${fmtINRFull(rev.avg_ticket || 0)}/booking`} />
+      </div>
+
+      {/* Funnel bar */}
+      <div className="card card-pad mb-24" data-testid="funnel-bar">
+        <div className="fw-700 mb-12">Booking Funnel</div>
+        <FunnelStep label="Views" value={f.profile_views} max={Math.max(1, f.profile_views)} />
+        <FunnelStep label="Bookings Created" value={f.bookings_created} max={Math.max(1, f.profile_views)} />
+        <FunnelStep label="Confirmed / Paid" value={f.bookings_confirmed} max={Math.max(1, f.profile_views)} />
+        <FunnelStep label="Completed" value={f.bookings_completed} max={Math.max(1, f.profile_views)} highlight />
+        {f.completion_pct > 0 && (
+          <div className="text-muted fs-12 mt-8" data-testid="completion-rate">✅ {f.completion_pct}% of created bookings reach completion</div>
+        )}
+      </div>
+
+      <div className="grid grid-2 gap-16">
+        {/* Top cities */}
+        <div className="card card-pad" data-testid="top-cities">
+          <div className="fw-700 mb-12">📍 Where Your Customers Are</div>
+          {(data.top_cities || []).length === 0 ? (
+            <div className="text-muted fs-13">No bookings yet.</div>
+          ) : (data.top_cities.map((c) => (
+            <BarRow key={c.city} label={c.city} value={c.count} max={maxCity} />
+          )))}
+          {data.top_searched_cities?.length > 0 && (
+            <div className="mt-16">
+              <div className="text-muted fs-11" style={{ textTransform: "uppercase", letterSpacing: 1 }}>Most Searched Cities on BookTalent</div>
+              <div className="flex gap-6 mt-8" style={{ flexWrap: "wrap" }}>
+                {data.top_searched_cities.map((c) => (
+                  <span key={c.city} className="pill" style={{ background: "rgba(212,175,55,0.15)", color: "var(--gold)", fontSize: 11 }} data-testid={`searched-city-${c.city}`}>{c.city} · {c.count}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Top event types */}
+        <div className="card card-pad" data-testid="top-event-types">
+          <div className="fw-700 mb-12">🎪 Top Event Types</div>
+          {(data.top_event_types || []).length === 0 ? (
+            <div className="text-muted fs-13">No bookings yet.</div>
+          ) : (data.top_event_types.map((c) => (
+            <BarRow key={c.event_type} label={c.event_type} value={c.count} max={maxEt} />
+          )))}
+        </div>
+      </div>
+
+      <div className="text-muted text-center fs-11 mt-24">
+        Updated {new Date(data.generated_at).toLocaleString()}
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, icon, sub, testid }) {
+  return (
+    <div className="card card-pad text-center" data-testid={testid}>
+      <div style={{ fontSize: 28 }}>{icon}</div>
+      <div className="text-muted fs-11" style={{ textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
+      <div className="font-serif fw-700" style={{ fontSize: 24 }}>{value}</div>
+      {sub && <div className="text-muted fs-11">{sub}</div>}
+    </div>
+  );
+}
+
+function FunnelStep({ label, value, max, highlight }) {
+  const pct = max ? Math.round((value / max) * 100) : 0;
+  return (
+    <div className="mb-8">
+      <div className="flex justify-between mb-4"><span className="fs-13">{label}</span><span className="fs-13 fw-700">{value}</span></div>
+      <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: highlight ? "linear-gradient(90deg,#34d399,#059669)" : "linear-gradient(90deg,#d4af37,#fbbf24)", transition: "width .6s ease" }} />
+      </div>
+    </div>
+  );
+}
+
+function BarRow({ label, value, max }) {
+  const pct = max ? Math.round((value / max) * 100) : 0;
+  return (
+    <div className="mb-8">
+      <div className="flex justify-between mb-4"><span className="fs-12">{label}</span><span className="fs-12 fw-700">{value}</span></div>
+      <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg,#a78bfa,#d4af37)" }} />
+      </div>
     </div>
   );
 }

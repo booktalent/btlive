@@ -9,6 +9,7 @@ import Auth from "./pages/Auth";
 import Search from "./pages/Search";
 import ArtistProfile from "./pages/ArtistProfile";
 import BookingFlow from "./pages/BookingFlow";
+import { Partners, PartnerDetail } from "./pages/Partners";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import ArtistDashboard from "./pages/ArtistDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -35,6 +36,8 @@ function App() {
               <Route path="/signup" element={<Auth mode="signup" />} />
               <Route path="/search" element={<Search />} />
               <Route path="/artist/:id" element={<ArtistProfile />} />
+              <Route path="/partners" element={<Partners />} />
+              <Route path="/partners/:slug" element={<PartnerDetail />} />
               <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
               <Route path="/customer" element={<Protected roles={["customer"]}><CustomerDashboard /></Protected>} />
               <Route path="/artist" element={<Protected roles={["artist"]}><ArtistDashboard /></Protected>} />

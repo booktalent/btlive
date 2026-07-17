@@ -7,21 +7,12 @@ customer books a package with travel requirements, they see partner options
 inline in Step 4 with the negotiated discount. This becomes a lead-gen /
 commission revenue stream on top of the 5% + 18% GST core.
 
-Collections
------------
-rider_vendors { id, type (hotel|flight|transport), name, tagline, city,
-                partner_url, contact_email, phone, discount_pct, star_rating,
-                image_url, cta_label, is_active, is_featured, created_at }
-
-Endpoints
----------
-GET  /rider-wallet/vendors                 public   ?type=hotel&city=Mumbai
-GET  /admin/rider-wallet/vendors           admin list all
-POST /admin/rider-wallet/vendors           admin create
-PATCH /admin/rider-wallet/vendors/{id}     admin update
-DELETE /admin/rider-wallet/vendors/{id}    admin delete (hard)
+Iter 31 add-ons:
+  • Public partner directory — SEO-friendly `/partners/{slug}` detail
+  • Click tracking + admin leaderboard — data-driven featured slot rotation
 """
 from __future__ import annotations
+import re
 from typing import Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,6 +20,12 @@ from pydantic import BaseModel
 
 
 VendorType = Literal["hotel", "flight", "transport"]
+
+
+def _slugify(text: str) -> str:
+    """Deterministic URL-safe slug — lowercase, non-alnum → '-', trim & dedupe."""
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return re.sub(r"-+", "-", s) or "vendor"
 
 
 class VendorBody(BaseModel):
@@ -45,6 +42,8 @@ class VendorBody(BaseModel):
     cta_label: str = "Get Quote"
     is_active: bool = True
     is_featured: bool = False
+    description: Optional[str] = None      # long-form description for the public detail page
+    seo_keywords: Optional[str] = None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -85,11 +84,20 @@ SEED_VENDORS = [
 async def ensure_seed(db, utcnow, new_id):
     count = await db.rider_vendors.count_documents({})
     if count > 0:
+        # Backfill missing slugs on existing docs (idempotent one-time migration)
+        cur = db.rider_vendors.find({"$or": [{"slug": {"$exists": False}}, {"slug": None}, {"slug": ""}]})
+        async for doc in cur:
+            slug = _slugify(f"{doc['name']}-{doc.get('city') or doc['type']}")
+            await db.rider_vendors.update_one({"id": doc["id"]}, {"$set": {"slug": slug, "click_count": doc.get("click_count", 0)}})
         return
     now = utcnow()
     docs = []
     for v in SEED_VENDORS:
-        docs.append({"id": new_id(), "created_at": now, "is_active": True, "is_featured": False, **v})
+        slug = _slugify(f"{v['name']}-{v.get('city') or v['type']}")
+        docs.append({
+            "id": new_id(), "slug": slug, "click_count": 0,
+            "created_at": now, "is_active": True, "is_featured": False, **v,
+        })
     if docs:
         await db.rider_vendors.insert_many(docs)
 
@@ -101,6 +109,7 @@ def make_router(*, db, get_current_user, admin_only, utcnow, new_id, clean) -> A
     async def public_list(
         type: Optional[VendorType] = Query(None),
         city: Optional[str] = Query(None),
+        featured_only: bool = Query(False),
         limit: int = Query(24, ge=1, le=100),
     ):
         q: dict = {"is_active": True}
@@ -109,8 +118,50 @@ def make_router(*, db, get_current_user, admin_only, utcnow, new_id, clean) -> A
         if city:
             # Match nationwide (city null) OR exact city match
             q["$or"] = [{"city": None}, {"city": {"$regex": f"^{city}$", "$options": "i"}}]
-        docs = await db.rider_vendors.find(q).sort([("is_featured", -1), ("discount_pct", -1)]).limit(limit).to_list(limit)
+        if featured_only:
+            q["is_featured"] = True
+        docs = await db.rider_vendors.find(q).sort([("is_featured", -1), ("click_count", -1), ("discount_pct", -1)]).limit(limit).to_list(limit)
         return [clean(d) for d in docs]
+
+    @r.get("/partners/{slug}")
+    async def public_partner_detail(slug: str):
+        """Public SEO-friendly partner detail — /partners/taj-group."""
+        doc = await db.rider_vendors.find_one({"slug": slug, "is_active": True})
+        if not doc:
+            raise HTTPException(404, "Partner not found")
+        # Related partners of the same type (nationwide + same city)
+        related_q: dict = {"is_active": True, "type": doc["type"], "id": {"$ne": doc["id"]}}
+        related = await db.rider_vendors.find(related_q).sort([("is_featured", -1), ("click_count", -1)]).limit(6).to_list(6)
+        return {"vendor": clean(doc), "related": [clean(r) for r in related]}
+
+    @r.post("/rider-wallet/vendors/{vid}/click")
+    async def track_click(vid: str):
+        """Fire-and-forget click beacon. Increments the vendor's click_count so
+        the admin leaderboard can rank by real demand."""
+        result = await db.rider_vendors.update_one({"id": vid}, {"$inc": {"click_count": 1}})
+        if result.matched_count == 0:
+            raise HTTPException(404, "Vendor not found")
+        return {"ok": True}
+
+    @r.get("/admin/rider-wallet/leaderboard")
+    async def admin_leaderboard(_: dict = Depends(admin_only), limit: int = Query(20, ge=1, le=100)):
+        """Data-driven partner leaderboard — highest click_count first."""
+        docs = await db.rider_vendors.find({}).sort([("click_count", -1), ("is_featured", -1)]).limit(limit).to_list(limit)
+        return [clean(d) for d in docs]
+
+    @r.post("/admin/rider-wallet/rotate-featured")
+    async def rotate_featured(_: dict = Depends(admin_only), top_n: int = Query(3, ge=1, le=10)):
+        """Auto-feature the top-N vendors of each type by click_count. Un-feature the rest."""
+        # Un-feature everything, then re-feature winners
+        await db.rider_vendors.update_many({}, {"$set": {"is_featured": False}})
+        promoted = []
+        for vtype in ("hotel", "flight", "transport"):
+            top = await db.rider_vendors.find({"type": vtype, "is_active": True}).sort("click_count", -1).limit(top_n).to_list(top_n)
+            for t in top:
+                promoted.append(t["id"])
+        if promoted:
+            await db.rider_vendors.update_many({"id": {"$in": promoted}}, {"$set": {"is_featured": True}})
+        return {"ok": True, "featured_count": len(promoted)}
 
     @r.get("/admin/rider-wallet/vendors")
     async def admin_list(_: dict = Depends(admin_only)):
@@ -119,7 +170,15 @@ def make_router(*, db, get_current_user, admin_only, utcnow, new_id, clean) -> A
 
     @r.post("/admin/rider-wallet/vendors")
     async def admin_create(body: VendorBody, _: dict = Depends(admin_only)):
-        doc = {"id": new_id(), "created_at": utcnow(), **body.model_dump()}
+        payload = body.model_dump()
+        # Ensure a unique-ish slug per {name, city|type} — retry with -2/-3 if collision.
+        base = _slugify(f"{payload['name']}-{payload.get('city') or payload['type']}")
+        slug = base
+        n = 2
+        while await db.rider_vendors.find_one({"slug": slug}):
+            slug = f"{base}-{n}"
+            n += 1
+        doc = {"id": new_id(), "slug": slug, "click_count": 0, "created_at": utcnow(), **payload}
         await db.rider_vendors.insert_one(doc)
         return clean(doc)
 
@@ -128,10 +187,23 @@ def make_router(*, db, get_current_user, admin_only, utcnow, new_id, clean) -> A
         # Whitelist writable fields to avoid overwriting id / created_at
         allowed = {"type", "name", "tagline", "city", "partner_url", "contact_email",
                    "phone", "discount_pct", "star_rating", "image_url", "cta_label",
-                   "is_active", "is_featured"}
+                   "is_active", "is_featured", "description", "seo_keywords"}
         patch = {k: v for k, v in body.items() if k in allowed}
         if not patch:
             raise HTTPException(400, "No writable fields provided")
+        # Refresh slug if name or city changed
+        if "name" in patch or "city" in patch:
+            current = await db.rider_vendors.find_one({"id": vid})
+            if current:
+                new_name = patch.get("name", current["name"])
+                new_city = patch.get("city", current.get("city"))
+                base = _slugify(f"{new_name}-{new_city or current['type']}")
+                slug = base
+                n = 2
+                while await db.rider_vendors.find_one({"slug": slug, "id": {"$ne": vid}}):
+                    slug = f"{base}-{n}"
+                    n += 1
+                patch["slug"] = slug
         patch["updated_at"] = utcnow()
         result = await db.rider_vendors.update_one({"id": vid}, {"$set": patch})
         if result.matched_count == 0:

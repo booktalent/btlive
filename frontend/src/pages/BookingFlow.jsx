@@ -477,9 +477,9 @@ export default function BookingFlow() {
                                     {v.discount_pct > 0 && <div className="text-gold fw-600 fs-12 mt-4">{v.discount_pct}% partner discount</div>}
                                   </div>
                                   {v.partner_url ? (
-                                    <a href={v.partner_url} target="_blank" rel="noopener noreferrer" className="btn btn-gold btn-xs" data-testid={`rider-vendor-cta-${v.id}`}>{v.cta_label || "Get Quote"} →</a>
+                                    <a href={v.partner_url} target="_blank" rel="noopener noreferrer" className="btn btn-gold btn-xs" onClick={() => api.post(`/rider-wallet/vendors/${v.id}/click`).catch(() => {})} data-testid={`rider-vendor-cta-${v.id}`}>{v.cta_label || "Get Quote"} →</a>
                                   ) : v.contact_email ? (
-                                    <a href={`mailto:${v.contact_email}`} className="btn btn-gold btn-xs" data-testid={`rider-vendor-cta-${v.id}`}>Email →</a>
+                                    <a href={`mailto:${v.contact_email}`} className="btn btn-gold btn-xs" onClick={() => api.post(`/rider-wallet/vendors/${v.id}/click`).catch(() => {})} data-testid={`rider-vendor-cta-${v.id}`}>Email →</a>
                                   ) : null}
                                 </div>
                               </div>

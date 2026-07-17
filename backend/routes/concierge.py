@@ -39,7 +39,7 @@ class OpenThreadBody(BaseModel):
     first_message: Optional[str] = None
 
 
-def make_router(*, db, get_current_user, admin_only, utcnow, new_id, clean) -> APIRouter:
+def make_router(*, db, get_current_user, admin_only, utcnow, new_id, clean, notify_dispatch=None) -> APIRouter:
     r = APIRouter()
 
     async def _resolve_plan_code(user_id: str) -> str:
@@ -154,12 +154,41 @@ def make_router(*, db, get_current_user, admin_only, utcnow, new_id, clean) -> A
         if not thread:
             raise HTTPException(404, "Thread not found")
         msg = await _post_message(thread_id, admin["id"], "admin", body.body, utcnow())
-        # Notify artist
+        # In-app notification (always fires)
         await db.notifications.insert_one({
             "id": new_id(), "user_id": thread["artist_id"], "type": "concierge",
             "title": "🎩 Concierge replied",
             "body": body.body[:120], "read": False, "created_at": utcnow(),
         })
+        # Multi-channel — email + WhatsApp fire when provider keys are set;
+        # fall back to a mock-log row otherwise so admins can audit.
+        if notify_dispatch:
+            try:
+                artist = await db.users.find_one({"id": thread["artist_id"]})
+                if artist:
+                    plan = thread.get("plan", "elite")
+                    sla_hours = {"elite": 2, "platinum": 6}.get(plan, 24)
+                    await notify_dispatch(
+                        db,
+                        user_id=thread["artist_id"],
+                        event="concierge_reply",
+                        channels=["email", "whatsapp", "in_app"],
+                        email=artist.get("email"),
+                        phone=artist.get("phone"),
+                        ctx={
+                            "title": "🎩 BookTalent Concierge replied to your ticket",
+                            "body": f"Subject: {thread.get('subject', 'General')}\n\n{body.body}\n\n— BookTalent Support (SLA: {sla_hours}h)",
+                            "artist_name": (artist.get("full_name") or artist.get("email", "").split("@")[0]),
+                            "subject": thread.get("subject", "General"),
+                            "reply_body": body.body[:400],
+                            "plan": plan.upper(),
+                            "sla_hours": sla_hours,
+                            "thread_id": thread_id,
+                        },
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger("booktalent.concierge").warning("notify_dispatch failed: %s", e)
         return {"ok": True, "message": clean(msg)}
 
     @r.post("/admin/concierge/{thread_id}/close")
