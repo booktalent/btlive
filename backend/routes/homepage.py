@@ -19,10 +19,16 @@ Endpoint: GET /homepage/sections?city=Mumbai&limit=8
 Returns:  [{ "code": "...", "title": "...", "subtitle": "...", "items": [...] }]
 """
 from __future__ import annotations
+import re
 from typing import Callable, Optional
 
 from fastapi import APIRouter, Query
 from datetime import datetime, timedelta, timezone
+
+
+def _slug(s: str) -> str:
+    """Sanitize a string to a safe slug for use in URLs / data-testid."""
+    return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
 
 
 async def _enrich(db, docs: list, clean) -> list:
@@ -123,7 +129,7 @@ def make_router(*, db, clean, **_extra) -> APIRouter:
             cur = db.artist_profiles.find({"category": slug}).sort([("plan_rank", -1), ("rating_avg", -1)]).limit(limit)
             items = await _enrich(db, await cur.to_list(limit), clean)
             if items:
-                rails.append({"code": f"cat_{slug.lower().replace(' ', '_')}", "title": f"{icon} Top {title}", "subtitle": f"India's leading {title.lower()}", "items": items})
+                rails.append({"code": f"cat_{_slug(slug)}", "title": f"{icon} Top {title}", "subtitle": f"India's leading {title.lower()}", "items": items})
 
         return rails
 

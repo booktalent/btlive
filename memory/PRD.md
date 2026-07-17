@@ -84,6 +84,69 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
+## Iter 28 — Sprint 5 + Sprint 6 (this round)
+
+### Sprint 5 — Premium Subscription Plans
+- New `/app/backend/routes/subscriptions.py` — Five tiers (Free / Silver /
+  Gold / Platinum / Elite), each with feature caps: max_media, max_addons,
+  response_sla_hours, boost_multiplier, verified_badge, priority_support,
+  commission_discount_pct, elite_rail eligibility.
+- Endpoints: `GET /subscriptions/plans`, `GET /subscriptions/me`,
+  `POST /subscriptions/subscribe`, `POST /subscriptions/cancel`,
+  `GET /admin/subscriptions`. Payment is mocked; downgrade is free & immediate.
+- On subscribe, denorms `plan_code`, `plan_rank`, `premium_badge` into
+  `artist_profiles` so search + homepage read in one query.
+- `resolve_plan(db, user_id)` helper exposed for cross-module use.
+- UI: New "💎 Subscription" sidebar tab in Artist Dashboard with 5 plan cards,
+  monthly/yearly cycle toggle, current-plan banner + downgrade CTA.
+
+### Sprint 5 — Dynamic Homepage Rails
+- New `/app/backend/routes/homepage.py` — Ten computed rails (featured,
+  trending, elite, new_talent, top_rated, fastest_response, best_value,
+  city_<city>, cat_bollywood_vocalist, cat_dj_music_producer, cat_dancer).
+- Each rail computed from artist_profiles / bookings aggregations at request
+  time (no cron). Empty rails are omitted.
+- Landing.jsx now renders rails via `HomeRail` component with premium plan
+  badges (👑 Elite / 💎 Platinum / 🥇 Gold) overlaid on each artist card.
+- Rail codes are safely slugified (was `cat_dj_/_music_producer` → now
+  `cat_dj_music_producer`).
+
+### Sprint 6 — Agency Commission Edit
+- New `PATCH /agency/roster/{artist_id}/commission` endpoint (0-50% range).
+- Roster table now supports inline commission edit with Save/Cancel controls
+  (data-testid `commission-edit-<id>`, `commission-input-<id>`,
+  `commission-save-<id>`).
+
+### Sprint 6 — Advanced Search Infinite Scroll
+- Search.jsx: Pagination Prev/Next buttons replaced with an
+  IntersectionObserver-driven sentinel (`infinite-scroll-sentinel`) that
+  auto-appends the next page when the user scrolls near the bottom.
+- End marker (`infinite-scroll-end`) shown when all pages loaded.
+- Artist cards now display plan badges (Elite/Platinum/Gold).
+- Search backend `sort_spec` now leads with `plan_rank` in every mode
+  (relevance / price_asc / price_desc / rating / newest) — so higher-tier
+  subscribers rank first across the board.
+
+### Test coverage
+- 13/13 pytest cases pass (`/app/backend/tests/test_iter28_sprint5_6.py`)
+- Frontend E2E: subscription flow, homepage rails, agency commission edit,
+  search infinite scroll all verified via Playwright
+- Regression: `/api/artists/featured` still returns 8 artists; booking math
+  unaffected (5% + 18% GST still the only platform take); Sprint 3+4 flows
+  still green.
+
+### Files added / modified
+- NEW: `/app/backend/routes/subscriptions.py`
+- NEW: `/app/backend/routes/homepage.py`
+- NEW: `/app/backend/tests/test_iter28_sprint5_6.py`
+- MOD: `/app/backend/server.py` — Registered new routers
+- MOD: `/app/backend/iter7_routes.py` — search sort_spec adds plan_rank
+- MOD: `/app/backend/iter9_routes.py` — PATCH commission endpoint
+- MOD: `/app/frontend/src/pages/ArtistDashboard.jsx` — Subscription tab
+- MOD: `/app/frontend/src/pages/Landing.jsx` — Dynamic rails via HomeRail
+- MOD: `/app/frontend/src/pages/Search.jsx` — IntersectionObserver + badges
+- MOD: `/app/frontend/src/pages/RoleDashboards.jsx` — Inline commission edit
+
 ## Iter 27 — Sprint 3 UI + Sprint 4 Travel & Accommodation (this round)
 Completes the enterprise roadmap through Sprint 4.
 
