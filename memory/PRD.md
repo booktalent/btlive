@@ -84,6 +84,69 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
+## Iter 29 — Elite Concierge + Smart Homepage + Rider Wallet (this round)
+
+### Elite Concierge Chat (Platinum + Elite only)
+- New `/app/backend/routes/concierge.py` — PRIORITY dict (elite=100,
+  platinum=80, others=0) + ALLOWED_PLANS={platinum,elite} feature gate.
+- Endpoints: `GET /concierge/my-thread`, `POST /concierge/open`,
+  `GET /concierge/messages`, `POST /concierge/send`,
+  `GET /admin/concierge/threads` (priority-sorted), `GET/POST /admin/concierge/{tid}/messages`,
+  `POST /admin/concierge/{tid}/close`.
+- REST-only (client polls every 12s) — piggybacks on the existing Nginx
+  `/api/*` proxy without adding new WS routes.
+- Artist UI: New "🎩 Concierge" sidebar tab with ELITE mini-badge; polls
+  every 12s; shows locked upgrade CTA for lower-tier plans.
+- Admin UI: New "AdminConcierge" split-pane (thread list left, chat right)
+  with plan badge, unread counter, status filter, and close-thread control.
+
+### Smart Homepage — Personalized Rails
+- Added `get_current_user_optional()` in server.py — resolves caller from
+  Bearer token without raising for anonymous/invalid tokens.
+- Extended `/homepage/sections` to prepend up to 3 personalized rails when
+  the caller is an authenticated customer:
+    • `continue_in_city`      — most searched city
+    • `because_you_searched`  — most searched category
+    • `rebook`                — artists the customer has booked before
+- Uses existing `search_history` collection (recorded when `q` param is set)
+  and `bookings` collection. Falls back gracefully to default rails.
+
+### Rider Wallet — Curated Travel Partner Marketplace
+- New `/app/backend/routes/rider_wallet.py` — 7 seeded partners (Taj, ITC,
+  Lemon Tree, IndiGo, Vistara, BluSmart, Meru) inserted on first boot via
+  `ensure_seed()`.
+- Public: `GET /rider-wallet/vendors?type=&city=&limit=`
+- Admin: `GET/POST /admin/rider-wallet/vendors` + `PATCH/DELETE /{id}`
+- Vendor fields: type (hotel/flight/transport), name, tagline, city
+  (None=nationwide), partner_url, contact_email, phone, discount_pct,
+  star_rating, image_url, cta_label, is_active, is_featured.
+- BookingFlow: Renders `rider-wallet-block` inside `review-travel-block`
+  when the package requires travel / accommodation / local transport.
+  Cards link out to partner_url / mailto — customer contacts partner
+  directly. Zero effect on `pricing.total` — business rule intact.
+- Admin UI: CRUD table + modal with type filter.
+
+### Test coverage
+- 23/23 backend pytest cases pass (`/app/backend/tests/test_iter29_concierge_homepage_rider.py`)
+- Frontend E2E: Full Playwright coverage for Priya concierge (gate + open
+  + send + downgrade lock), admin concierge queue + reply + close, admin
+  rider wallet CRUD, customer smart homepage personalized rails, and
+  customer BookingFlow rider-wallet-block with 6 partner cards.
+- Regression: booking math (5% + 18% GST), existing chat, add-ons UI,
+  search infinite scroll — all green.
+
+### Files added / modified
+- NEW: `/app/backend/routes/concierge.py`
+- NEW: `/app/backend/routes/rider_wallet.py`
+- NEW: `/app/frontend/src/pages/admin/AdminConcierge.jsx`
+- NEW: `/app/frontend/src/pages/admin/AdminRiderWallet.jsx`
+- NEW: `/app/backend/tests/test_iter29_concierge_homepage_rider.py`
+- MOD: `/app/backend/routes/homepage.py` — personalised rails
+- MOD: `/app/backend/server.py` — get_current_user_optional + router regs + seed hook
+- MOD: `/app/frontend/src/pages/ArtistDashboard.jsx` — Concierge tab + component
+- MOD: `/app/frontend/src/pages/AdminDashboard.jsx` — 2 new sidebar tabs
+- MOD: `/app/frontend/src/pages/BookingFlow.jsx` — Rider Wallet block
+
 ## Iter 28 — Sprint 5 + Sprint 6 (this round)
 
 ### Sprint 5 — Premium Subscription Plans
