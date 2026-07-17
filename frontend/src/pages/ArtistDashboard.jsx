@@ -40,6 +40,7 @@ const SIDEBAR = [
   { id: "reviews", label: "⭐ Reviews" },
   { id: "boost", label: "🚀 Boost Profile" },
   { id: "subscription", label: "💎 Subscription" },
+  { id: "concierge", label: "🎩 Concierge", elite: true },
   { id: "kyc", label: "🪪 KYC" },
 ];
 
@@ -116,6 +117,7 @@ export default function ArtistDashboard() {
         {SIDEBAR.map((x) => (
           <div key={x.id} className={`sb-item ${tab === x.id ? "active" : ""}`} onClick={() => setTab(x.id)} data-testid={`sb-${x.id}`}>
             {x.label}
+            {x.elite && <span style={{ marginLeft: 6, fontSize: 9, background: "linear-gradient(135deg,#f472b6,#d4af37)", color: "#0b0616", padding: "2px 6px", borderRadius: 6, fontWeight: 700 }}>ELITE</span>}
           </div>
         ))}
       </aside>
@@ -148,6 +150,7 @@ export default function ArtistDashboard() {
           {tab === "reviews" && <Reviews data={data} refresh={refresh} toast={toast} />}
           {tab === "boost" && <Boost refresh={refresh} toast={toast} />}
           {tab === "subscription" && <Subscription toast={toast} />}
+          {tab === "concierge" && <Concierge toast={toast} />}
           {tab === "kyc" && <KYC toast={toast} refresh={refresh} />}
         </div>
       </main>
@@ -1406,6 +1409,163 @@ function Subscription({ toast }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// Elite Concierge Chat — Platinum + Elite priority support channel
+// ────────────────────────────────────────────────────────────────────────
+function Concierge({ toast }) {
+  const [thread, setThread] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [locked, setLocked] = useState(false);
+  const [text, setText] = useState("");
+  const [subject, setSubject] = useState("General");
+  const [firstMessage, setFirstMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const listRef = useRef(null);
+
+  const refresh = async () => {
+    try {
+      const r = await api.get("/concierge/messages");
+      setThread(r.data.thread);
+      setMessages(r.data.messages || []);
+      setLocked(false);
+      setTimeout(() => {
+        if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+      }, 50);
+    } catch (e) {
+      if (e.response?.status === 403) {
+        setLocked(true);
+      } else {
+        toast(formatApiError(e), "error");
+      }
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    // Poll every 12s for new admin replies
+    const iv = setInterval(() => { if (!locked) refresh(); }, 12000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line
+  }, [locked]);
+
+  const openThread = async () => {
+    if (!firstMessage.trim()) return;
+    setSending(true);
+    try {
+      await api.post("/concierge/open", { subject, first_message: firstMessage });
+      setFirstMessage("");
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setSending(false);
+  };
+
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    try {
+      await api.post("/concierge/send", { body: text });
+      setText("");
+      refresh();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setSending(false);
+  };
+
+  if (locked) {
+    return (
+      <div className="card card-pad text-center" data-testid="concierge-locked" style={{ padding: 40 }}>
+        <div style={{ fontSize: 42, marginBottom: 12 }}>🎩</div>
+        <h2 className="font-serif fs-24 fw-700 mb-8">Elite Concierge</h2>
+        <p className="text-muted mb-16">Priority support with a 2-6 hour SLA is a benefit reserved for <b>Platinum</b> and <b>Elite</b> plans.</p>
+        <button className="btn btn-gold" onClick={() => window.location.hash = "#subscription"} data-testid="concierge-upgrade-cta">
+          Upgrade to Unlock 🚀
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid="concierge-tab">
+      <div className="mb-16">
+        <h2 className="font-serif fs-20 fw-700">🎩 Elite Concierge</h2>
+        <p className="text-muted fs-13">Direct line to our support team — replies within your plan SLA.</p>
+      </div>
+
+      {!thread ? (
+        <div className="card card-pad" data-testid="concierge-open-form">
+          <h3 className="fw-600 mb-12">Start a new conversation</h3>
+          <div className="field"><div className="field-label">Subject</div>
+            <select className="field-input" value={subject} onChange={(e) => setSubject(e.target.value)} data-testid="concierge-subject">
+              <option>General</option>
+              <option>Payout question</option>
+              <option>Booking dispute</option>
+              <option>Profile / KYC help</option>
+              <option>Feature request</option>
+              <option>Report a bug</option>
+            </select>
+          </div>
+          <div className="field"><div className="field-label">Message</div>
+            <textarea className="field-input" rows={4} value={firstMessage} onChange={(e) => setFirstMessage(e.target.value)} placeholder="Tell us how we can help…" data-testid="concierge-first-msg" />
+          </div>
+          <button className="btn btn-gold" disabled={!firstMessage.trim() || sending} onClick={openThread} data-testid="concierge-open-btn">Open Conversation</button>
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 0, display: "flex", flexDirection: "column", height: "60vh", minHeight: 480 }} data-testid="concierge-chat">
+          <div style={{ padding: 14, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="fw-700">{thread.subject}</div>
+                <div className="text-muted fs-12">Priority: <span className="text-gold fw-600">{thread.plan.toUpperCase()}</span> · {thread.status === "open" ? "🟢 Open" : "⚪ Closed"}</div>
+              </div>
+            </div>
+          </div>
+          <div ref={listRef} style={{ flex: 1, overflowY: "auto", padding: 14 }} data-testid="concierge-messages">
+            {messages.length === 0 ? (
+              <div className="text-muted text-center" style={{ marginTop: 40 }}>Waiting for a reply…</div>
+            ) : messages.map((m) => (
+              <div key={m.id} style={{
+                marginBottom: 12,
+                display: "flex",
+                justifyContent: m.sender_role === "artist" ? "flex-end" : "flex-start",
+              }}>
+                <div style={{
+                  maxWidth: "72%",
+                  padding: "10px 14px",
+                  borderRadius: 14,
+                  background: m.sender_role === "artist" ? "linear-gradient(135deg,#d4af37,#fbbf24)" : "rgba(255,255,255,0.08)",
+                  color: m.sender_role === "artist" ? "#0b0616" : "#fff",
+                }} data-testid={`concierge-msg-${m.id}`}>
+                  <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, marginBottom: 4 }}>
+                    {m.sender_role === "admin" ? "🎩 BookTalent Support" : "You"}
+                  </div>
+                  <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
+                  <div style={{ fontSize: 9, opacity: 0.6, marginTop: 4, textAlign: "right" }}>{new Date(m.created_at).toLocaleString()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {thread.status === "open" ? (
+            <div style={{ padding: 12, borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: 8 }}>
+              <textarea
+                className="field-input"
+                style={{ flex: 1, minHeight: 44, maxHeight: 120, resize: "vertical" }}
+                placeholder="Type a message…"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                data-testid="concierge-input"
+              />
+              <button className="btn btn-gold" onClick={send} disabled={!text.trim() || sending} data-testid="concierge-send">Send</button>
+            </div>
+          ) : (
+            <div className="text-muted text-center" style={{ padding: 16 }}>This conversation is closed. Start a new one from the Overview tab.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

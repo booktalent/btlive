@@ -9,11 +9,14 @@ import {
   AdminCMS, AdminBroadcast, AdminSettings, AdminAudit, AdminReports,
   AdminReviewsModeration, AdminProviders,
 } from "./admin/AdminEnterprise";
+import AdminConcierge from "./admin/AdminConcierge";
+import AdminRiderWallet from "./admin/AdminRiderWallet";
 
 const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
   { id: "artists", label: "🎤 Artists" },
   { id: "bookings", label: "📋 Bookings" },
+  { id: "concierge", label: "🎩 Concierge" },
   { id: "kyc", label: "🪪 KYC Queue" },
   { id: "payouts", label: "💸 Payouts" },
   { id: "coupons", label: "🎫 Coupons" },
@@ -21,6 +24,7 @@ const SIDEBAR = [
   { id: "disputes", label: "⚖️ Disputes" },
   { id: "master", label: "🗂️ Master Data" },
   { id: "boost", label: "🚀 Boost Manager" },
+  { id: "rider-wallet", label: "✈️ Rider Wallet" },
   { id: "templates", label: "📧 Templates" },
   { id: "faqs", label: "❓ FAQs" },
   { id: "cms", label: "📄 CMS Pages" },
@@ -85,6 +89,8 @@ export default function AdminDashboard() {
           {tab === "overview" && <OverviewAdmin stats={stats} />}
           {tab === "artists" && <AdminArtists toast={toast} />}
           {tab === "bookings" && <AdminBookings />}
+          {tab === "concierge" && <AdminConcierge toast={toast} />}
+          {tab === "rider-wallet" && <AdminRiderWallet toast={toast} />}
           {tab === "kyc" && <AdminKYC toast={toast} />}
           {tab === "payouts" && <AdminPayouts toast={toast} />}
           {tab === "coupons" && <AdminCoupons toast={toast} />}

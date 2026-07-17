@@ -47,6 +47,8 @@ from routes import uploads as routes_uploads
 from routes import addons as routes_addons
 from routes import subscriptions as routes_subscriptions
 from routes import homepage as routes_homepage
+from routes import concierge as routes_concierge
+from routes import rider_wallet as routes_rider_wallet
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -155,6 +157,23 @@ async def get_current_user(request: Request) -> dict:
     if not user:
         raise HTTPException(401, "User not found")
     return clean(user)
+
+
+async def get_current_user_optional(authorization: str | None) -> dict | None:
+    """Sprint 5 Smart Homepage — resolve caller if a valid token is present.
+
+    Never raises — returns None for anonymous or invalid-token requests so that
+    public endpoints can gracefully fall back to non-personalized output.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user = await db.users.find_one({"id": payload["sub"]})
+        return clean(user) if user else None
+    except Exception:
+        return None
 
 
 async def require_role(roles: list[str]):
@@ -2443,7 +2462,21 @@ app.include_router(
 )
 # Sprint 5 — dynamic homepage sections (public)
 app.include_router(
-    routes_homepage.make_router(**_common_deps),
+    routes_homepage.make_router(get_current_user_optional=get_current_user_optional, **_common_deps),
+    prefix="/api",
+)
+# Elite Concierge Chat (Platinum + Elite gate)
+app.include_router(
+    routes_concierge.make_router(
+        get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
+    ),
+    prefix="/api",
+)
+# Rider Wallet — curated partners (hotel / flight / transport)
+app.include_router(
+    routes_rider_wallet.make_router(
+        get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
+    ),
     prefix="/api",
 )
 
@@ -2473,6 +2506,9 @@ async def _iter7_startup():
     )
     if fix_res.modified_count:
         log.info("Reset %d negative wallet pending balances", fix_res.modified_count)
+
+    # 3. Seed Rider Wallet partners on first boot
+    await routes_rider_wallet.ensure_seed(db, utcnow, new_id)
 
 
 @app.on_event("shutdown")

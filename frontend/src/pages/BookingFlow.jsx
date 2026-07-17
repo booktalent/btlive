@@ -34,6 +34,7 @@ export default function BookingFlow() {
   const [artist, setArtist] = useState(null);
   const [packages, setPackages] = useState([]);
   const [artistAddons, setArtistAddons] = useState([]); // Sprint 3
+  const [riderVendors, setRiderVendors] = useState([]);  // Rider Wallet
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(1);
 
@@ -76,6 +77,8 @@ export default function BookingFlow() {
       const mandatory = (r.data || []).filter((a) => a.is_mandatory).map((a) => ({ addon_id: a.id, quantity: 1 }));
       if (mandatory.length) setForm((f) => ({ ...f, addon_selections: mandatory }));
     }).catch(() => setArtistAddons([]));
+    // Rider Wallet — curated travel partners (Sprint 4 companion)
+    api.get("/rider-wallet/vendors?limit=24").then((r) => setRiderVendors(r.data || [])).catch(() => setRiderVendors([]));
     api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
     // Fetch only when the artist/package `id` changes. Adding `form.package_id`
     // would refetch on every form key-stroke; adding `nav`/`user` would loop.
@@ -450,6 +453,42 @@ export default function BookingFlow() {
                         <div className="fs-13">{pkg.travel_notes}</div>
                       </div>
                     )}
+
+                    {/* Rider Wallet — curated partner offers */}
+                    {riderVendors.length > 0 && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required) && (
+                      <div className="mt-16" data-testid="rider-wallet-block">
+                        <div className="text-gold fw-700 fs-12 mb-8" style={{ textTransform: "uppercase", letterSpacing: 1 }}>💼 Rider Wallet — Partner Offers</div>
+                        <div className="text-muted fs-11 mb-12">Save with BookTalent-negotiated rates. Contact these partners directly to arrange the artist's travel.</div>
+                        <div className="grid grid-2 gap-8">
+                          {(() => {
+                            const relevant = riderVendors.filter((v) => {
+                              if (v.type === "hotel" && pkg.accommodation_required) return true;
+                              if (v.type === "flight" && pkg.travel_required) return true;
+                              if (v.type === "transport" && pkg.local_transport_required) return true;
+                              return false;
+                            }).slice(0, 6);
+                            const TYPE_ICON = { hotel: "🏨", flight: "✈️", transport: "🚗" };
+                            return relevant.map((v) => (
+                              <div key={v.id} className="card card-pad" style={{ padding: 10, background: "rgba(212,175,55,0.05)", border: "1px solid rgba(212,175,55,0.2)" }} data-testid={`rider-vendor-${v.id}`}>
+                                <div className="flex justify-between items-start gap-8">
+                                  <div style={{ flex: 1 }}>
+                                    <div className="fw-700 fs-13">{TYPE_ICON[v.type]} {v.name} {v.is_featured && <span style={{ color: "var(--gold)", fontSize: 10 }}>★</span>}</div>
+                                    <div className="text-muted fs-11">{v.tagline}</div>
+                                    {v.discount_pct > 0 && <div className="text-gold fw-600 fs-12 mt-4">{v.discount_pct}% partner discount</div>}
+                                  </div>
+                                  {v.partner_url ? (
+                                    <a href={v.partner_url} target="_blank" rel="noopener noreferrer" className="btn btn-gold btn-xs" data-testid={`rider-vendor-cta-${v.id}`}>{v.cta_label || "Get Quote"} →</a>
+                                  ) : v.contact_email ? (
+                                    <a href={`mailto:${v.contact_email}`} className="btn btn-gold btn-xs" data-testid={`rider-vendor-cta-${v.id}`}>Email →</a>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
                     <label className="flex items-center gap-8 mt-12" data-testid="travel-ack">
                       <input type="checkbox" checked={!!form.travel_ack} onChange={(e) => set("travel_ack", e.target.checked)} data-testid="travel-ack-checkbox" />
                       <span className="fs-12">I acknowledge and agree to bear these travel & accommodation costs.</span>

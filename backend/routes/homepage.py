@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Header, Query
 from datetime import datetime, timedelta, timezone
 
 
@@ -47,15 +47,79 @@ async def _enrich(db, docs: list, clean) -> list:
     return out
 
 
-def make_router(*, db, clean, **_extra) -> APIRouter:
+def make_router(*, db, clean, get_current_user_optional=None, **_extra) -> APIRouter:
     r = APIRouter()
+
+    async def _personal_rails(user_id: str, limit: int) -> list:
+        """Sprint 5+ Smart Homepage — computed from user's search + booking history.
+
+        Emits up to 3 personalized rails placed FIRST when a user is logged in:
+          • recent_category      — "Because you searched <category>"
+          • continue_in_city     — "Continue browsing in <city>"
+          • rebook               — "You've booked <artist> before"
+        """
+        out = []
+
+        # ── Continue browsing in your favourite city ──────────────
+        hist = await db.search_history.find({"user_id": user_id}).sort("created_at", -1).limit(20).to_list(20)
+        cities = [(h.get("filters") or {}).get("city") for h in hist]
+        cities = [c for c in cities if c]
+        top_city = None
+        if cities:
+            # pick the most common recent city
+            from collections import Counter
+            top_city = Counter(cities).most_common(1)[0][0]
+        if top_city:
+            docs = await db.artist_profiles.find({"city": {"$regex": f"^{top_city}$", "$options": "i"}}).sort([("plan_rank", -1), ("rating_avg", -1)]).limit(limit).to_list(limit)
+            items = await _enrich(db, docs, clean)
+            if items:
+                out.append({"code": "continue_in_city", "title": f"📍 Continue Browsing in {top_city}",
+                            "subtitle": "Picking up where you left off", "items": items,
+                            "personalised": True})
+
+        # ── Because you searched <category> ──────────────────────
+        categories = [(h.get("filters") or {}).get("category") for h in hist]
+        categories = [c for c in categories if c]
+        top_cat = None
+        if categories:
+            from collections import Counter
+            top_cat = Counter(categories).most_common(1)[0][0]
+        if top_cat:
+            docs = await db.artist_profiles.find({"category": top_cat}).sort([("plan_rank", -1), ("rating_avg", -1)]).limit(limit).to_list(limit)
+            items = await _enrich(db, docs, clean)
+            if items:
+                out.append({"code": "because_you_searched", "title": f"🎯 Because you searched {top_cat}",
+                            "subtitle": "More artists you might love", "items": items,
+                            "personalised": True})
+
+        # ── Book them again ──────────────────────────────────────
+        bookings = await db.bookings.find({"customer_id": user_id}).sort("created_at", -1).limit(10).to_list(10)
+        artist_ids = list({b.get("artist_id") for b in bookings if b.get("artist_id")})
+        if artist_ids:
+            docs = await db.artist_profiles.find({"user_id": {"$in": artist_ids}}).limit(limit).to_list(limit)
+            items = await _enrich(db, docs, clean)
+            if items:
+                out.append({"code": "rebook", "title": "🔁 Book Them Again",
+                            "subtitle": "Artists you've booked before", "items": items,
+                            "personalised": True})
+        return out
 
     @r.get("/homepage/sections")
     async def homepage_sections(
         city: Optional[str] = Query(None),
         limit: int = Query(8, ge=1, le=20),
+        authorization: Optional[str] = Header(None),
     ):
+        # Try to resolve the caller (optional — this endpoint is public)
+        user = None
+        if authorization and get_current_user_optional:
+            user = await get_current_user_optional(authorization)
+
         rails = []
+        # Prepend personalized rails when we can identify the user
+        if user and user.get("role") == "customer":
+            personal = await _personal_rails(user["id"], limit)
+            rails.extend(personal)
 
         # 1. Featured
         cur = db.artist_profiles.find({"$or": [{"is_featured": True}, {"is_boosted": True}]}).sort("rating_avg", -1).limit(limit)
