@@ -10,7 +10,6 @@ import {
   AdminReviewsModeration, AdminProviders,
 } from "./admin/AdminEnterprise";
 import AdminConcierge from "./admin/AdminConcierge";
-import AdminRiderWallet from "./admin/AdminRiderWallet";
 
 const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
@@ -24,7 +23,6 @@ const SIDEBAR = [
   { id: "disputes", label: "⚖️ Disputes" },
   { id: "master", label: "🗂️ Master Data" },
   { id: "boost", label: "🚀 Boost Manager" },
-  { id: "rider-wallet", label: "✈️ Rider Wallet" },
   { id: "templates", label: "📧 Templates" },
   { id: "faqs", label: "❓ FAQs" },
   { id: "cms", label: "📄 CMS Pages" },
@@ -90,7 +88,6 @@ export default function AdminDashboard() {
           {tab === "artists" && <AdminArtists toast={toast} />}
           {tab === "bookings" && <AdminBookings />}
           {tab === "concierge" && <AdminConcierge toast={toast} />}
-          {tab === "rider-wallet" && <AdminRiderWallet toast={toast} />}
           {tab === "kyc" && <AdminKYC toast={toast} />}
           {tab === "payouts" && <AdminPayouts toast={toast} />}
           {tab === "coupons" && <AdminCoupons toast={toast} />}

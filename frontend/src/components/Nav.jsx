@@ -40,7 +40,6 @@ export default function Nav() {
           <div className="nav-links">
             <Link to="/" className="nav-link" data-testid="nav-home">Home</Link>
             <Link to="/search" className="nav-link" data-testid="nav-search">Discover Artists</Link>
-            <Link to="/partners" className="nav-link" data-testid="nav-partners">Partners</Link>
             {user && <Link to={dashLink} className="nav-link" data-testid="nav-dashboard">Dashboard</Link>}
           </div>
           <div className="nav-actions">
@@ -93,7 +92,6 @@ export default function Nav() {
         <nav>
           <Link to="/" data-testid="drawer-home">Home</Link>
           <Link to="/search" data-testid="drawer-search">Discover Artists</Link>
-          <Link to="/partners" data-testid="drawer-partners">Partners</Link>
           {user && <Link to={dashLink} data-testid="drawer-dashboard">Dashboard</Link>}
           {!user ? (
             <>

@@ -48,7 +48,6 @@ from routes import addons as routes_addons
 from routes import subscriptions as routes_subscriptions
 from routes import homepage as routes_homepage
 from routes import concierge as routes_concierge
-from routes import rider_wallet as routes_rider_wallet
 from routes import insights as routes_insights
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2547,13 +2546,6 @@ app.include_router(
     ),
     prefix="/api",
 )
-# Rider Wallet — curated partners (hotel / flight / transport)
-app.include_router(
-    routes_rider_wallet.make_router(
-        get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
-    ),
-    prefix="/api",
-)
 # Booking Insights — artist self-service analytics
 app.include_router(
     routes_insights.make_router(get_current_user=get_current_user, **_common_deps),
@@ -2586,9 +2578,6 @@ async def _iter7_startup():
     )
     if fix_res.modified_count:
         log.info("Reset %d negative wallet pending balances", fix_res.modified_count)
-
-    # 3. Seed Rider Wallet partners on first boot
-    await routes_rider_wallet.ensure_seed(db, utcnow, new_id)
 
 
 @app.on_event("shutdown")

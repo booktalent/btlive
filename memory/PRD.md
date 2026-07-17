@@ -84,7 +84,43 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
-## Iter 32-33 — Outstation Business Rule (this round)
+## Iter 34 — Rider Wallet / Partners Directory Removed (this round)
+
+Per user request, the Rider Wallet + Public Partners Directory features
+(iter 29 + iter 31) have been fully removed. Kept the simple outstation
+acknowledgment implemented in iter 32-33 which is exactly what the user
+wants — "just ask if artist is outsider, agree to bear expenses".
+
+### Deleted
+- `/app/backend/routes/rider_wallet.py`
+- `/app/frontend/src/pages/Partners.jsx`
+- `/app/frontend/src/pages/admin/AdminRiderWallet.jsx`
+
+### Cleaned references
+- `server.py`   — removed import, router registration, `ensure_seed` call
+- `App.js`      — removed Partners import + `/partners` + `/partners/:slug` routes
+- `Nav.jsx`     — removed `nav-partners` + `drawer-partners` links
+- `AdminDashboard.jsx` — removed sidebar entry + tab render + import
+- `BookingFlow.jsx`    — removed `riderVendors` state, fetch, and the entire
+  `rider-wallet-block` JSX from the Sprint 4 travel review
+
+### Verified
+- Old endpoints `/api/rider-wallet/vendors` and `/api/partners/{slug}` now
+  return 404 as expected.
+- `/api/settings/public` still returns 200 — outstation notice, fee note
+  and outstation clause remain admin-editable.
+- BookingFlow still surfaces `outstation-notice` (Step 3), the
+  `review-outstation-notice` + `outstation-ack` gate (Step 4) and the
+  always-on `booking-fee-note` (summary panel) — verified via screenshot.
+- Zero leftover string references to rider_wallet / RiderWallet / Partners
+  across `/app/backend` and `/app/frontend`.
+
+### Data note
+The `rider_vendors` MongoDB collection is orphaned (no code path reads it).
+Left it in place because deleting DB data is destructive. Ask if you want
+it purged with a one-line mongo drop.
+
+## Iter 32-33 — Outstation Business Rule
 
 Implemented user's explicit Travel & Outstation booking policy across the
 platform without introducing separate travel packages.

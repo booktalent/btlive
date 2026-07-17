@@ -34,7 +34,6 @@ export default function BookingFlow() {
   const [artist, setArtist] = useState(null);
   const [packages, setPackages] = useState([]);
   const [artistAddons, setArtistAddons] = useState([]); // Sprint 3
-  const [riderVendors, setRiderVendors] = useState([]);  // Rider Wallet
   const [platformSettings, setPlatformSettings] = useState({});  // Outstation policy strings
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(1);
@@ -78,8 +77,6 @@ export default function BookingFlow() {
       const mandatory = (r.data || []).filter((a) => a.is_mandatory).map((a) => ({ addon_id: a.id, quantity: 1 }));
       if (mandatory.length) setForm((f) => ({ ...f, addon_selections: mandatory }));
     }).catch(() => setArtistAddons([]));
-    // Rider Wallet — curated travel partners (Sprint 4 companion)
-    api.get("/rider-wallet/vendors?limit=24").then((r) => setRiderVendors(r.data || [])).catch(() => setRiderVendors([]));
     // Outstation policy strings — admin-editable via /admin/settings
     api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});
     api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
@@ -478,41 +475,6 @@ export default function BookingFlow() {
                       <div className="mt-8">
                         <div className="text-muted fs-12 mb-4">Additional notes</div>
                         <div className="fs-13">{pkg.travel_notes}</div>
-                      </div>
-                    )}
-
-                    {/* Rider Wallet — curated partner offers */}
-                    {riderVendors.length > 0 && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required) && (
-                      <div className="mt-16" data-testid="rider-wallet-block">
-                        <div className="text-gold fw-700 fs-12 mb-8" style={{ textTransform: "uppercase", letterSpacing: 1 }}>💼 Rider Wallet — Partner Offers</div>
-                        <div className="text-muted fs-11 mb-12">Save with BookTalent-negotiated rates. Contact these partners directly to arrange the artist's travel.</div>
-                        <div className="grid grid-2 gap-8">
-                          {(() => {
-                            const relevant = riderVendors.filter((v) => {
-                              if (v.type === "hotel" && pkg.accommodation_required) return true;
-                              if (v.type === "flight" && pkg.travel_required) return true;
-                              if (v.type === "transport" && pkg.local_transport_required) return true;
-                              return false;
-                            }).slice(0, 6);
-                            const TYPE_ICON = { hotel: "🏨", flight: "✈️", transport: "🚗" };
-                            return relevant.map((v) => (
-                              <div key={v.id} className="card card-pad" style={{ padding: 10, background: "rgba(212,175,55,0.05)", border: "1px solid rgba(212,175,55,0.2)" }} data-testid={`rider-vendor-${v.id}`}>
-                                <div className="flex justify-between items-start gap-8">
-                                  <div style={{ flex: 1 }}>
-                                    <div className="fw-700 fs-13">{TYPE_ICON[v.type]} {v.name} {v.is_featured && <span style={{ color: "var(--gold)", fontSize: 10 }}>★</span>}</div>
-                                    <div className="text-muted fs-11">{v.tagline}</div>
-                                    {v.discount_pct > 0 && <div className="text-gold fw-600 fs-12 mt-4">{v.discount_pct}% partner discount</div>}
-                                  </div>
-                                  {v.partner_url ? (
-                                    <a href={v.partner_url} target="_blank" rel="noopener noreferrer" className="btn btn-gold btn-xs" onClick={() => api.post(`/rider-wallet/vendors/${v.id}/click`).catch(() => {})} data-testid={`rider-vendor-cta-${v.id}`}>{v.cta_label || "Get Quote"} →</a>
-                                  ) : v.contact_email ? (
-                                    <a href={`mailto:${v.contact_email}`} className="btn btn-gold btn-xs" onClick={() => api.post(`/rider-wallet/vendors/${v.id}/click`).catch(() => {})} data-testid={`rider-vendor-cta-${v.id}`}>Email →</a>
-                                  ) : null}
-                                </div>
-                              </div>
-                            ));
-                          })()}
-                        </div>
                       </div>
                     )}
 
