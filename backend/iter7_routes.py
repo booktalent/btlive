@@ -287,6 +287,26 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
     # ─────────────────────────────────────────────────────────────────
     # System Settings (key-value, e.g. platform_fee_pct, gst_pct)
     # ─────────────────────────────────────────────────────────────────
+    # Whitelist of settings safe to expose to unauthenticated callers
+    # (only display strings, no secrets).
+    PUBLIC_SETTING_KEYS = {
+        "outstation_notice",
+        "booking_fee_note",
+        "outstation_clause",
+        "platform_fee_pct",
+        "gst_pct",
+        "support_email",
+        "support_phone",
+    }
+
+    @r.get("/settings/public")
+    async def public_settings():
+        """Public read-only settings map. Used by the customer-facing UI
+        (BookingFlow, contract preview) so admins can tune copy without
+        redeploying."""
+        docs = await db.system_settings.find({"key": {"$in": list(PUBLIC_SETTING_KEYS)}}).to_list(50)
+        return {d["key"]: d.get("value") for d in docs}
+
     @r.get("/admin/settings")
     async def admin_settings_list(_: dict = Depends(admin_only)):
         items = await db.system_settings.find({}).sort("key", 1).to_list(500)
@@ -886,6 +906,27 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             "token_pct": 5.0,
             "support_email": "support@booktalent.com",
             "support_phone": "+91 80000 00000",
+            # Outstation Business Rule (Iter 32) — Admin-editable
+            "outstation_notice": (
+                "This artist is based in {artist_city} and your event is in {event_city}. "
+                "Travel, accommodation, local transport, food, hospitality and any other "
+                "outstation logistics are not included in the Artist Package Fee and will be "
+                "arranged and paid directly by you (the Customer)."
+            ),
+            "booking_fee_note": (
+                "Travel, accommodation, local transport, food, hospitality and any other "
+                "outstation expenses are NOT included in the Artist Package Fee. These "
+                "expenses will be discussed and managed directly between the Customer "
+                "and the Artist."
+            ),
+            "outstation_clause": (
+                "OUTSTATION LOGISTICS CLAUSE\n"
+                "For outstation bookings, all travel, accommodation, food, local "
+                "transportation, hospitality and any additional logistics required for "
+                "the Artist or accompanying team shall be arranged and paid separately "
+                "by the Customer. These expenses are not included in the Artist "
+                "Performance Fee or the Platform Service Fee."
+            ),
         }
         for k, v in defaults.items():
             if not await db.system_settings.find_one({"key": k}):

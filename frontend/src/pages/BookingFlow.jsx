@@ -35,6 +35,7 @@ export default function BookingFlow() {
   const [packages, setPackages] = useState([]);
   const [artistAddons, setArtistAddons] = useState([]); // Sprint 3
   const [riderVendors, setRiderVendors] = useState([]);  // Rider Wallet
+  const [platformSettings, setPlatformSettings] = useState({});  // Outstation policy strings
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(1);
 
@@ -79,6 +80,8 @@ export default function BookingFlow() {
     }).catch(() => setArtistAddons([]));
     // Rider Wallet — curated travel partners (Sprint 4 companion)
     api.get("/rider-wallet/vendors?limit=24").then((r) => setRiderVendors(r.data || [])).catch(() => setRiderVendors([]));
+    // Outstation policy strings — admin-editable via /admin/settings
+    api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});
     api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
     // Fetch only when the artist/package `id` changes. Adding `form.package_id`
     // would refetch on every form key-stroke; adding `nav`/`user` would loop.
@@ -398,6 +401,30 @@ export default function BookingFlow() {
                     <input className="field-input" value={form.city} onChange={(e) => set("city", e.target.value)} placeholder="Mumbai" data-testid="booking-city" />
                   </div>
                 </div>
+
+                {/* Outstation Business Rule — auto-shown when event city ≠ artist city */}
+                {form.city && artist?.city && form.city.trim().toLowerCase() !== artist.city.trim().toLowerCase() && (
+                  <div
+                    className="card card-pad mb-16"
+                    style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.35)" }}
+                    data-testid="outstation-notice"
+                  >
+                    <div className="flex gap-8" style={{ alignItems: "flex-start" }}>
+                      <div style={{ fontSize: 24, lineHeight: 1 }}>📢</div>
+                      <div style={{ flex: 1 }}>
+                        <div className="fw-700 text-gold fs-13 mb-4" style={{ textTransform: "uppercase", letterSpacing: 1 }}>
+                          Outstation Booking Notice
+                        </div>
+                        <div className="fs-13" style={{ lineHeight: 1.5 }}>
+                          {(platformSettings.outstation_notice ||
+                            "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
+                            .replace("{artist_city}", artist.city)
+                            .replace("{event_city}", form.city)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="field">
                   <div className="field-label">Special Instructions</div>
                   <textarea className="field-input" value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Song dedications, special requests…" data-testid="booking-notes" />
@@ -501,12 +528,39 @@ export default function BookingFlow() {
                   <div className="flex justify-between mb-8"><span className="text-muted">Venue</span><span>{form.venue}, {form.city}</span></div>
                   <div className="flex justify-between"><span className="text-muted">Type</span><span>{form.event_type}</span></div>
                 </div>
+
+                {/* Outstation Notice + acknowledgement — always required when cities differ */}
+                {form.city && artist?.city && form.city.trim().toLowerCase() !== artist.city.trim().toLowerCase() && (
+                  <div
+                    className="card card-pad mb-16"
+                    style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.35)" }}
+                    data-testid="review-outstation-notice"
+                  >
+                    <div className="fw-700 text-gold fs-13 mb-8" style={{ textTransform: "uppercase", letterSpacing: 1 }}>
+                      📢 Outstation Booking
+                    </div>
+                    <div className="fs-13 mb-8" style={{ lineHeight: 1.5 }}>
+                      {(platformSettings.outstation_notice ||
+                        "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
+                        .replace("{artist_city}", artist.city)
+                        .replace("{event_city}", form.city)}
+                    </div>
+                    <label className="flex items-center gap-8">
+                      <input type="checkbox" checked={!!form.outstation_ack} onChange={(e) => set("outstation_ack", e.target.checked)} data-testid="outstation-ack" />
+                      <span className="fs-12">I understand and agree to arrange all outstation logistics directly with the Artist.</span>
+                    </label>
+                  </div>
+                )}
+
                 <div className="flex justify-between mt-24">
                   <button className="btn btn-ghost" onClick={() => setStep(3)} data-testid="step4-back">← Back</button>
                   <button
                     className="btn btn-gold"
                     onClick={() => setStep(5)}
-                    disabled={pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes) && !form.travel_ack}
+                    disabled={
+                      (pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes) && !form.travel_ack) ||
+                      (form.city && artist?.city && form.city.trim().toLowerCase() !== artist.city.trim().toLowerCase() && !form.outstation_ack)
+                    }
                     data-testid="step4-next"
                   >🔐 Proceed to Payment →</button>
                 </div>
@@ -644,6 +698,16 @@ export default function BookingFlow() {
                   <div className="text-muted fs-11 mt-8" style={{ marginTop: 8, lineHeight: 1.4 }}>
                     ℹ️ Remaining Artist Performance Fee of <b>{fmtINRFull(artistFee)}</b> will be settled directly between the Customer and the Artist as per the signed agreement.
                   </div>
+                </div>
+
+                {/* Fee-Inclusion Note — always visible under the totals */}
+                <div
+                  className="text-muted fs-11 mt-12"
+                  style={{ padding: 10, borderRadius: 8, background: "rgba(255,255,255,0.03)", lineHeight: 1.5 }}
+                  data-testid="booking-fee-note"
+                >
+                  {platformSettings.booking_fee_note ||
+                    "Travel, accommodation, local transport, food, hospitality and any other outstation expenses are NOT included in the Artist Package Fee. These expenses will be discussed and managed directly between the Customer and the Artist."}
                 </div>
               </div>
             </div>

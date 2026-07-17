@@ -1186,6 +1186,8 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
     artist = await db.users.find_one({"id": body.artist_id})
     if not artist:
         raise HTTPException(404, "Artist not found")
+    # Load artist profile once for outstation detection + suggestions below.
+    artist_profile = await db.artist_profiles.find_one({"user_id": body.artist_id}) or {}
 
     # check availability
     av = await db.availability.find_one({"user_id": body.artist_id, "date": body.event_date})
@@ -1277,6 +1279,16 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         "event_type": body.event_type,
         "venue": body.venue,
         "city": body.city,
+        # Outstation Business Rule — snapshot both cities and flag mismatch at
+        # booking-creation time so history is immutable even if the artist
+        # profile city or the customer's event city is edited later.
+        "artist_city": artist_profile.get("city") if artist_profile else None,
+        "event_city": body.city,
+        "is_outstation": bool(
+            artist_profile
+            and body.city
+            and (artist_profile.get("city") or "").strip().lower() != body.city.strip().lower()
+        ),
         "guests": body.guests,
         "language_pref": body.language_pref,
         "notes": body.notes,
@@ -1487,6 +1499,29 @@ async def _create_contract(booking: dict) -> str:
     artist = await db.users.find_one({"id": booking["artist_id"]})
     artist_p = await db.artist_profiles.find_one({"user_id": booking["artist_id"]})
 
+    # Pull admin-editable outstation clause + fee note from system_settings so
+    # legal/policy tweaks don't require a redeploy.
+    clause_doc = await db.system_settings.find_one({"key": "outstation_clause"})
+    fee_note_doc = await db.system_settings.find_one({"key": "booking_fee_note"})
+    outstation_clause = (clause_doc or {}).get("value") or (
+        "For outstation bookings, all travel, accommodation, food, local "
+        "transportation, hospitality and any additional logistics required for "
+        "the Artist or accompanying team shall be arranged and paid separately "
+        "by the Customer. These expenses are not included in the Artist "
+        "Performance Fee or the Platform Service Fee."
+    )
+    fee_note = (fee_note_doc or {}).get("value") or (
+        "Travel, accommodation, local transport, food, hospitality and any "
+        "other outstation expenses are NOT included in the Artist Package Fee."
+    )
+    outstation_block = ""
+    if booking.get("is_outstation"):
+        outstation_block = (
+            f"OUTSTATION LOGISTICS ({booking.get('artist_city') or '—'} → "
+            f"{booking.get('event_city') or booking.get('city') or '—'}):\n"
+            f"  {outstation_clause}\n\n"
+        )
+
     body_text = f"""
 BOOKTALENT ARTIST PERFORMANCE AGREEMENT
 
@@ -1504,12 +1539,15 @@ EVENT DETAILS:
 
 TRAVEL & ACCOMMODATION (borne by Client, in addition to the Artist Fee):
 {_format_travel_reqs(booking.get('travel_requirements') or {})}
-FINANCIAL TERMS:
+{outstation_block}FINANCIAL TERMS:
   Artist Performance Fee (paid by Client directly to Artist) : ₹{booking['pricing'].get('artist_fee', booking['pricing'].get('package_fee', 0) + booking['pricing'].get('addons_total', 0)):.2f}
 
   Platform Service Fee (5% — payable to BookTalent)          : ₹{booking['pricing']['platform_fee']:.2f}
   GST (18% on Platform Fee)                                  : ₹{booking['pricing']['gst']:.2f}
   AMOUNT PAYABLE TO BOOKTALENT                                : ₹{booking['pricing']['total']:.2f}
+
+FEE INCLUSION NOTE:
+  {fee_note}
 
 STANDARD TERMS:
   1. BookTalent acts only as a technology platform facilitating the connection
