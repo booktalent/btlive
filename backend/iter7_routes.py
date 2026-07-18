@@ -312,19 +312,12 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         "gst_pct",
         "support_email",
         "support_phone",
-        # Iter 40 — Featured banners (blog list + generic home hero)
+        # Iter 40 — Featured banner for the /blog list page
         "blog_hero_image",
         "blog_hero_title",
         "blog_hero_subtitle",
         "blog_hero_cta_label",
         "blog_hero_cta_url",
-        # Iter 41 — Home page hero (admin-editable seasonal promo)
-        "home_hero_image",
-        "home_hero_eyebrow",
-        "home_hero_title",
-        "home_hero_subtitle",
-        "home_hero_cta_label",
-        "home_hero_cta_url",
     }
 
     @r.get("/settings/public")

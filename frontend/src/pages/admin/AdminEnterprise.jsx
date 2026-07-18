@@ -610,7 +610,6 @@ export function AdminSettings({ toast }) {
   const [list, setList] = useState([]);
   const [draft, setDraft] = useState({});
   const [blog, setBlog] = useState({ blog_hero_image: "", blog_hero_title: "", blog_hero_subtitle: "", blog_hero_cta_label: "", blog_hero_cta_url: "" });
-  const [home, setHome] = useState({ home_hero_image: "", home_hero_eyebrow: "", home_hero_title: "", home_hero_subtitle: "", home_hero_cta_label: "", home_hero_cta_url: "" });
   const load = () => api.get("/admin/settings").then((r) => {
     setList(r.data);
     setDraft({});
@@ -621,14 +620,6 @@ export function AdminSettings({ toast }) {
       blog_hero_subtitle: map.blog_hero_subtitle || "",
       blog_hero_cta_label: map.blog_hero_cta_label || "",
       blog_hero_cta_url: map.blog_hero_cta_url || "",
-    });
-    setHome({
-      home_hero_image: map.home_hero_image || "",
-      home_hero_eyebrow: map.home_hero_eyebrow || "",
-      home_hero_title: map.home_hero_title || "",
-      home_hero_subtitle: map.home_hero_subtitle || "",
-      home_hero_cta_label: map.home_hero_cta_label || "",
-      home_hero_cta_url: map.home_hero_cta_url || "",
     });
   });
   useEffect(() => { load(); }, []);
@@ -645,36 +636,8 @@ export function AdminSettings({ toast }) {
     }
     toast("Blog banner saved"); load();
   };
-  const saveHome = async () => {
-    for (const [k, v] of Object.entries(home)) {
-      await api.put(`/admin/settings/${k}`, { value: v });
-    }
-    toast("Homepage banner saved"); load();
-  };
   return (
     <div data-testid="admin-settings">
-      {/* Homepage Featured Banner panel */}
-      <div className="card mb-24">
-        <div className="card-head">
-          <div className="card-title">🏠 Homepage Hero Banner <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— overrides the default hero on /</span></div>
-        </div>
-        <div style={{ padding: 14 }}>
-          <input className="input mb-8" placeholder="Banner image URL (1920×900 recommended)" value={home.home_hero_image} onChange={(e) => setHome({ ...home, home_hero_image: e.target.value })} style={{ width: "100%" }} data-testid="home-hero-image" />
-          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
-            <input className="input" placeholder="Eyebrow tag (small text above title)" value={home.home_hero_eyebrow} onChange={(e) => setHome({ ...home, home_hero_eyebrow: e.target.value })} data-testid="home-hero-eyebrow" />
-            <input className="input" placeholder="Banner title (use \\n for line breaks)" value={home.home_hero_title} onChange={(e) => setHome({ ...home, home_hero_title: e.target.value })} data-testid="home-hero-title" />
-          </div>
-          <input className="input mb-8" placeholder="Banner subtitle" value={home.home_hero_subtitle} onChange={(e) => setHome({ ...home, home_hero_subtitle: e.target.value })} style={{ width: "100%" }} data-testid="home-hero-subtitle" />
-          <div className="grid grid-2 gap-12" style={{ marginBottom: 12 }}>
-            <input className="input" placeholder="CTA label (e.g. Explore Artists)" value={home.home_hero_cta_label} onChange={(e) => setHome({ ...home, home_hero_cta_label: e.target.value })} data-testid="home-hero-cta-label" />
-            <input className="input" placeholder="CTA URL (e.g. /search)" value={home.home_hero_cta_url} onChange={(e) => setHome({ ...home, home_hero_cta_url: e.target.value })} data-testid="home-hero-cta-url" />
-          </div>
-          <button className="btn btn-gold" onClick={saveHome} data-testid="home-hero-save">Save Homepage Banner</button>
-          <a className="btn btn-ghost" href="/" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }} data-testid="home-hero-preview">Preview / ↗</a>
-          <div className="text-muted fs-11" style={{ marginTop: 10 }}>Leave any field blank to fall back to the default copy. Clear all fields to disable the custom hero.</div>
-        </div>
-      </div>
-
       {/* Blog Featured Banner panel */}
       <div className="card mb-24">
         <div className="card-head">
