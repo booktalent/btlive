@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"091a91bd088b4835ac3af88e37931a35","collectionName":"concierge_messages","type":"collection"}

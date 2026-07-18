@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"6edf63030dcc4a62ad9ecfabae7959f5","collectionName":"concierge_threads","type":"collection"}

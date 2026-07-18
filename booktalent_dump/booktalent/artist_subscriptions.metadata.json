@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"}],"uuid":"32aff18fa7cd4332808e1a8090f97ea0","collectionName":"artist_subscriptions","type":"collection"}
