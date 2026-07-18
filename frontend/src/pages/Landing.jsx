@@ -15,6 +15,39 @@ const CATEGORIES = [
   { slug: "Anchor", name: "Anchors", icon: "🎙️" },
 ];
 
+const CAT_TILES = [
+  { slug: "singer",     icon: "🎤",  name: "Singers & Vocalists",   count: "840" },
+  { slug: "dj",         icon: "🎧",  name: "DJs & Music Producers",  count: "620" },
+  { slug: "comedian",   icon: "🎭",  name: "Stand-up Comedians",     count: "310" },
+  { slug: "anchor",     icon: "🎙️", name: "Anchors & Emcees",       count: "490" },
+  { slug: "dancer",     icon: "💃",  name: "Dancers & Troupes",      count: "380" },
+  { slug: "magician",   icon: "🪄",  name: "Magicians & Illusionists", count: "120" },
+  { slug: "band",       icon: "🎻",  name: "Live Bands & Orchestras", count: "240" },
+  { slug: "celebrity",  icon: "🌟",  name: "Celebrity Performers",    count: "95"  },
+];
+
+const CITY_TILES = [
+  { slug: "mumbai",    icon: "🏙️", name: "Mumbai",       count: "1,200" },
+  { slug: "delhi",     icon: "🏛️", name: "Delhi / NCR",  count: "980"   },
+  { slug: "bangalore", icon: "🌿",  name: "Bangalore",    count: "740"   },
+  { slug: "chennai",   icon: "🌊",  name: "Chennai",      count: "510"   },
+  { slug: "hyderabad", icon: "💎",  name: "Hyderabad",    count: "630"   },
+  { slug: "kolkata",   icon: "🎨",  name: "Kolkata",      count: "420"   },
+];
+
+const TESTIMONIALS = [
+  { stars: 5, quote: "Booked a Bollywood singer for our daughter's wedding through BookTalent. The entire process — from discovery to booking to performance — was absolutely flawless. Truly the Airbnb for talent.", name: "Rajesh Khanna", role: "Wedding Planner, Mumbai", initials: "RK", avatarClass: "tav1" },
+  { stars: 5, quote: "We've used BookTalent for three corporate annual functions. The quality of artists and transparent 5% platform fee gives us full confidence. Our go-to platform for talent bookings.", name: "Ananya Patel", role: "HR Manager, TechCorp India", initials: "AP", avatarClass: "tav2" },
+  { stars: 5, quote: "As an artist, BookTalent changed my life. I went from struggling to find gigs to being fully booked 3 months in advance. Direct settlement with clients keeps things simple.", name: "Siddharth Mehta", role: "DJ & Music Producer, Delhi", initials: "SM", avatarClass: "tav3" },
+];
+
+const HOW_STEPS = [
+  { num: "01", icon: "🔍", title: "Discover & Filter", desc: "Use AI-powered search or browse by category, city, budget and event type. Compare profiles, videos and reviews." },
+  { num: "02", icon: "📅", title: "Check Availability", desc: "View the artist's real-time calendar, select your date and get an instant quote — transparent pricing with no hidden fees." },
+  { num: "03", icon: "🤝", title: "Confirm Booking", desc: "Pay just the 5% Platform Service Fee (+ 18% GST) to lock the artist. Artist Performance Fee is settled directly with the artist." },
+  { num: "04", icon: "✨", title: "Enjoy the Show", desc: "Artist performs, you approve completion, and reviews go live. Everything is protected by our written booking agreement." },
+];
+
 export default function Landing() {
   const [q, setQ] = useState("");
   const [city, setCity] = useState("");
@@ -163,6 +196,43 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* ── Marquee strip (Iter 43) ────────────────────────────────────── */}
+      <div className="marquee-section" data-testid="landing-marquee">
+        <div className="marquee-track">
+          {[
+            "Weddings & Receptions", "Corporate Events", "Birthday Parties", "College Fests",
+            "Brand Activations", "Private Concerts", "Club Nights", "Hotel Shows", "Virtual Events",
+            "Weddings & Receptions", "Corporate Events", "Birthday Parties", "College Fests",
+            "Brand Activations", "Private Concerts", "Club Nights", "Hotel Shows", "Virtual Events",
+          ].map((label, i) => (
+            <div className="marquee-item" key={i}>
+              <span className="marquee-dot" /> {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Categories grid ───────────────────────────────────────────── */}
+      <section className="lp-section" data-testid="landing-categories">
+        <div className="section-header">
+          <div>
+            <div className="section-tag">Browse by Category</div>
+            <h2 className="section-title">Every kind of<br /><span className="accent">talent</span> you need</h2>
+          </div>
+          <Link to="/search" className="btn btn-ghost" data-testid="categories-view-all">View All →</Link>
+        </div>
+        <div className="cat-grid">
+          {CAT_TILES.map((c) => (
+            <Link key={c.slug} to={`/artists/${c.slug}`} className="cat-card" data-testid={`cat-tile-${c.slug}`}>
+              <span className="cat-icon">{c.icon}</span>
+              <div className="cat-name">{c.name}</div>
+              <div className="cat-count">{c.count}+ Artists</div>
+              <span className="cat-arrow">↗</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
       <div className="cat-strip mb-24">
         {CATEGORIES.map((c) => (
           <Link
@@ -190,16 +260,90 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="section" style={{ paddingTop: 0 }}>
-        <div className="container">
-          <div className="card" style={{ padding: 50, textAlign: "center", background: "linear-gradient(135deg, rgba(109,40,217,0.1), rgba(212,175,55,0.05))" }}>
-            <div className="font-serif" style={{ fontSize: 36, fontWeight: 700, marginBottom: 10 }}>
-              Are you an <span className="gold-grad" style={{ background: "linear-gradient(135deg, var(--gold-light), var(--gold))", WebkitBackgroundClip: "text", color: "transparent" }}>Artist?</span>
+      {/* ── How it Works ─────────────────────────────────────────────── */}
+      <section className="lp-section" style={{ textAlign: "center", paddingTop: 0 }} data-testid="landing-how-it-works">
+        <div className="section-tag" style={{ margin: "0 auto 16px" }}>Simple. Transparent. Instant.</div>
+        <h2 className="section-title" style={{ margin: "0 auto 12px", maxWidth: 780 }}>
+          Book your dream artist<br />in <span className="accent">4 easy steps</span>
+        </h2>
+        <div className="steps-grid">
+          {HOW_STEPS.map((s) => (
+            <div className="step-card" key={s.num} data-testid={`step-${s.num}`}>
+              <div className="step-num-wrap"><div className="step-num">{s.num}</div></div>
+              <span className="step-icon">{s.icon}</span>
+              <div className="step-title">{s.title}</div>
+              <div className="step-desc">{s.desc}</div>
             </div>
-            <p className="text-muted mb-20" style={{ maxWidth: 560, margin: "0 auto 22px" }}>
-              Join 5,200+ verified artists earning premium rates. Get bookings, manage events, receive secure payouts — all in one place.
-            </p>
-            <Link to="/signup?role=artist" className="btn btn-gold" data-testid="join-as-artist-btn">Join as Artist →</Link>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Cities grid ──────────────────────────────────────────────── */}
+      <section className="lp-section" style={{ textAlign: "center", paddingTop: 0 }} data-testid="landing-cities">
+        <div className="section-tag" style={{ margin: "0 auto 16px" }}>Pan-India Presence</div>
+        <h2 className="section-title" style={{ margin: "0 auto 40px", maxWidth: 620 }}>
+          Artists in your <span className="accent">city</span>
+        </h2>
+        <div className="cities-grid">
+          {CITY_TILES.map((c) => (
+            <Link key={c.slug} to={`/artists/city/${c.slug}`} className="city-card" data-testid={`city-tile-${c.slug}`}>
+              <div className="city-icon">{c.icon}</div>
+              <div className="city-name">{c.name}</div>
+              <div className="city-count">{c.count}+ artists</div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Testimonials ─────────────────────────────────────────────── */}
+      <section className="lp-section" style={{ textAlign: "center", paddingTop: 0 }} data-testid="landing-testimonials">
+        <div className="section-tag" style={{ margin: "0 auto 16px" }}>48,000+ Happy Clients</div>
+        <h2 className="section-title" style={{ margin: "0 auto 40px", maxWidth: 680 }}>
+          Loved by <span className="italic">event planners</span><br />across India
+        </h2>
+        <div className="testi-grid" style={{ textAlign: "left" }}>
+          {TESTIMONIALS.map((t, i) => (
+            <div className="testi-card" key={i} data-testid={`testi-${i}`}>
+              <div className="testi-stars">{"★".repeat(t.stars)}</div>
+              <div className="testi-quote">"{t.quote}"</div>
+              <div className="testi-person">
+                <div className={`testi-avatar ${t.avatarClass}`}>{t.initials}</div>
+                <div>
+                  <div className="testi-name">{t.name}</div>
+                  <div className="testi-role">{t.role}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Dual CTA: Artists / Corporate ────────────────────────────── */}
+      <section className="lp-section" style={{ paddingTop: 0 }} data-testid="landing-dual-cta">
+        <div className="dual-cta">
+          <div className="cta-box" data-testid="cta-artist">
+            <div className="cta-box-glow cta-glow-purple" />
+            <span className="cta-box-icon">🎤</span>
+            <div className="cta-box-title">Are you an Artist?</div>
+            <div className="cta-box-desc">
+              Join 5,200+ verified performers on India's premium marketplace. Manage your profile, calendar, packages and bookings — all from one clean dashboard.
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <Link to="/signup?role=artist" className="btn btn-purple" data-testid="cta-artist-join">Join as Artist →</Link>
+              <Link to="/page/artist-guidelines" className="btn btn-ghost" data-testid="cta-artist-learn">Learn more</Link>
+            </div>
+          </div>
+          <div className="cta-box" data-testid="cta-corporate">
+            <div className="cta-box-glow cta-glow-gold" />
+            <span className="cta-box-icon">🏢</span>
+            <div className="cta-box-title">Corporate Events?</div>
+            <div className="cta-box-desc">
+              Bulk bookings, dedicated account manager, custom contracts and team collaboration for annual functions, launches and offsites.
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <Link to="/signup?role=corporate" className="btn btn-gold" data-testid="cta-corp-join">Get Corporate Access →</Link>
+              <Link to="/page/contact" className="btn btn-outline-gold" data-testid="cta-corp-contact">Talk to Sales</Link>
+            </div>
           </div>
         </div>
       </section>
