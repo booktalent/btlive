@@ -1,6 +1,25 @@
 # BookTalent — Product Requirements Document
 
 
+## 🖼️ Iter 40 — Admin User CRUD + Featured Banners (2026-02-18)
+- Admin User Management: `PUT /api/admin/users/{uid}` (edit name/email/phone/role + artist profile fields), `DELETE /api/admin/users/{uid}` with `?hard=true` for permanent wipe (default is soft/anonymised). Admin cannot delete self.
+- Frontend AdminArtists + AdminUsers get a single **Delete** button that opens a two-option modal (Deactivate / Delete permanently with type-DELETE confirmation) + Edit modal + Suspend/Unsuspend toggle. The confusing extra ✕ hard-delete button was removed.
+- **Featured Banner support**:
+  - CMS pages accept `hero_image`, `hero_title`, `hero_subtitle`, `hero_cta_label`, `hero_cta_url` (renders as hero on `/page/<slug>` — About, Terms, Refund Policy, Careers…).
+  - Blog list page (`/blog`) reads a global hero from public settings (`blog_hero_*`) — dedicated panel in Admin Settings.
+- Backend pytest: test_iter40_admin_crud_banners.py — 7/7 passing.
+
+## 🧩 Iter 39 — CMS / FAQ / Broadcast go LIVE + Global SEO (2026-02-18)
+- Every published CMS page now renders at `/page/<slug>` with dynamic SEO meta, JSON-LD, and optional custom schema. Admin CMS gets `header_menu`, `footer_menu`, `menu_order`, `seo_title`, `seo_keywords`, `og_image`, `canonical`, `schema_json`.
+- Dynamic Nav + new `<Footer>`: pulls header/footer menus from DB (`/api/menu/header`, `/api/menu/footer`).
+- FAQ Help Center at `/help` (search + categories + featured). Landing page renders featured FAQs (`is_featured`).
+- Broadcast Announcements: banner / popup / dashboard bell, per-user read receipts, scheduling, priority, targeting.
+- Global SEO: `react-helmet-async` wired via `<SEO>` component, Organization + WebSite JSON-LD, `/api/sitemap.xml`, `/api/robots.txt`.
+- SEO-friendly URLs: `/artist/<slug>`, `/artists/<category>`, `/artists/city/<slug>`. Blog list + article pages with Article JSON-LD, share buttons, related.
+- Testing: iteration_37.json — all backend 22/22, all frontend flows validated.
+
+
+
 ## 🎯 BUSINESS MODEL — LEAD GENERATION MARKETPLACE (Iter 38 — 2026-02-18)
 BookTalent is **strictly a Lead Generation & Booking Marketplace, NOT an Escrow platform.**
 - BookTalent collects ONLY: **5% Platform Service Fee + 18% GST** on that fee.

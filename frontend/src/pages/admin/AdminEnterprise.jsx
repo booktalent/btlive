@@ -310,7 +310,8 @@ export function AdminFAQs({ toast }) {
 export function AdminCMS({ toast }) {
   const EMPTY = { slug: "", title: "", body_html: "", meta_description: "", published: true,
     header_menu: false, footer_menu: true, menu_order: 100,
-    seo_title: "", seo_keywords: "", og_image: "", canonical: "", schema_json: "" };
+    seo_title: "", seo_keywords: "", og_image: "", canonical: "", schema_json: "",
+    hero_image: "", hero_title: "", hero_subtitle: "", hero_cta_label: "", hero_cta_url: "" };
   const [list, setList] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(null);
@@ -355,13 +356,24 @@ export function AdminCMS({ toast }) {
           </label>
           <input className="input" type="number" placeholder="Menu order" value={form.menu_order} onChange={(e) => setForm({ ...form, menu_order: parseInt(e.target.value) || 100 })} style={{ width: 120 }} data-testid="cms-menu-order" />
           <button className="btn btn-ghost btn-xs" onClick={() => setShowAdvanced(!showAdvanced)} data-testid="cms-toggle-advanced">
-            {showAdvanced ? "▲ Hide SEO" : "▼ Advanced SEO"}
+            {showAdvanced ? "▲ Hide Banner + SEO" : "▼ Banner + Advanced SEO"}
           </button>
         </div>
 
         {showAdvanced && (
           <div style={{ padding: 12, background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: 12 }}>
-            <div className="text-muted fs-11 mb-8">SEO Overrides — leave blank to auto-derive from title / meta description.</div>
+            <div className="text-muted fs-11 mb-8" style={{ textTransform: "uppercase", letterSpacing: 0.5 }}>Featured Banner (hero on this page)</div>
+            <input className="input mb-8" placeholder="Hero image URL (1600×600 recommended)" value={form.hero_image} onChange={(e) => setForm({ ...form, hero_image: e.target.value })} style={{ width: "100%" }} data-testid="cms-hero-image" />
+            <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+              <input className="input" placeholder="Hero title (defaults to page title)" value={form.hero_title} onChange={(e) => setForm({ ...form, hero_title: e.target.value })} data-testid="cms-hero-title" />
+              <input className="input" placeholder="Hero subtitle" value={form.hero_subtitle} onChange={(e) => setForm({ ...form, hero_subtitle: e.target.value })} data-testid="cms-hero-subtitle" />
+            </div>
+            <div className="grid grid-2 gap-12" style={{ marginBottom: 12 }}>
+              <input className="input" placeholder="CTA label (e.g. Contact us)" value={form.hero_cta_label} onChange={(e) => setForm({ ...form, hero_cta_label: e.target.value })} data-testid="cms-hero-cta-label" />
+              <input className="input" placeholder="CTA URL (/page/contact or https://…)" value={form.hero_cta_url} onChange={(e) => setForm({ ...form, hero_cta_url: e.target.value })} data-testid="cms-hero-cta-url" />
+            </div>
+
+            <div className="text-muted fs-11 mb-8" style={{ textTransform: "uppercase", letterSpacing: 0.5, marginTop: 8 }}>SEO Overrides</div>
             <input className="input mb-8" placeholder="SEO title (browser tab & Google)" value={form.seo_title} onChange={(e) => setForm({ ...form, seo_title: e.target.value })} style={{ width: "100%" }} data-testid="cms-seo-title" />
             <input className="input mb-8" placeholder="SEO keywords (comma-separated)" value={form.seo_keywords} onChange={(e) => setForm({ ...form, seo_keywords: e.target.value })} style={{ width: "100%" }} data-testid="cms-seo-keywords" />
             <input className="input mb-8" placeholder="Open-Graph image URL (1200x630 recommended)" value={form.og_image} onChange={(e) => setForm({ ...form, og_image: e.target.value })} style={{ width: "100%" }} data-testid="cms-og-image" />
@@ -558,7 +570,20 @@ export function AdminBroadcast({ toast }) {
 export function AdminSettings({ toast }) {
   const [list, setList] = useState([]);
   const [draft, setDraft] = useState({});
-  const load = () => api.get("/admin/settings").then((r) => { setList(r.data); setDraft({}); });
+  const [blog, setBlog] = useState({ blog_hero_image: "", blog_hero_title: "", blog_hero_subtitle: "", blog_hero_cta_label: "", blog_hero_cta_url: "" });
+  const load = () => api.get("/admin/settings").then((r) => {
+    setList(r.data);
+    setDraft({});
+    // Prefill Blog Banner section from existing settings
+    const map = Object.fromEntries((r.data || []).map((s) => [s.key, s.value]));
+    setBlog({
+      blog_hero_image: map.blog_hero_image || "",
+      blog_hero_title: map.blog_hero_title || "",
+      blog_hero_subtitle: map.blog_hero_subtitle || "",
+      blog_hero_cta_label: map.blog_hero_cta_label || "",
+      blog_hero_cta_url: map.blog_hero_cta_url || "",
+    });
+  });
   useEffect(() => { load(); }, []);
   const save = async (key) => {
     if (!(key in draft)) return;
@@ -567,24 +592,53 @@ export function AdminSettings({ toast }) {
     await api.put(`/admin/settings/${key}`, { value });
     toast("Saved"); load();
   };
+  const saveBlog = async () => {
+    for (const [k, v] of Object.entries(blog)) {
+      await api.put(`/admin/settings/${k}`, { value: v });
+    }
+    toast("Blog banner saved"); load();
+  };
   return (
-    <div className="card" data-testid="admin-settings">
-      <div className="card-head"><div className="card-title">⚙️ System Settings</div></div>
-      <div style={{ padding: 14 }}>
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Key</th><th>Current Value</th><th>New Value</th><th>Actions</th></tr></thead>
-            <tbody>
-              {list.map((s) => (
-                <tr key={s.key} data-testid={`set-row-${s.key}`}>
-                  <td className="font-mono fs-12">{s.key}</td>
-                  <td className="text-gold">{String(s.value)}</td>
-                  <td><input className="input" defaultValue={s.value} onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })} data-testid={`set-input-${s.key}`} /></td>
-                  <td><button className="btn btn-gold btn-xs" onClick={() => save(s.key)} data-testid={`set-save-${s.key}`}>Save</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div data-testid="admin-settings">
+      {/* Blog Featured Banner panel */}
+      <div className="card mb-24">
+        <div className="card-head">
+          <div className="card-title">🖼️ Blog Page Featured Banner <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— hero shown on /blog</span></div>
+        </div>
+        <div style={{ padding: 14 }}>
+          <input className="input mb-8" placeholder="Banner image URL (1600×600 recommended)" value={blog.blog_hero_image} onChange={(e) => setBlog({ ...blog, blog_hero_image: e.target.value })} style={{ width: "100%" }} data-testid="blog-hero-image" />
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+            <input className="input" placeholder="Banner title" value={blog.blog_hero_title} onChange={(e) => setBlog({ ...blog, blog_hero_title: e.target.value })} data-testid="blog-hero-title" />
+            <input className="input" placeholder="Banner subtitle" value={blog.blog_hero_subtitle} onChange={(e) => setBlog({ ...blog, blog_hero_subtitle: e.target.value })} data-testid="blog-hero-subtitle" />
+          </div>
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 12 }}>
+            <input className="input" placeholder="CTA label (e.g. Subscribe)" value={blog.blog_hero_cta_label} onChange={(e) => setBlog({ ...blog, blog_hero_cta_label: e.target.value })} data-testid="blog-hero-cta-label" />
+            <input className="input" placeholder="CTA URL" value={blog.blog_hero_cta_url} onChange={(e) => setBlog({ ...blog, blog_hero_cta_url: e.target.value })} data-testid="blog-hero-cta-url" />
+          </div>
+          <button className="btn btn-gold" onClick={saveBlog} data-testid="blog-hero-save">Save Blog Banner</button>
+          <a className="btn btn-ghost" href="/blog" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }} data-testid="blog-hero-preview">Preview /blog ↗</a>
+          <div className="text-muted fs-11" style={{ marginTop: 10 }}>Note: for CMS pages (About Us, Terms, etc.), open the CMS Pages tab, edit the page and expand ▼ Banner + Advanced SEO.</div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head"><div className="card-title">⚙️ System Settings</div></div>
+        <div style={{ padding: 14 }}>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Key</th><th>Current Value</th><th>New Value</th><th>Actions</th></tr></thead>
+              <tbody>
+                {list.map((s) => (
+                  <tr key={s.key} data-testid={`set-row-${s.key}`}>
+                    <td className="font-mono fs-12">{s.key}</td>
+                    <td className="text-gold" style={{ maxWidth: 240, wordBreak: "break-all" }}>{String(s.value)}</td>
+                    <td><input className="input" defaultValue={s.value} onChange={(e) => setDraft({ ...draft, [s.key]: e.target.value })} data-testid={`set-input-${s.key}`} /></td>
+                    <td><button className="btn btn-gold btn-xs" onClick={() => save(s.key)} data-testid={`set-save-${s.key}`}>Save</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

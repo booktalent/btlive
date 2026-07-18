@@ -50,6 +50,12 @@ class CMSPageBody(BaseModel):
     og_image: str = ""
     canonical: str = ""
     schema_json: str = ""       # optional JSON-LD blob (raw string)
+    # Iter 40 — Featured banner (renders as a hero on /page/<slug>)
+    hero_image: str = ""        # URL — recommended 1600x600
+    hero_title: str = ""        # Overrides page.title in the hero if set
+    hero_subtitle: str = ""
+    hero_cta_label: str = ""
+    hero_cta_url: str = ""
 
 
 class FAQItemBody(BaseModel):
@@ -357,9 +363,10 @@ def make_router(
         # Cities
         async for c in db.cities_master.find({"active": True}, {"slug": 1}):
             urls.append({"loc": f"{base}/artists/city/{c['slug']}", "priority": "0.8", "changefreq": "daily"})
-        # Artist profiles (only completed, verified-ish)
+        # Artist profiles — include everyone with a slug (no profile_completed
+        # gate; the slug itself is a sign the profile is discoverable).
         async for a in db.artist_profiles.find(
-            {"profile_completed": True},
+            {"slug": {"$exists": True, "$ne": ""}},
             {"user_id": 1, "stage_name": 1, "category": 1, "city": 1, "slug": 1, "updated_at": 1},
         ).limit(5000):
             slug = a.get("slug") or artist_slug(a)

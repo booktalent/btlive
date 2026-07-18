@@ -10,9 +10,17 @@ import api from "../lib/api";
  */
 export default function BlogList() {
   const [blogs, setBlogs] = useState(null);
+  const [settings, setSettings] = useState({});
   useEffect(() => {
     api.get("/blogs").then((r) => setBlogs(r.data || [])).catch(() => setBlogs([]));
+    api.get("/settings/public").then((r) => setSettings(r.data || {})).catch(() => {});
   }, []);
+
+  const heroImg = settings.blog_hero_image;
+  const heroTitle = settings.blog_hero_title || "The BookTalent Blog";
+  const heroSubtitle = settings.blog_hero_subtitle || "Guides, artist spotlights and industry news to help you plan the perfect event.";
+  const heroCtaLabel = settings.blog_hero_cta_label;
+  const heroCtaUrl = settings.blog_hero_cta_url;
 
   return (
     <div data-testid="blog-list-page">
@@ -24,13 +32,26 @@ export default function BlogList() {
         jsonLd={buildBreadcrumb([{ name: "Home", url: "/" }, { name: "Blog", url: "/blog" }])}
       />
       <Nav />
-      <section className="section container" style={{ paddingTop: 60, minHeight: "60vh" }}>
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <h1 style={{ fontSize: 42 }}>The BookTalent Blog</h1>
-          <p className="text-muted" style={{ maxWidth: 640, margin: "0 auto" }}>
-            Guides, artist spotlights and industry news to help you plan the perfect event.
-          </p>
+      <div
+        className="page-hero"
+        data-testid="blog-hero"
+        style={{
+          backgroundImage: heroImg
+            ? `linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.65)), url(${heroImg})`
+            : undefined,
+        }}
+      >
+        <div className="page-hero-inner">
+          <h1 data-testid="blog-hero-title">{heroTitle}</h1>
+          <p data-testid="blog-hero-subtitle">{heroSubtitle}</p>
+          {heroCtaUrl && (
+            <a href={heroCtaUrl} className="btn btn-gold" data-testid="blog-hero-cta">
+              {heroCtaLabel || "Explore"} →
+            </a>
+          )}
         </div>
+      </div>
+      <section className="section container" style={{ paddingTop: 40, minHeight: "40vh" }}>
         {!blogs && <div className="skeleton" style={{ height: 300 }} />}
         {blogs?.length === 0 && (
           <div className="empty" style={{ padding: 40, textAlign: "center" }}>

@@ -2051,8 +2051,10 @@ async def admin_bookings(status: Optional[str] = None, _: dict = Depends(admin_o
 
 
 @api.get("/admin/users")
-async def admin_users(role: Optional[str] = None, _: dict = Depends(admin_only)):
+async def admin_users(role: Optional[str] = None, include_deleted: bool = False, _: dict = Depends(admin_only)):
     q: dict = {} if not role else {"role": role}
+    if not include_deleted:
+        q["deleted"] = {"$ne": True}
     docs = await db.users.find(q).sort("created_at", -1).to_list(500)
     return [clean(d) for d in docs]
 
@@ -2077,6 +2079,104 @@ async def admin_suspend(user_id: str, _: dict = Depends(admin_only)):
     suspended = not u.get("suspended", False)
     await db.users.update_one({"id": user_id}, {"$set": {"suspended": suspended}})
     return {"ok": True, "suspended": suspended}
+
+
+# ─── Admin: edit / delete any user (Iter 40) ─────────────────────────────────
+class AdminUserEditBody(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[Literal["customer", "artist", "agency", "corporate", "admin"]] = None
+    # Artist-profile-only fields
+    stage_name: Optional[str] = None
+    category: Optional[str] = None
+    city: Optional[str] = None
+    starting_price: Optional[float] = None
+    bio: Optional[str] = None
+
+
+@api.put("/admin/users/{user_id}")
+async def admin_edit_user(user_id: str, body: AdminUserEditBody, _: dict = Depends(admin_only)):
+    u = await db.users.find_one({"id": user_id})
+    if not u:
+        raise HTTPException(404, "User not found")
+
+    user_updates: Dict[str, Any] = {}
+    for k in ("first_name", "last_name", "phone", "role"):
+        v = getattr(body, k)
+        if v is not None:
+            user_updates[k] = v
+    if body.email is not None:
+        e = body.email.strip().lower()
+        clash = await db.users.find_one({"email": e, "id": {"$ne": user_id}})
+        if clash:
+            raise HTTPException(400, "Email already in use")
+        user_updates["email"] = e
+    if user_updates:
+        user_updates["updated_at"] = utcnow()
+        await db.users.update_one({"id": user_id}, {"$set": user_updates})
+
+    profile_updates: Dict[str, Any] = {}
+    for k in ("stage_name", "category", "city", "starting_price", "bio"):
+        v = getattr(body, k)
+        if v is not None:
+            profile_updates[k] = v
+    if profile_updates and (u.get("role") == "artist" or body.role == "artist"):
+        profile_updates["updated_at"] = utcnow()
+        await db.artist_profiles.update_one({"user_id": user_id}, {"$set": profile_updates})
+        # Keep SEO slug fresh when identifying fields change.
+        if any(k in profile_updates for k in ("stage_name", "category", "city")):
+            from routes.cms_seo import artist_slug as _mk_slug
+            prof = await db.artist_profiles.find_one({"user_id": user_id}) or {}
+            if prof.get("stage_name"):
+                await db.artist_profiles.update_one(
+                    {"user_id": user_id}, {"$set": {"slug": _mk_slug(prof)}}
+                )
+    return {"ok": True}
+
+
+@api.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, hard: bool = False, admin: dict = Depends(admin_only)):
+    """
+    Delete a user account.
+      • hard=false  → soft delete: mark deleted + anonymise email, keep history
+      • hard=true   → wipe the user + role profile + owned artifacts. Bookings
+                      are preserved (foreign-key value only) so financial
+                      records stay intact.
+    Admins cannot delete themselves.
+    """
+    if user_id == admin["id"]:
+        raise HTTPException(400, "You cannot delete your own admin account")
+    u = await db.users.find_one({"id": user_id})
+    if not u:
+        raise HTTPException(404, "User not found")
+
+    if not hard:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "suspended": True,
+                "deleted": True,
+                "deleted_at": utcnow(),
+                "email": f"deleted-{user_id[:8]}@booktalent.deleted",
+            }},
+        )
+        return {"ok": True, "mode": "soft"}
+
+    # Hard delete — remove user document + role-specific data.
+    await db.users.delete_one({"id": user_id})
+    for coll in ("artist_profiles", "agencies", "corporate_profiles", "customer_profiles",
+                 "kyc_submissions", "subscriptions", "boost_subscriptions",
+                 "packages", "media", "notifications", "announcement_reads",
+                 "reviews", "onboarding_progress"):
+        try:
+            await db[coll].delete_many({"user_id": user_id})
+        except Exception:
+            pass
+    # Reviews referencing the user by artist_id
+    await db.reviews.delete_many({"artist_id": user_id})
+    return {"ok": True, "mode": "hard"}
 
 
 @api.get("/admin/refunds")

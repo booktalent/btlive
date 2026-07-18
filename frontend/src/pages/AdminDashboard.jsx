@@ -101,7 +101,7 @@ export default function AdminDashboard() {
           {tab === "kyc" && <AdminKYC toast={toast} />}
           {tab === "refunds" && <AdminRefunds toast={toast} />}
           {tab === "coupons" && <AdminCoupons toast={toast} />}
-          {tab === "users" && <AdminUsers />}
+          {tab === "users" && <AdminUsers toast={toast} />}
           {tab === "disputes" && <AdminDisputes toast={toast} />}
           {tab === "master" && <AdminMaster toast={toast} />}
           {tab === "boost" && <AdminBoost toast={toast} />}
@@ -145,9 +145,16 @@ function OverviewAdmin({ stats }) {
 
 function AdminArtists({ toast }) {
   const [list, setList] = useState([]);
-  useEffect(() => { api.get("/admin/artists").then(r => setList(r.data)); }, []);
-  const feature = async (uid) => { await api.post(`/admin/artists/${uid}/feature`); toast("Toggled"); api.get("/admin/artists").then(r => setList(r.data)); };
-  const suspend = async (uid) => { await api.post(`/admin/artists/${uid}/suspend`); toast("Updated"); api.get("/admin/artists").then(r => setList(r.data)); };
+  const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const reload = () => api.get("/admin/artists").then((r) => setList(r.data));
+  useEffect(() => { reload(); }, []);
+  const feature = async (uid) => { await api.post(`/admin/artists/${uid}/feature`); toast("Feature toggled"); reload(); };
+  const suspend = async (uid) => {
+    const r = await api.post(`/admin/artists/${uid}/suspend`);
+    toast(r.data.suspended ? "Suspended" : "Unsuspended");
+    reload();
+  };
   return (
     <div className="card" data-testid="admin-artists">
       <div className="card-head"><div className="card-title">🎤 Artists ({list.length})</div></div>
@@ -165,17 +172,41 @@ function AdminArtists({ toast }) {
                 <td>
                   {a.kyc_status === "approved" && <span className="pill pill-green">Verified</span>}
                   {a.kyc_status === "pending" && <span className="pill pill-amber">Pending</span>}
-                  {a.is_featured && <span className="pill pill-gold ml-8" style={{ marginLeft: 8 }}>Featured</span>}
+                  {a.is_featured && <span className="pill pill-gold ml-8" style={{ marginLeft: 4 }}>Featured</span>}
+                  {a.user?.suspended && <span className="pill pill-red" style={{ marginLeft: 4 }}>Suspended</span>}
                 </td>
                 <td>
-                  <button className="btn btn-ghost btn-xs" onClick={() => feature(a.user_id)} data-testid={`feature-${a.user_id}`}>{a.is_featured ? "Unfeature" : "Feature"}</button>
-                  <button className="btn btn-red btn-xs" onClick={() => suspend(a.user_id)} data-testid={`suspend-${a.user_id}`} style={{ marginLeft: 6 }}>Suspend</button>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button className="btn btn-ghost btn-xs" onClick={() => setEditing(a)} data-testid={`edit-${a.user_id}`}>Edit</button>
+                    <button className="btn btn-ghost btn-xs" onClick={() => feature(a.user_id)} data-testid={`feature-${a.user_id}`}>{a.is_featured ? "Unfeature" : "Feature"}</button>
+                    <button className={`btn btn-xs ${a.user?.suspended ? "btn-green" : "btn-amber"}`} onClick={() => suspend(a.user_id)} data-testid={`suspend-${a.user_id}`}>
+                      {a.user?.suspended ? "Unsuspend" : "Suspend"}
+                    </button>
+                    <button className="btn btn-red btn-xs" onClick={() => setDeleting({ id: a.user_id, label: a.stage_name })} data-testid={`delete-${a.user_id}`}>Delete</button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {editing && (
+        <UserEditModal
+          user={editing.user}
+          profile={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); toast("Saved"); }}
+          toast={toast}
+        />
+      )}
+      {deleting && (
+        <UserDeleteModal
+          target={deleting}
+          onClose={() => setDeleting(null)}
+          onDone={() => { setDeleting(null); reload(); }}
+          toast={toast}
+        />
+      )}
     </div>
   );
 }
@@ -459,10 +490,19 @@ function AdminCoupons({ toast }) {
   );
 }
 
-function AdminUsers() {
+function AdminUsers({ toast }) {
   const [list, setList] = useState([]);
   const [filter, setFilter] = useState("");
-  useEffect(() => { api.get(`/admin/users${filter ? `?role=${filter}` : ""}`).then(r => setList(r.data)); }, [filter]);
+  const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
+  const reload = () => api.get(`/admin/users${filter ? `?role=${filter}` : ""}`).then((r) => setList(r.data));
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [filter]);
+  const suspend = async (uid) => {
+    const r = await api.post(`/admin/artists/${uid}/suspend`);
+    toast?.(r.data.suspended ? "Suspended" : "Unsuspended");
+    reload();
+  };
+
   return (
     <div className="card" data-testid="admin-users">
       <div className="card-head">
@@ -477,7 +517,7 @@ function AdminUsers() {
       </div>
       <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Phone</th><th>Joined</th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Phone</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody>
             {list.map((u) => (
               <tr key={u.id} data-testid={`user-${u.id}`}>
@@ -486,10 +526,222 @@ function AdminUsers() {
                 <td><span className="pill pill-purple">{u.role}</span></td>
                 <td>{u.phone || "—"}</td>
                 <td className="fs-12 text-muted">{u.created_at?.slice(0, 10)}</td>
+                <td>
+                  {u.suspended ? <span className="pill pill-red">Suspended</span> : <span className="pill pill-green">Active</span>}
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button className="btn btn-ghost btn-xs" onClick={() => setEditing(u)} data-testid={`user-edit-${u.id}`}>Edit</button>
+                    <button className={`btn btn-xs ${u.suspended ? "btn-green" : "btn-amber"}`} onClick={() => suspend(u.id)} data-testid={`user-suspend-${u.id}`}>
+                      {u.suspended ? "Unsuspend" : "Suspend"}
+                    </button>
+                    <button className="btn btn-red btn-xs" onClick={() => setDeleting({ id: u.id, label: `${u.first_name} ${u.last_name}`.trim() || u.email })} data-testid={`user-delete-${u.id}`}>Delete</button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      {editing && (
+        <UserEditModal
+          user={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); reload(); toast?.("Saved"); }}
+          toast={toast}
+        />
+      )}
+      {deleting && (
+        <UserDeleteModal
+          target={deleting}
+          onClose={() => setDeleting(null)}
+          onDone={() => { setDeleting(null); reload(); }}
+          toast={toast}
+        />
+      )}
+    </div>
+  );
+}
+
+function UserDeleteModal({ target, onClose, onDone, toast }) {
+  const [mode, setMode] = useState("soft");   // "soft" | "hard"
+  const [confirmText, setConfirmText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const needConfirm = mode === "hard";
+  const canDelete = !needConfirm || confirmText === "DELETE";
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await api.delete(`/admin/users/${target.id}${mode === "hard" ? "?hard=true" : ""}`);
+      toast?.(mode === "hard" ? "Permanently deleted" : "Deactivated");
+      onDone();
+    } catch (e) {
+      toast?.(e?.response?.data?.detail || "Delete failed", "error");
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="popup-scrim" onClick={onClose} data-testid="user-delete-modal">
+      <div className="popup-card" style={{ maxWidth: 500 }} onClick={(e) => e.stopPropagation()}>
+        <button className="popup-close" onClick={onClose} aria-label="Close">×</button>
+        <h3 style={{ marginTop: 0 }}>Delete {target.label}</h3>
+        <p className="text-muted fs-13" style={{ marginBottom: 16 }}>
+          Pick how you want to remove this account. Deactivation is fully reversible; permanent deletion is not.
+        </p>
+
+        <label
+          className="delete-mode-card"
+          style={{
+            display: "block", padding: 14, borderRadius: 10, marginBottom: 10,
+            border: `1px solid ${mode === "soft" ? "var(--gold)" : "var(--glass-border)"}`,
+            background: mode === "soft" ? "rgba(212,175,55,0.08)" : "transparent",
+            cursor: "pointer",
+          }}
+          data-testid="delete-mode-soft"
+        >
+          <input type="radio" checked={mode === "soft"} onChange={() => setMode("soft")} style={{ marginRight: 8 }} />
+          <span style={{ fontWeight: 700 }}>Deactivate (recommended)</span>
+          <div className="text-muted fs-12" style={{ marginTop: 4, marginLeft: 22 }}>
+            Suspends the login, anonymises the email. Bookings & financial history are preserved. Reversible.
+          </div>
+        </label>
+
+        <label
+          className="delete-mode-card"
+          style={{
+            display: "block", padding: 14, borderRadius: 10, marginBottom: 14,
+            border: `1px solid ${mode === "hard" ? "#dc2626" : "var(--glass-border)"}`,
+            background: mode === "hard" ? "rgba(220,38,38,0.08)" : "transparent",
+            cursor: "pointer",
+          }}
+          data-testid="delete-mode-hard"
+        >
+          <input type="radio" checked={mode === "hard"} onChange={() => setMode("hard")} style={{ marginRight: 8 }} />
+          <span style={{ fontWeight: 700, color: "#f87171" }}>Delete permanently</span>
+          <div className="text-muted fs-12" style={{ marginTop: 4, marginLeft: 22 }}>
+            Wipes the account, profile, packages, media & reviews. Bookings remain (by ID) so financials stay intact. This cannot be undone.
+          </div>
+        </label>
+
+        {needConfirm && (
+          <div className="field" style={{ marginBottom: 14 }}>
+            <div className="field-label" style={{ color: "#f87171" }}>Type <b>DELETE</b> to confirm permanent removal</div>
+            <input className="field-input" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} data-testid="delete-confirm-input" placeholder="DELETE" />
+          </div>
+        )}
+
+        <div className="flex gap-8" style={{ justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose} data-testid="delete-cancel">Cancel</button>
+          <button
+            className="btn btn-red"
+            onClick={submit}
+            disabled={busy || !canDelete}
+            data-testid="delete-confirm"
+          >
+            {busy ? "Working…" : mode === "hard" ? "Delete permanently" : "Deactivate"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UserEditModal({ user, profile, onClose, onSaved, toast }) {
+  const [form, setForm] = useState({
+    first_name: user?.first_name || "",
+    last_name: user?.last_name || "",
+    email: user?.email || "",
+    phone: user?.phone || "",
+    role: user?.role || "customer",
+    stage_name: profile?.stage_name || "",
+    category: profile?.category || "",
+    city: profile?.city || "",
+    starting_price: profile?.starting_price || 0,
+    bio: profile?.bio || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const isArtist = form.role === "artist";
+  const save = async () => {
+    setSaving(true);
+    try {
+      const body = { ...form };
+      if (!isArtist) {
+        delete body.stage_name; delete body.category; delete body.city;
+        delete body.starting_price; delete body.bio;
+      }
+      await api.put(`/admin/users/${user.id}`, body);
+      onSaved();
+    } catch (e) {
+      toast?.(e?.response?.data?.detail || "Save failed", "error");
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="popup-scrim" onClick={onClose} data-testid="user-edit-modal">
+      <div className="popup-card" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <button className="popup-close" onClick={onClose} aria-label="Close">×</button>
+        <h3 style={{ marginTop: 0 }}>Edit User</h3>
+        <div className="grid grid-2 gap-12">
+          <div>
+            <div className="field-label">First name</div>
+            <input className="field-input" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} data-testid="edit-first-name" />
+          </div>
+          <div>
+            <div className="field-label">Last name</div>
+            <input className="field-input" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} data-testid="edit-last-name" />
+          </div>
+        </div>
+        <div className="field">
+          <div className="field-label">Email</div>
+          <input className="field-input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} data-testid="edit-email" />
+        </div>
+        <div className="grid grid-2 gap-12">
+          <div>
+            <div className="field-label">Phone</div>
+            <input className="field-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="edit-phone" />
+          </div>
+          <div>
+            <div className="field-label">Role</div>
+            <select className="field-input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} data-testid="edit-role">
+              {["customer", "artist", "agency", "corporate", "admin"].map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+        </div>
+        {isArtist && (
+          <>
+            <div className="field-label" style={{ marginTop: 12, opacity: 0.6, fontSize: 11 }}>ARTIST PROFILE</div>
+            <div className="grid grid-2 gap-12">
+              <div>
+                <div className="field-label">Stage name</div>
+                <input className="field-input" value={form.stage_name} onChange={(e) => setForm({ ...form, stage_name: e.target.value })} data-testid="edit-stage-name" />
+              </div>
+              <div>
+                <div className="field-label">Category</div>
+                <input className="field-input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="edit-category" />
+              </div>
+            </div>
+            <div className="grid grid-2 gap-12">
+              <div>
+                <div className="field-label">City</div>
+                <input className="field-input" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} data-testid="edit-city" />
+              </div>
+              <div>
+                <div className="field-label">Starting price (₹)</div>
+                <input type="number" className="field-input" value={form.starting_price} onChange={(e) => setForm({ ...form, starting_price: parseFloat(e.target.value) || 0 })} data-testid="edit-starting-price" />
+              </div>
+            </div>
+            <div className="field">
+              <div className="field-label">Bio</div>
+              <textarea className="field-input" rows={3} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} data-testid="edit-bio" />
+            </div>
+          </>
+        )}
+        <div className="flex gap-8" style={{ marginTop: 16, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose} data-testid="edit-cancel">Cancel</button>
+          <button className="btn btn-gold" onClick={save} disabled={saving} data-testid="edit-save">
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );

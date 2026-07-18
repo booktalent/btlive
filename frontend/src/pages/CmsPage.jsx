@@ -70,13 +70,34 @@ export default function CmsPage() {
         ]}
       />
       <Nav />
-      <section className="section container" style={{ paddingTop: 60, minHeight: "60vh" }}>
+      <section className="section container" style={{ paddingTop: page?.hero_image || page?.hero_title ? 0 : 60, minHeight: "60vh" }}>
         <div className="cms-content">
           {!page ? (
             <div className="skeleton" style={{ height: 400 }} />
           ) : (
             <>
-              <h1 style={{ fontSize: 42, marginBottom: 12 }} data-testid="cms-title">{page.title}</h1>
+              {(page.hero_image || page.hero_title) && (
+                <div
+                  className="page-hero"
+                  data-testid="cms-hero"
+                  style={{
+                    backgroundImage: page.hero_image ? `linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.6)), url(${page.hero_image})` : undefined,
+                  }}
+                >
+                  <div className="page-hero-inner">
+                    <h1 data-testid="cms-hero-title">{page.hero_title || page.title}</h1>
+                    {page.hero_subtitle && <p data-testid="cms-hero-subtitle">{page.hero_subtitle}</p>}
+                    {page.hero_cta_url && (
+                      <a href={page.hero_cta_url} className="btn btn-gold" data-testid="cms-hero-cta">
+                        {page.hero_cta_label || "Learn more"} →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!(page.hero_image || page.hero_title) && (
+                <h1 style={{ fontSize: 42, marginBottom: 12 }} data-testid="cms-title">{page.title}</h1>
+              )}
               {page.updated_at && (
                 <div className="text-muted fs-12 mb-24" data-testid="cms-updated">
                   Last updated: {String(page.updated_at).slice(0, 10)}

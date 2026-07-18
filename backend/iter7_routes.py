@@ -298,6 +298,12 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         "gst_pct",
         "support_email",
         "support_phone",
+        # Iter 40 — Featured banners (blog list + generic home hero)
+        "blog_hero_image",
+        "blog_hero_title",
+        "blog_hero_subtitle",
+        "blog_hero_cta_label",
+        "blog_hero_cta_url",
     }
 
     @r.get("/settings/public")
@@ -873,8 +879,12 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             ("How do I become an artist on BookTalent?", "Sign up as 'Artist', complete onboarding, upload your portfolio and submit KYC. Approval takes 24-48 hours.", "artist"),
         ]
         for q, a, cat in faq_seed:
-            if not await db.faqs.find_one({"question": q}):
+            existing = await db.faqs.find_one({"question": q})
+            if not existing:
                 await db.faqs.insert_one({"id": new_id(), "question": q, "answer": a, "category": cat, "sort_order": 0, "active": True, "created_at": utcnow()})
+            elif "escrow" in (existing.get("answer") or "").lower():
+                # Iter 38 pivot: silently correct any legacy escrow copy.
+                await db.faqs.update_one({"id": existing["id"]}, {"$set": {"answer": a}})
 
         # Default CMS pages
         cms_seed = [
