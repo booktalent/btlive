@@ -11,6 +11,6 @@ This split was introduced in Iter 13 to break the monolithic server.py
 Iter 36 (business-model pivot): the wallet router was removed. BookTalent is
 a lead-generation marketplace and no longer holds artist funds.
 """
-from . import reviews, coupons, blogs, disputes, kyc, uploads, addons
+from . import reviews, coupons, blogs, disputes, kyc, uploads, addons, cms_seo
 
-__all__ = ["reviews", "coupons", "blogs", "disputes", "kyc", "uploads", "addons"]
+__all__ = ["reviews", "coupons", "blogs", "disputes", "kyc", "uploads", "addons", "cms_seo"]

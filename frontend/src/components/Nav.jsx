@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
+import NotificationBell from "./NotificationBell";
 
 export default function Nav() {
   const { user, logout } = useAuth();
@@ -40,6 +41,8 @@ export default function Nav() {
           <div className="nav-links">
             <Link to="/" className="nav-link" data-testid="nav-home">Home</Link>
             <Link to="/search" className="nav-link" data-testid="nav-search">Discover Artists</Link>
+            <Link to="/blog" className="nav-link" data-testid="nav-blog">Blog</Link>
+            <Link to="/help" className="nav-link" data-testid="nav-help">Help</Link>
             {user && <Link to={dashLink} className="nav-link" data-testid="nav-dashboard">Dashboard</Link>}
           </div>
           <div className="nav-actions">
@@ -50,6 +53,7 @@ export default function Nav() {
               </>
             ) : (
               <>
+                <NotificationBell />
                 <span className="text-muted fs-13" data-testid="nav-user-name">
                   Hi, {user.first_name}
                 </span>
@@ -92,6 +96,8 @@ export default function Nav() {
         <nav>
           <Link to="/" data-testid="drawer-home">Home</Link>
           <Link to="/search" data-testid="drawer-search">Discover Artists</Link>
+          <Link to="/blog" data-testid="drawer-blog">Blog</Link>
+          <Link to="/help" data-testid="drawer-help">Help</Link>
           {user && <Link to={dashLink} data-testid="drawer-dashboard">Dashboard</Link>}
           {!user ? (
             <>

@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Nav from "../components/Nav";
+import Footer from "../components/Footer";
+import SEO from "../components/SEO";
 import api, { fmtINRFull, mediaUrl, pickArtistThumb } from "../lib/api";
 import ArtistCardThumb from "../components/ArtistCardThumb";
 
@@ -19,6 +21,8 @@ export default function Landing() {
   const [rails, setRails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cities, setCities] = useState([]);
+  const [featuredFaqs, setFeaturedFaqs] = useState([]);
+  const [openFaq, setOpenFaq] = useState({});
 
   useEffect(() => {
     // Sprint 5 — dynamic homepage rails
@@ -27,6 +31,8 @@ export default function Landing() {
       setRails(r.data || []);
     }).catch(() => setRails([])).finally(() => setLoading(false));
     api.get("/cities").then(r => setCities(r.data));
+    // Iter 39 — featured FAQs for the landing page
+    api.get("/faqs/search?featured=true").then(r => setFeaturedFaqs(r.data || [])).catch(() => {});
   }, []);
 
   const search = (e) => {
@@ -42,6 +48,23 @@ export default function Landing() {
 
   return (
     <div data-testid="landing-page">
+      <SEO
+        title="Book India's Finest Talent, On Demand"
+        description="Book verified singers, DJs, comedians, dancers and anchors for weddings, corporate events, birthdays and private parties. Transparent 5% platform fee, direct settlement with your artist."
+        keywords="book artists india, book singer, book DJ, book comedian, wedding entertainment, corporate event artists, book anchor, book dancer"
+        path="/"
+        jsonLd={{
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: "BookTalent",
+          url: "https://booktalent.com",
+          potentialAction: {
+            "@type": "SearchAction",
+            target: "https://booktalent.com/search?q={search_term_string}",
+            "query-input": "required name=search_term_string",
+          },
+        }}
+      />
       <div className="orb orb-1" />
       <div className="orb orb-2" />
       <div className="orb orb-3" />
@@ -135,9 +158,37 @@ export default function Landing() {
         </div>
       </section>
 
-      <footer style={{ padding: "40px 24px", textAlign: "center", borderTop: "1px solid var(--glass-border)", color: "var(--white-muted)", fontSize: 13 }}>
-        © 2026 BookTalent · India's Premium Talent Marketplace
-      </footer>
+      {featuredFaqs.length > 0 && (
+        <section className="faq-hero" data-testid="landing-faq-section">
+          <div className="faq-hero-head">
+            <h2 style={{ fontFamily: "var(--font-serif)" }}>Frequently Asked <span className="gold-grad">Questions</span></h2>
+            <p className="text-muted">Everything you need to know before booking your next event.</p>
+          </div>
+          <div className="faq-list">
+            {featuredFaqs.map((f) => (
+              <div key={f.id} className={`faq-row ${openFaq[f.id] ? "open" : ""}`} data-testid={`landing-faq-${f.id}`}>
+                <button
+                  className="faq-q"
+                  onClick={() => setOpenFaq({ ...openFaq, [f.id]: !openFaq[f.id] })}
+                  aria-expanded={!!openFaq[f.id]}
+                  data-testid={`landing-faq-toggle-${f.id}`}
+                >
+                  <span>{f.question}</span>
+                  <span className="faq-caret">{openFaq[f.id] ? "−" : "+"}</span>
+                </button>
+                {openFaq[f.id] && <div className="faq-a">{f.answer}</div>}
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center", marginTop: 24 }}>
+            <Link to="/help" className="btn btn-ghost" data-testid="landing-faq-view-all">
+              View all answers in Help Center →
+            </Link>
+          </div>
+        </section>
+      )}
+
+      <Footer />
     </div>
   );
 }

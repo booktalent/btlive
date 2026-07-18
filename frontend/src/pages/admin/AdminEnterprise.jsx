@@ -259,34 +259,44 @@ export function AdminTemplates({ toast }) {
    ───────────────────────────────────────────────────────────────── */
 export function AdminFAQs({ toast }) {
   const [list, setList] = useState([]);
-  const [form, setForm] = useState({ question: "", answer: "", category: "general", sort_order: 0, active: true });
+  const [form, setForm] = useState({ question: "", answer: "", category: "general", sort_order: 0, active: true, is_featured: false });
   const [editing, setEditing] = useState(null);
-  const load = () => api.get("/admin/faqs").then((r) => setList(r.data));
+  const load = () => api.get("/admin/faqs-v2").then((r) => setList(r.data));
   useEffect(() => { load(); }, []);
   const save = async () => {
     if (!form.question.trim()) return toast("Question required");
-    if (editing) await api.put(`/admin/faqs/${editing}`, form); else await api.post("/admin/faqs", form);
-    toast("Saved"); setEditing(null); setForm({ question: "", answer: "", category: "general", sort_order: 0, active: true }); load();
+    if (editing) await api.put(`/admin/faqs-v2/${editing}`, form); else await api.post("/admin/faqs-v2", form);
+    toast("Saved"); setEditing(null); setForm({ question: "", answer: "", category: "general", sort_order: 0, active: true, is_featured: false }); load();
   };
-  const edit = (f) => { setEditing(f.id); setForm({ question: f.question, answer: f.answer, category: f.category, sort_order: f.sort_order, active: f.active }); };
-  const del = async (id) => { await api.delete(`/admin/faqs/${id}`); toast("Deleted"); load(); };
+  const edit = (f) => { setEditing(f.id); setForm({ question: f.question, answer: f.answer, category: f.category, sort_order: f.sort_order, active: f.active, is_featured: !!f.is_featured }); };
+  const del = async (id) => { if (!window.confirm("Delete FAQ?")) return; await api.delete(`/admin/faqs-v2/${id}`); toast("Deleted"); load(); };
   return (
     <div className="card" data-testid="admin-faqs">
-      <div className="card-head"><div className="card-title">❓ FAQs ({list.length})</div></div>
+      <div className="card-head">
+        <div className="card-title">❓ FAQs ({list.length}) <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— live on the Help Center and Landing page</span></div>
+      </div>
       <div style={{ padding: 14 }}>
         <input className="input mb-8" placeholder="Question" value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} data-testid="faq-q" style={{ width: "100%", marginBottom: 8 }} />
         <textarea className="input mb-8" placeholder="Answer" value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} rows={3} data-testid="faq-a" style={{ width: "100%", marginBottom: 8 }} />
-        <div className="flex gap-12" style={{ marginBottom: 12 }}>
-          <input className="input" placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-          <input className="input" type="number" placeholder="Sort" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })} />
+        <div className="flex gap-12" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+          <input className="input" placeholder="Category (booking, payment, trust…)" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+          <input className="input" type="number" placeholder="Sort" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })} style={{ width: 100 }} />
+          <label className="flex gap-4" style={{ alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} data-testid="faq-active" /> Active
+          </label>
+          <label className="flex gap-4" style={{ alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={form.is_featured} onChange={(e) => setForm({ ...form, is_featured: e.target.checked })} data-testid="faq-featured" /> Featured (show on landing)
+          </label>
           <button className="btn btn-gold" onClick={save} data-testid="faq-save">{editing ? "Update" : "+ Add"}</button>
         </div>
         {list.map((f) => (
           <div key={f.id} className="card card-pad mb-12" data-testid={`faq-row-${f.id}`}>
             <div className="fw-600">{f.question}</div>
             <div className="text-muted fs-13 mt-4">{f.answer}</div>
-            <div className="mt-8 flex gap-8">
+            <div className="mt-8 flex gap-8" style={{ flexWrap: "wrap" }}>
               <span className="pill pill-purple">{f.category}</span>
+              {f.is_featured && <span className="pill" style={{ background: "linear-gradient(135deg, var(--gold), var(--gold-light))", color: "#000" }}>★ Featured</span>}
+              {!f.active && <span className="pill pill-amber">Inactive</span>}
               <button className="btn btn-ghost btn-xs" onClick={() => edit(f)}>Edit</button>
               <button className="btn btn-red btn-xs" onClick={() => del(f.id)}>Delete</button>
             </div>
@@ -298,41 +308,97 @@ export function AdminFAQs({ toast }) {
 }
 
 export function AdminCMS({ toast }) {
+  const EMPTY = { slug: "", title: "", body_html: "", meta_description: "", published: true,
+    header_menu: false, footer_menu: true, menu_order: 100,
+    seo_title: "", seo_keywords: "", og_image: "", canonical: "", schema_json: "" };
   const [list, setList] = useState([]);
-  const [form, setForm] = useState({ slug: "", title: "", body_html: "", meta_description: "", published: true });
+  const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(null);
-  const load = () => api.get("/admin/cms").then((r) => setList(r.data));
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const load = () => api.get("/admin/cms-v2").then((r) => setList(r.data));
   useEffect(() => { load(); }, []);
   const save = async () => {
     if (!form.slug || !form.title) return toast("Slug & title required");
-    if (editing) await api.put(`/admin/cms/${editing}`, form); else await api.post("/admin/cms", form);
-    toast("Saved"); setEditing(null); setForm({ slug: "", title: "", body_html: "", meta_description: "", published: true }); load();
+    try {
+      if (editing) await api.put(`/admin/cms-v2/${editing}`, form); else await api.post("/admin/cms-v2", form);
+      toast("Saved"); setEditing(null); setForm(EMPTY); setShowAdvanced(false); load();
+    } catch (e) { toast(e?.response?.data?.detail || "Save failed", "error"); }
   };
-  const edit = (p) => { setEditing(p.id); setForm({ slug: p.slug, title: p.title, body_html: p.body_html, meta_description: p.meta_description || "", published: p.published }); };
-  const del = async (id) => { await api.delete(`/admin/cms/${id}`); toast("Deleted"); load(); };
+  const edit = (p) => { setEditing(p.id); setForm({ ...EMPTY, ...p }); setShowAdvanced(true); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const del = async (id) => { if (!window.confirm("Delete page?")) return; await api.delete(`/admin/cms-v2/${id}`); toast("Deleted"); load(); };
+  const togglePublish = async (p) => {
+    await api.put(`/admin/cms-v2/${p.id}`, { ...p, published: !p.published });
+    toast(p.published ? "Unpublished" : "Published"); load();
+  };
   return (
     <div className="card" data-testid="admin-cms">
-      <div className="card-head"><div className="card-title">📄 CMS Pages</div></div>
+      <div className="card-head">
+        <div className="card-title">📄 CMS Pages ({list.length}) <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— live on the site under /page/&lt;slug&gt;</span></div>
+      </div>
       <div style={{ padding: 14 }}>
         <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
           <input className="input" placeholder="Slug (e.g. about, terms)" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} data-testid="cms-slug" />
           <input className="input" placeholder="Page Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="cms-title" />
         </div>
-        <textarea className="input" placeholder="HTML body" rows={6} value={form.body_html} onChange={(e) => setForm({ ...form, body_html: e.target.value })} data-testid="cms-body" style={{ width: "100%", marginBottom: 8 }} />
-        <input className="input" placeholder="Meta description" value={form.meta_description} onChange={(e) => setForm({ ...form, meta_description: e.target.value })} style={{ width: "100%", marginBottom: 12 }} />
-        <button className="btn btn-gold" onClick={save} data-testid="cms-save">{editing ? "Update" : "+ Add Page"}</button>
+        <textarea className="input" placeholder="HTML body" rows={8} value={form.body_html} onChange={(e) => setForm({ ...form, body_html: e.target.value })} data-testid="cms-body" style={{ width: "100%", marginBottom: 8, fontFamily: "monospace", fontSize: 13 }} />
+        <input className="input" placeholder="Meta description (shown in Google snippets)" value={form.meta_description} onChange={(e) => setForm({ ...form, meta_description: e.target.value })} style={{ width: "100%", marginBottom: 10 }} data-testid="cms-meta-desc" />
+
+        <div className="flex gap-12" style={{ marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <label className="flex gap-6" style={{ alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={form.published} onChange={(e) => setForm({ ...form, published: e.target.checked })} data-testid="cms-published" /> Published
+          </label>
+          <label className="flex gap-6" style={{ alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={form.header_menu} onChange={(e) => setForm({ ...form, header_menu: e.target.checked })} data-testid="cms-header-menu" /> Header menu
+          </label>
+          <label className="flex gap-6" style={{ alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={form.footer_menu} onChange={(e) => setForm({ ...form, footer_menu: e.target.checked })} data-testid="cms-footer-menu" /> Footer menu
+          </label>
+          <input className="input" type="number" placeholder="Menu order" value={form.menu_order} onChange={(e) => setForm({ ...form, menu_order: parseInt(e.target.value) || 100 })} style={{ width: 120 }} data-testid="cms-menu-order" />
+          <button className="btn btn-ghost btn-xs" onClick={() => setShowAdvanced(!showAdvanced)} data-testid="cms-toggle-advanced">
+            {showAdvanced ? "▲ Hide SEO" : "▼ Advanced SEO"}
+          </button>
+        </div>
+
+        {showAdvanced && (
+          <div style={{ padding: 12, background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: 12 }}>
+            <div className="text-muted fs-11 mb-8">SEO Overrides — leave blank to auto-derive from title / meta description.</div>
+            <input className="input mb-8" placeholder="SEO title (browser tab & Google)" value={form.seo_title} onChange={(e) => setForm({ ...form, seo_title: e.target.value })} style={{ width: "100%" }} data-testid="cms-seo-title" />
+            <input className="input mb-8" placeholder="SEO keywords (comma-separated)" value={form.seo_keywords} onChange={(e) => setForm({ ...form, seo_keywords: e.target.value })} style={{ width: "100%" }} data-testid="cms-seo-keywords" />
+            <input className="input mb-8" placeholder="Open-Graph image URL (1200x630 recommended)" value={form.og_image} onChange={(e) => setForm({ ...form, og_image: e.target.value })} style={{ width: "100%" }} data-testid="cms-og-image" />
+            <input className="input mb-8" placeholder="Canonical URL (override auto)" value={form.canonical} onChange={(e) => setForm({ ...form, canonical: e.target.value })} style={{ width: "100%" }} data-testid="cms-canonical" />
+            <textarea className="input" rows={3} placeholder="Custom JSON-LD (optional)" value={form.schema_json} onChange={(e) => setForm({ ...form, schema_json: e.target.value })} style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }} data-testid="cms-schema-json" />
+          </div>
+        )}
+
+        <button className="btn btn-gold" onClick={save} data-testid="cms-save">{editing ? "Update Page" : "+ Add Page"}</button>
+        {editing && <button className="btn btn-ghost" onClick={() => { setEditing(null); setForm(EMPTY); setShowAdvanced(false); }} style={{ marginLeft: 8 }} data-testid="cms-cancel">Cancel</button>}
+
         <div className="table-wrap" style={{ marginTop: 18 }}>
           <table className="table">
-            <thead><tr><th>Slug</th><th>Title</th><th>Published</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Slug</th><th>Title</th><th>Menus</th><th>Order</th><th>Published</th><th>Actions</th></tr></thead>
             <tbody>
               {list.map((p) => (
                 <tr key={p.id} data-testid={`cms-row-${p.id}`}>
                   <td className="font-mono fs-12">{p.slug}</td>
                   <td>{p.title}</td>
-                  <td>{p.published ? <span className="pill pill-green">Yes</span> : <span className="pill pill-amber">No</span>}</td>
+                  <td className="fs-11">
+                    {p.header_menu && <span className="pill pill-purple" style={{ marginRight: 4 }}>Header</span>}
+                    {p.footer_menu && <span className="pill pill-green">Footer</span>}
+                    {!p.header_menu && !p.footer_menu && <span className="text-muted">—</span>}
+                  </td>
+                  <td className="fs-12">{p.menu_order ?? "—"}</td>
                   <td>
-                    <button className="btn btn-ghost btn-xs" onClick={() => edit(p)}>Edit</button>
-                    <button className="btn btn-red btn-xs" onClick={() => del(p.id)} style={{ marginLeft: 6 }}>Delete</button>
+                    <button
+                      className={`pill ${p.published ? "pill-green" : "pill-amber"}`}
+                      onClick={() => togglePublish(p)}
+                      style={{ border: "none", cursor: "pointer" }}
+                      data-testid={`cms-toggle-publish-${p.id}`}
+                    >{p.published ? "Yes" : "No"}</button>
+                  </td>
+                  <td>
+                    <button className="btn btn-ghost btn-xs" onClick={() => edit(p)} data-testid={`cms-edit-${p.id}`}>Edit</button>
+                    <a className="btn btn-ghost btn-xs" href={`/page/${p.slug}`} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6 }} data-testid={`cms-view-${p.id}`}>View ↗</a>
+                    <button className="btn btn-red btn-xs" onClick={() => del(p.id)} style={{ marginLeft: 6 }} data-testid={`cms-delete-${p.id}`}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -345,54 +411,144 @@ export function AdminCMS({ toast }) {
 }
 
 export function AdminBroadcast({ toast }) {
+  // ── Announcements (banner / popup / dashboard bell) ──────────────────
+  const EMPTY = { title: "", body: "", audience: "all", channels: ["dashboard"],
+    priority: "normal", cta_label: "", cta_url: "", starts_at: "", expires_at: "", active: true };
+  const [anns, setAnns] = useState([]);
+  const [form, setForm] = useState(EMPTY);
+  const [editing, setEditing] = useState(null);
+  const loadAnns = () => api.get("/admin/announcements").then((r) => setAnns(r.data || []));
+  useEffect(() => { loadAnns(); }, []);
+  const saveAnn = async () => {
+    if (!form.title.trim()) return toast("Title required");
+    try {
+      if (editing) await api.put(`/admin/announcements/${editing}`, form); else await api.post("/admin/announcements", form);
+      toast("Saved"); setEditing(null); setForm(EMPTY); loadAnns();
+    } catch (e) { toast(e?.response?.data?.detail || "Save failed", "error"); }
+  };
+  const editAnn = (a) => { setEditing(a.id); setForm({ ...EMPTY, ...a }); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const delAnn = async (id) => { if (!window.confirm("Delete announcement?")) return; await api.delete(`/admin/announcements/${id}`); toast("Deleted"); loadAnns(); };
+  const toggleAnnChannel = (c) => setForm({ ...form, channels: form.channels.includes(c) ? form.channels.filter(x => x !== c) : [...form.channels, c] });
+
+  // ── Legacy email/SMS/WhatsApp broadcast (kept for transactional bulk) ─
   const [log, setLog] = useState([]);
-  const [form, setForm] = useState({ audience: "artist", event: "platform.announcement", channels: ["in_app"], title: "", body: "" });
+  const [ch, setCh] = useState({ audience: "artist", event: "platform.announcement", channels: ["in_app"], title: "", body: "" });
   const loadLog = () => api.get("/admin/notifications/log?limit=50").then((r) => setLog(r.data));
   useEffect(() => { loadLog(); }, []);
-  const send = async () => {
-    if (!form.title || !form.body) return toast("Title & body required");
-    const r = await api.post("/admin/notifications/broadcast", form);
+  const sendCh = async () => {
+    if (!ch.title || !ch.body) return toast("Title & body required");
+    const r = await api.post("/admin/notifications/broadcast", ch);
     toast(`Delivered to ${r.data.delivered} users`);
-    setForm({ ...form, title: "", body: "" });
+    setCh({ ...ch, title: "", body: "" });
     loadLog();
   };
-  const toggle = (ch) => setForm({ ...form, channels: form.channels.includes(ch) ? form.channels.filter((c) => c !== ch) : [...form.channels, ch] });
-  return (
-    <div className="card" data-testid="admin-broadcast">
-      <div className="card-head"><div className="card-title">📢 Broadcast Notification</div></div>
-      <div style={{ padding: 14 }}>
-        <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
-          <select className="input" value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })} data-testid="bc-audience">
-            {["all", "artist", "customer", "agency", "corporate", "admin"].map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-          <input className="input" placeholder="Event code (e.g. platform.announcement)" value={form.event} onChange={(e) => setForm({ ...form, event: e.target.value })} data-testid="bc-event" />
-        </div>
-        <input className="input" placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} style={{ width: "100%", marginBottom: 8 }} data-testid="bc-title" />
-        <textarea className="input" placeholder="Body" rows={3} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} style={{ width: "100%", marginBottom: 12 }} data-testid="bc-body" />
-        <div className="flex gap-8" style={{ marginBottom: 12 }}>
-          {["in_app", "email", "sms", "whatsapp", "push"].map((c) => (
-            <button key={c} className={`btn btn-xs ${form.channels.includes(c) ? "btn-gold" : "btn-ghost"}`} onClick={() => toggle(c)} data-testid={`bc-ch-${c}`}>{c}</button>
-          ))}
-        </div>
-        <button className="btn btn-gold" onClick={send} data-testid="bc-send">Send Broadcast</button>
+  const toggleCh = (c) => setCh({ ...ch, channels: ch.channels.includes(c) ? ch.channels.filter((x) => x !== c) : [...ch.channels, c] });
 
-        <h4 className="font-serif mt-24 fs-16 fw-700" style={{ marginTop: 24, marginBottom: 8 }}>Recent Notification Log</h4>
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Time</th><th>Event</th><th>Channel</th><th>Subject</th><th>Status</th><th>Mode</th></tr></thead>
-            <tbody>
-              {log.slice(0, 20).map((l) => (
-                <tr key={l.id} data-testid={`bc-log-${l.id}`}>
-                  <td className="fs-11 text-muted">{l.created_at?.slice(0, 19).replace("T", " ")}</td>
-                  <td className="font-mono fs-11">{l.event}</td>
-                  <td><span className="pill pill-purple">{l.channel}</span></td>
-                  <td className="fs-12">{l.subject}</td>
-                  <td><span className={`pill ${l.status === "sent" ? "pill-green" : "pill-amber"}`}>{l.status}</span></td>
-                  <td className="fs-11">{l.mode}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+  return (
+    <div data-testid="admin-broadcast">
+      {/* Announcements section */}
+      <div className="card mb-24">
+        <div className="card-head">
+          <div className="card-title">📣 Site Announcements ({anns.length}) <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— Banner / Popup / Dashboard Bell</span></div>
+        </div>
+        <div style={{ padding: 14 }}>
+          <input className="input" placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} style={{ width: "100%", marginBottom: 8 }} data-testid="ann-title" />
+          <textarea className="input" placeholder="Body (optional)" rows={2} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} style={{ width: "100%", marginBottom: 8 }} data-testid="ann-body" />
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+            <input className="input" placeholder="CTA label (e.g. Explore)" value={form.cta_label} onChange={(e) => setForm({ ...form, cta_label: e.target.value })} data-testid="ann-cta-label" />
+            <input className="input" placeholder="CTA URL (e.g. /page/careers)" value={form.cta_url} onChange={(e) => setForm({ ...form, cta_url: e.target.value })} data-testid="ann-cta-url" />
+          </div>
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+            <div>
+              <div className="text-muted fs-11 mb-4">Starts at (ISO)</div>
+              <input className="input" placeholder="2026-02-20T09:00:00Z" value={form.starts_at || ""} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} data-testid="ann-starts" />
+            </div>
+            <div>
+              <div className="text-muted fs-11 mb-4">Expires at (ISO)</div>
+              <input className="input" placeholder="2026-03-01T00:00:00Z" value={form.expires_at || ""} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} data-testid="ann-expires" />
+            </div>
+          </div>
+          <div className="flex gap-12" style={{ marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select className="input" value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })} data-testid="ann-audience">
+              {["all","artist","customer","agency","corporate","admin"].map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <select className="input" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} data-testid="ann-priority">
+              {["low","normal","high","critical"].map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <label className="flex gap-4" style={{ alignItems: "center", fontSize: 13 }}>
+              <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} data-testid="ann-active" /> Active
+            </label>
+          </div>
+          <div className="flex gap-8" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+            {["banner","popup","dashboard"].map((c) => (
+              <button key={c} className={`btn btn-xs ${form.channels.includes(c) ? "btn-gold" : "btn-ghost"}`} onClick={() => toggleAnnChannel(c)} data-testid={`ann-ch-${c}`}>{c}</button>
+            ))}
+          </div>
+          <button className="btn btn-gold" onClick={saveAnn} data-testid="ann-save">{editing ? "Update Announcement" : "+ Publish Announcement"}</button>
+          {editing && <button className="btn btn-ghost" onClick={() => { setEditing(null); setForm(EMPTY); }} style={{ marginLeft: 8 }} data-testid="ann-cancel">Cancel</button>}
+
+          <div className="table-wrap" style={{ marginTop: 18 }}>
+            <table className="table">
+              <thead><tr><th>Title</th><th>Audience</th><th>Channels</th><th>Priority</th><th>Window</th><th>Active</th><th>Actions</th></tr></thead>
+              <tbody>
+                {anns.length === 0 && <tr><td colSpan={7} className="empty">No announcements yet</td></tr>}
+                {anns.map((a) => (
+                  <tr key={a.id} data-testid={`ann-row-${a.id}`}>
+                    <td>{a.title}</td>
+                    <td className="fs-12">{a.audience}</td>
+                    <td className="fs-11">{(a.channels || []).join(", ")}</td>
+                    <td><span className={`pill ${a.priority === "critical" ? "pill-red" : a.priority === "high" ? "pill-amber" : "pill-purple"}`}>{a.priority}</span></td>
+                    <td className="fs-11 text-muted">{(a.starts_at || "").slice(0, 10) || "—"} → {(a.expires_at || "").slice(0, 10) || "∞"}</td>
+                    <td>{a.active ? <span className="pill pill-green">Live</span> : <span className="pill pill-amber">Off</span>}</td>
+                    <td>
+                      <button className="btn btn-ghost btn-xs" onClick={() => editAnn(a)} data-testid={`ann-edit-${a.id}`}>Edit</button>
+                      <button className="btn btn-red btn-xs" onClick={() => delAnn(a.id)} style={{ marginLeft: 6 }} data-testid={`ann-del-${a.id}`}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Legacy channel broadcast (Email / SMS / WhatsApp / Push) */}
+      <div className="card">
+        <div className="card-head"><div className="card-title">📧 Transactional Broadcast (Email / SMS / WhatsApp / Push)</div></div>
+        <div style={{ padding: 14 }}>
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+            <select className="input" value={ch.audience} onChange={(e) => setCh({ ...ch, audience: e.target.value })} data-testid="bc-audience">
+              {["all", "artist", "customer", "agency", "corporate", "admin"].map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <input className="input" placeholder="Event code (e.g. platform.announcement)" value={ch.event} onChange={(e) => setCh({ ...ch, event: e.target.value })} data-testid="bc-event" />
+          </div>
+          <input className="input" placeholder="Title" value={ch.title} onChange={(e) => setCh({ ...ch, title: e.target.value })} style={{ width: "100%", marginBottom: 8 }} data-testid="bc-title" />
+          <textarea className="input" placeholder="Body" rows={3} value={ch.body} onChange={(e) => setCh({ ...ch, body: e.target.value })} style={{ width: "100%", marginBottom: 12 }} data-testid="bc-body" />
+          <div className="flex gap-8" style={{ marginBottom: 12 }}>
+            {["in_app", "email", "sms", "whatsapp", "push"].map((c) => (
+              <button key={c} className={`btn btn-xs ${ch.channels.includes(c) ? "btn-gold" : "btn-ghost"}`} onClick={() => toggleCh(c)} data-testid={`bc-ch-${c}`}>{c}</button>
+            ))}
+          </div>
+          <button className="btn btn-gold" onClick={sendCh} data-testid="bc-send">Send Broadcast</button>
+
+          <h4 className="font-serif mt-24 fs-16 fw-700" style={{ marginTop: 24, marginBottom: 8 }}>Recent Notification Log</h4>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Time</th><th>Event</th><th>Channel</th><th>Subject</th><th>Status</th><th>Mode</th></tr></thead>
+              <tbody>
+                {log.slice(0, 20).map((l) => (
+                  <tr key={l.id} data-testid={`bc-log-${l.id}`}>
+                    <td className="fs-11 text-muted">{l.created_at?.slice(0, 19).replace("T", " ")}</td>
+                    <td className="font-mono fs-11">{l.event}</td>
+                    <td><span className="pill pill-purple">{l.channel}</span></td>
+                    <td className="fs-12">{l.subject}</td>
+                    <td><span className={`pill ${l.status === "sent" ? "pill-green" : "pill-amber"}`}>{l.status}</span></td>
+                    <td className="fs-11">{l.mode}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

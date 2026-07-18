@@ -50,6 +50,7 @@ from routes import concierge as routes_concierge
 from routes import insights as routes_insights
 from routes import city_aliases as routes_city_aliases
 from routes import outstation_report as routes_outstation_report
+from routes import cms_seo as routes_cms_seo
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -732,6 +733,15 @@ async def update_me(body: UpdateProfileBody, user: dict = Depends(get_current_us
     if update_artist and user["role"] == "artist":
         update_artist["updated_at"] = utcnow()
         await db.artist_profiles.update_one({"user_id": user["id"]}, {"$set": update_artist})
+        # Keep the SEO slug in sync when stage_name/category/city changes
+        if any(k in update_artist for k in ("stage_name", "category", "city")):
+            from routes.cms_seo import artist_slug as _mk_slug
+            prof = await db.artist_profiles.find_one({"user_id": user["id"]}) or {}
+            if prof.get("stage_name"):
+                await db.artist_profiles.update_one(
+                    {"user_id": user["id"]},
+                    {"$set": {"slug": _mk_slug(prof)}},
+                )
     return {"ok": True}
 
 
@@ -2570,11 +2580,21 @@ app.include_router(
     routes_outstation_report.make_router(admin_only=admin_only, **_common_deps),
     prefix="/api",
 )
+# Iter 39 — CMS pages / Dynamic Menus / FAQ Help Center / Broadcast /
+# Sitemap.xml + Robots.txt / Artist slug SEO / Category & City landing.
+_cms_seo_router = routes_cms_seo.make_router(
+    get_current_user=get_current_user,
+    get_current_user_optional=get_current_user_optional,
+    admin_only=admin_only,
+    **_common_deps,
+)
+app.include_router(_cms_seo_router, prefix="/api")
 
 
 @app.on_event("startup")
 async def _iter7_startup():
     await _iter7_router.seed()
+    await _cms_seo_router.seed()  # Iter 39 seed (CMS pages, artist slugs, featured FAQs)
     # ── One-shot data migrations for the intermediary-marketplace model ──
     # 1. Backfill artist_fee on legacy bookings so admin reports normalise.
     legacy = db.bookings.find({"pricing.artist_fee": {"$exists": False}}, {"id": 1, "pricing": 1})

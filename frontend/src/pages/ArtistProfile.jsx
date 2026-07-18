@@ -1,25 +1,57 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Nav from "../components/Nav";
+import Footer from "../components/Footer";
+import SEO, { buildBreadcrumb } from "../components/SEO";
 import api, { fmtINRFull, mediaUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
+
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function ArtistProfile() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("about");
   const [selectedPkg, setSelectedPkg] = useState(null);
+  const [artistId, setArtistId] = useState(id);
   const nav = useNavigate();
   const { user } = useAuth();
 
   useEffect(() => {
-    api.get(`/artists/${id}`).then((r) => {
-      setData(r.data);
-      const pop = r.data.packages.find((p) => p.is_popular) || r.data.packages[0];
-      if (pop) setSelectedPkg(pop);
-    });
+    // Support both /artist/:uuid and SEO-friendly /artist/:slug URLs
+    const load = async () => {
+      let uid = id;
+      if (!UUID_RX.test(id)) {
+        try {
+          const r = await api.get(`/artists/slug/${id}`);
+          uid = r.data.user_id;
+        } catch (_) { setData({ notFound: true }); return; }
+      }
+      setArtistId(uid);
+      try {
+        const r = await api.get(`/artists/${uid}`);
+        setData(r.data);
+        const pop = r.data.packages.find((p) => p.is_popular) || r.data.packages[0];
+        if (pop) setSelectedPkg(pop);
+      } catch (_) { setData({ notFound: true }); }
+    };
+    load();
   }, [id]);
 
+  if (data?.notFound) {
+    return (
+      <div>
+        <SEO title="Artist Not Found" noindex path={`/artist/${id}`} />
+        <Nav />
+        <section className="section container" style={{ minHeight: "50vh", textAlign: "center", paddingTop: 80 }}>
+          <div style={{ fontSize: 72 }}>🎤</div>
+          <h1>Artist Not Found</h1>
+          <Link to="/search" className="btn btn-gold">Browse all artists →</Link>
+        </section>
+        <Footer />
+      </div>
+    );
+  }
   if (!data) return (
     <div>
       <Nav />
@@ -34,11 +66,47 @@ export default function ArtistProfile() {
   const startBooking = () => {
     if (!user) { nav("/login"); return; }
     if (user.role === "artist") { alert("Artists cannot book themselves"); return; }
-    nav(`/book/${id}?pkg=${selectedPkg.id}`);
+    nav(`/book/${artistId}?pkg=${selectedPkg.id}`);
+  };
+
+  // ── SEO JSON-LD (Person + Offer for the cheapest package) ───────────
+  const cheapestPkg = (packages || []).slice().sort((a, b) => (a.price || 0) - (b.price || 0))[0];
+  const seoImg = profile.profile_image ? mediaUrl(profile.profile_image) : undefined;
+  const seoPath = `/artist/${profile.slug || artistId}`;
+  const personLd = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: profile.stage_name,
+    jobTitle: profile.category,
+    address: { "@type": "PostalAddress", addressLocality: profile.city, addressCountry: "IN" },
+    image: seoImg,
+    url: `https://booktalent.com${seoPath}`,
+    aggregateRating: profile.review_count > 0 ? {
+      "@type": "AggregateRating",
+      ratingValue: (profile.rating_avg || 0).toFixed(1),
+      reviewCount: profile.review_count,
+    } : undefined,
+    ...(cheapestPkg ? { makesOffer: { "@type": "Offer", price: cheapestPkg.price, priceCurrency: "INR", name: cheapestPkg.name } } : {}),
   };
 
   return (
     <div data-testid="artist-profile-page">
+      <SEO
+        title={`Book ${profile.stage_name} — ${profile.category} in ${profile.city}`}
+        description={`Book ${profile.stage_name}, a verified ${profile.category} from ${profile.city}. ${profile.review_count || 0} reviews · Starting ₹${profile.starting_price || cheapestPkg?.price || ""}. Check availability and packages on BookTalent.`}
+        keywords={`book ${profile.stage_name}, ${profile.category} ${profile.city}, hire ${profile.category}, ${profile.category} for wedding`}
+        image={seoImg}
+        path={seoPath}
+        jsonLd={[
+          personLd,
+          buildBreadcrumb([
+            { name: "Home", url: "/" },
+            { name: "Artists", url: "/search" },
+            { name: profile.category, url: `/search?category=${encodeURIComponent(profile.category)}` },
+            { name: profile.stage_name, url: seoPath },
+          ]),
+        ]}
+      />
       <Nav />
       <div className="container" style={{ paddingTop: 24, paddingBottom: 60 }}>
         <div className="text-muted fs-12 mb-16">
@@ -250,6 +318,7 @@ export default function ArtistProfile() {
           </div>
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
