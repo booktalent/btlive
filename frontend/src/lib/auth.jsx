@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import api, { formatApiError } from "./api";
 
 const AuthCtx = createContext(null);
@@ -15,45 +15,46 @@ export const AuthProvider = ({ children }) => {
     }).finally(() => setLoading(false));
   }, []);
 
-  const login = async (email, password) => {
+  // useCallback so the memoized context value below doesn't churn on every render.
+  const login = useCallback(async (email, password) => {
     const r = await api.post("/auth/login", { email, password });
     localStorage.setItem("bt_token", r.data.token);
     setUser(r.data.user);
     return r.data.user;
-  };
+  }, []);
 
-  const register = async (data) => {
+  const register = useCallback(async (data) => {
     const r = await api.post("/auth/register", data);
     localStorage.setItem("bt_token", r.data.token);
     setUser(r.data.user);
     return r.data.user;
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     // Clear the httpOnly cookie server-side. Non-fatal if it fails (already
     // wiping localStorage below shuts down further auth actions).
     api.post("/auth/logout").catch(() => {});
     localStorage.removeItem("bt_token");
     setUser(null);
-  };
+  }, []);
 
-  const refreshMe = async () => {
+  const refreshMe = useCallback(async () => {
     try {
       const r = await api.get("/auth/me");
       setUser(r.data);
     } catch (e) {
-      // Non-fatal — network hiccup or expired token. Log for observability
-      // but never surface to the user; the axios interceptor will 401-log-out
-      // on the next authenticated call if the session is truly gone.
       if (typeof console !== "undefined") console.warn("refreshMe failed:", e?.message || e);
     }
-  };
+  }, []);
 
-  return (
-    <AuthCtx.Provider value={{ user, loading, login, register, logout, refreshMe, formatApiError }}>
-      {children}
-    </AuthCtx.Provider>
+  // Memoise the context value so consumers only re-render when auth state
+  // actually changes — not on every parent tick.
+  const ctxValue = useMemo(
+    () => ({ user, loading, login, register, logout, refreshMe, formatApiError }),
+    [user, loading, login, register, logout, refreshMe],
   );
+
+  return <AuthCtx.Provider value={ctxValue}>{children}</AuthCtx.Provider>;
 };
 
 export const useAuth = () => useContext(AuthCtx);

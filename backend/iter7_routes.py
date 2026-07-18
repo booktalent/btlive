@@ -907,26 +907,33 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             "token_pct": 5.0,
             "support_email": "support@booktalent.com",
             "support_phone": "+91 80000 00000",
-            # Outstation Business Rule (Iter 32) — Admin-editable
+            # Outstation Business Rule (Iter 32, refined Iter 37) — Admin-editable
             "outstation_notice": (
-                "This artist is based in {artist_city} and your event is in {event_city}. "
-                "Travel, accommodation, local transport, food, hospitality and any other "
-                "outstation logistics are not included in the Artist Package Fee and will be "
-                "arranged and paid directly by you (the Customer)."
+                "Travel, accommodation, local transportation, meals, hospitality, "
+                "and any other outstation expenses are NOT included in the Artist "
+                "Package Fee.\n\n"
+                "By proceeding with this booking, you acknowledge and agree that "
+                "all such additional expenses must be paid directly by the Customer "
+                "to the Artist. This applies regardless of whether the Artist is "
+                "travelling alone or with any accompanying team members, musicians, "
+                "assistants, technicians, or other add-on members."
             ),
             "booking_fee_note": (
-                "Travel, accommodation, local transport, food, hospitality and any other "
-                "outstation expenses are NOT included in the Artist Package Fee. These "
-                "expenses will be discussed and managed directly between the Customer "
-                "and the Artist."
+                "Travel, accommodation, local transportation, meals, hospitality, "
+                "and any other outstation expenses are NOT included in the Artist "
+                "Package Fee. These expenses must be paid directly by the Customer "
+                "to the Artist — this applies to the Artist and any accompanying "
+                "team members, musicians, assistants or technicians."
             ),
             "outstation_clause": (
                 "OUTSTATION LOGISTICS CLAUSE\n"
-                "For outstation bookings, all travel, accommodation, food, local "
-                "transportation, hospitality and any additional logistics required for "
-                "the Artist or accompanying team shall be arranged and paid separately "
-                "by the Customer. These expenses are not included in the Artist "
-                "Performance Fee or the Platform Service Fee."
+                "Travel, accommodation, local transportation, meals, hospitality, "
+                "and any other outstation expenses are NOT included in the Artist "
+                "Performance Fee or the Platform Service Fee. All such additional "
+                "expenses shall be arranged and paid separately and directly by the "
+                "Customer to the Artist. This applies regardless of whether the "
+                "Artist is travelling alone or with any accompanying team members, "
+                "musicians, assistants, technicians, or other add-on members."
             ),
         }
         for k, v in defaults.items():

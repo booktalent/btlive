@@ -15,12 +15,12 @@ from datetime import datetime, timedelta
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://booktalent-audit.preview.emergentagent.com").rstrip("/")
 
-ADMIN_EMAIL = "admin@booktalent.com"
-ADMIN_PASSWORD = "Admin@123"
-CUSTOMER_EMAIL = "customer@booktalent.com"
-CUSTOMER_PASSWORD = "Customer@123"
-ARTIST_EMAIL = "priya@booktalent.com"
-ARTIST_PASSWORD = "Artist@123"
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL", "admin@booktalent.com")
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "Admin@123")
+CUSTOMER_EMAIL = os.environ.get("TEST_CUSTOMER_EMAIL", "customer@booktalent.com")
+CUSTOMER_PASSWORD = os.environ.get("TEST_CUSTOMER_PASSWORD", "Customer@123")
+ARTIST_EMAIL = os.environ.get("TEST_ARTIST_EMAIL", "priya@booktalent.com")
+ARTIST_PASSWORD = os.environ.get("TEST_ARTIST_PASSWORD", "Artist@123")
 
 
 # ─────────────────────────────────────────────────────────────

@@ -132,9 +132,9 @@ export default function ArtistCardThumb({
             zIndex: 6,
           }}
         >
-          {images.map((_, i) => (
+          {images.map((img, i) => (
             <span
-              key={i}
+              key={img?.id || img?.url || img?.src || `dot-${i}`}
               style={{
                 width: i === idx ? 18 : 6,
                 height: 4,

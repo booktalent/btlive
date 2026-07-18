@@ -19,11 +19,21 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://booktalent-audit.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
+# Test-fixture credentials — override via env in CI to avoid committing values.
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL", "admin@booktalent.com")
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "Admin@123")
+CUSTOMER_EMAIL = os.environ.get("TEST_CUSTOMER_EMAIL", "customer@booktalent.com")
+CUSTOMER_PASSWORD = os.environ.get("TEST_CUSTOMER_PASSWORD", "Customer@123")
+ARTIST_EMAIL = os.environ.get("TEST_ARTIST_EMAIL", "priya@booktalent.com")
+ARTIST_PASSWORD = os.environ.get("TEST_ARTIST_PASSWORD", "Artist@123")
+CORPORATE_EMAIL = os.environ.get("TEST_CORPORATE_EMAIL", "corporate@booktalent.com")
+CORPORATE_PASSWORD = os.environ.get("TEST_CORPORATE_PASSWORD", "Corporate@123")
+
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 @pytest.fixture(scope="module")
 def admin_login():
-    r = requests.post(f"{API}/auth/login", json={"email": "admin@booktalent.com", "password": "Admin@123"})
+    r = requests.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     assert r.status_code == 200, r.text
     return r
 
@@ -40,7 +50,7 @@ def admin_headers(admin_token):
 
 @pytest.fixture(scope="module")
 def customer_login():
-    r = requests.post(f"{API}/auth/login", json={"email": "customer@booktalent.com", "password": "Customer@123"})
+    r = requests.post(f"{API}/auth/login", json={"email": CUSTOMER_EMAIL, "password": CUSTOMER_PASSWORD})
     assert r.status_code == 200, r.text
     return r
 
@@ -52,7 +62,7 @@ def customer_token(customer_login):
 
 @pytest.fixture(scope="module")
 def priya_login():
-    r = requests.post(f"{API}/auth/login", json={"email": "priya@booktalent.com", "password": "Artist@123"})
+    r = requests.post(f"{API}/auth/login", json={"email": ARTIST_EMAIL, "password": ARTIST_PASSWORD})
     assert r.status_code == 200, r.text
     return r
 
@@ -65,8 +75,8 @@ def priya_token(priya_login):
 @pytest.fixture(scope="module")
 def corporate_login():
     # test_credentials.md says Corporate@123 (not Corp@123)
-    for pw in ("Corporate@123", "Corp@123"):
-        r = requests.post(f"{API}/auth/login", json={"email": "corporate@booktalent.com", "password": pw})
+    for pw in (CORPORATE_PASSWORD, "Corp@123"):
+        r = requests.post(f"{API}/auth/login", json={"email": CORPORATE_EMAIL, "password": pw})
         if r.status_code == 200:
             return r
     pytest.skip(f"Corporate login failed: {r.status_code} {r.text}")
@@ -109,7 +119,7 @@ class TestCookieOnLogin:
 class TestLogoutClearsCookie:
     def test_logout_clears_cookie(self):
         s = requests.Session()
-        r = s.post(f"{API}/auth/login", json={"email": "customer@booktalent.com", "password": "Customer@123"})
+        r = s.post(f"{API}/auth/login", json={"email": CUSTOMER_EMAIL, "password": CUSTOMER_PASSWORD})
         assert r.status_code == 200
         assert s.cookies.get("access_token"), "cookie not stored after login"
 
@@ -128,7 +138,7 @@ class TestLogoutClearsCookie:
 class TestCookieOnlyRest:
     def test_me_with_cookie_only(self):
         s = requests.Session()
-        r = s.post(f"{API}/auth/login", json={"email": "customer@booktalent.com", "password": "Customer@123"})
+        r = s.post(f"{API}/auth/login", json={"email": CUSTOMER_EMAIL, "password": CUSTOMER_PASSWORD})
         assert r.status_code == 200
         # Explicitly do NOT set Authorization header
         me = s.get(f"{API}/auth/me")
@@ -193,7 +203,7 @@ class TestConciergeRegression:
 
     def test_concierge_threads_list_cookie_only(self):
         s = requests.Session()
-        r = s.post(f"{API}/auth/login", json={"email": "admin@booktalent.com", "password": "Admin@123"})
+        r = s.post(f"{API}/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
         assert r.status_code == 200
         r2 = s.get(f"{API}/admin/concierge/threads")
         assert r2.status_code == 200, r2.text
@@ -215,15 +225,10 @@ class TestHomepageRegression:
         assert isinstance(r.json(), (list, dict))
 
 
-# ─── 9. Regression — Rider wallet public list ────────────────────────────────
-class TestRiderWalletRegression:
-    def test_rider_public_list(self):
-        r = requests.get(f"{API}/rider-wallet/vendors")
-        assert r.status_code == 200, r.text
-        j = r.json()
-        items = j if isinstance(j, list) else j.get("items") or j.get("vendors") or []
-        assert isinstance(items, list)
-        assert len(items) > 0, "expected seeded rider vendors"
+# ─── 9. Rider Wallet regression removed — feature deleted in Iter 34 ─────────
+# The `/rider-wallet/vendors` endpoint and the `rider_vendors` collection
+# were fully removed in Iter 34 per the customer's simplification request.
+# See PRD.md → "Iter 34 — Rider Wallet / Partners Directory Removed".
 
 
 # ─── 10. Regression — Subscriptions ──────────────────────────────────────────

@@ -431,7 +431,7 @@ export default function BookingFlow() {
                         <div className="fw-700 text-gold fs-13 mb-4" style={{ textTransform: "uppercase", letterSpacing: 1 }}>
                           Outstation Booking Notice
                         </div>
-                        <div className="fs-13" style={{ lineHeight: 1.5 }}>
+                        <div className="fs-13" style={{ lineHeight: 1.5, whiteSpace: "pre-line" }}>
                           {(platformSettings.outstation_notice ||
                             "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
                             .replace("{artist_city}", artist.profile.city)
@@ -542,7 +542,7 @@ export default function BookingFlow() {
                     <div className="fw-700 text-gold fs-13 mb-8" style={{ textTransform: "uppercase", letterSpacing: 1 }}>
                       📢 Outstation Booking
                     </div>
-                    <div className="fs-13 mb-8" style={{ lineHeight: 1.5 }}>
+                    <div className="fs-13 mb-8" style={{ lineHeight: 1.5, whiteSpace: "pre-line" }}>
                       {(platformSettings.outstation_notice ||
                         "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
                         .replace("{artist_city}", artist.profile.city)

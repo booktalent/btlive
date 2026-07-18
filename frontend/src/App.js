@@ -23,6 +23,14 @@ function Protected({ children, roles }) {
   return children;
 }
 
+// Role guards — hoisted as module constants so identity is stable and
+// `Protected` doesn't see a new prop reference on every parent render.
+const ROLES_CUSTOMER = ["customer"];
+const ROLES_ARTIST = ["artist"];
+const ROLES_AGENCY = ["agency"];
+const ROLES_CORPORATE = ["corporate"];
+const ROLES_ADMIN = ["admin"];
+
 function App() {
   return (
     <div className="App">
@@ -36,11 +44,11 @@ function App() {
               <Route path="/search" element={<Search />} />
               <Route path="/artist/:id" element={<ArtistProfile />} />
               <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
-              <Route path="/customer" element={<Protected roles={["customer"]}><CustomerDashboard /></Protected>} />
-              <Route path="/artist" element={<Protected roles={["artist"]}><ArtistDashboard /></Protected>} />
-              <Route path="/agency" element={<Protected roles={["agency"]}><AgencyDashboard /></Protected>} />
-              <Route path="/corporate" element={<Protected roles={["corporate"]}><CorporateDashboard /></Protected>} />
-              <Route path="/admin" element={<Protected roles={["admin"]}><AdminDashboard /></Protected>} />
+              <Route path="/customer" element={<Protected roles={ROLES_CUSTOMER}><CustomerDashboard /></Protected>} />
+              <Route path="/artist" element={<Protected roles={ROLES_ARTIST}><ArtistDashboard /></Protected>} />
+              <Route path="/agency" element={<Protected roles={ROLES_AGENCY}><AgencyDashboard /></Protected>} />
+              <Route path="/corporate" element={<Protected roles={ROLES_CORPORATE}><CorporateDashboard /></Protected>} />
+              <Route path="/admin" element={<Protected roles={ROLES_ADMIN}><AdminDashboard /></Protected>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </ToastProvider>
