@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import DOMPurify from "dompurify";
 import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
@@ -20,6 +21,8 @@ export default function BlogArticle() {
       .catch((e) => { if (e?.response?.status === 404) setNotFound(true); });
     api.get("/blogs").then((r) => setRelated((r.data || []).filter(b => b.slug !== slug).slice(0, 3))).catch(() => {});
   }, [slug]);
+
+  const safeContent = useMemo(() => DOMPurify.sanitize(blog?.content || ""), [blog?.content]);
 
   const share = (network) => {
     const url = encodeURIComponent(window.location.href);
@@ -118,7 +121,7 @@ export default function BlogArticle() {
                 {blog.tags.map(t => <span key={t} className="pill pill-purple" style={{ marginRight: 6 }}>#{t}</span>)}
               </div>
             )}
-            <div className="cms-body" data-testid="blog-body" dangerouslySetInnerHTML={{ __html: blog.content || "" }} />
+            <div className="cms-body" data-testid="blog-body" dangerouslySetInnerHTML={{ __html: safeContent }} />
 
             <div className="share-bar" style={{ marginTop: 32 }}>
               <span className="text-muted fs-13" style={{ marginRight: 12 }}>Share:</span>

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import DOMPurify from "dompurify";
 import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
@@ -21,6 +22,8 @@ export default function CmsPage() {
       .then((r) => setPage(r.data))
       .catch((e) => setError(e?.response?.status === 404 ? "Not Found" : "Failed to load"));
   }, [slug]);
+
+  const safeHtml = useMemo(() => DOMPurify.sanitize(page?.body_html || ""), [page?.body_html]);
 
   if (error === "Not Found") {
     return (
@@ -106,7 +109,7 @@ export default function CmsPage() {
               <div
                 className="cms-body"
                 data-testid="cms-body"
-                dangerouslySetInnerHTML={{ __html: page.body_html || "" }}
+                dangerouslySetInnerHTML={{ __html: safeHtml }}
               />
             </>
           )}

@@ -1568,7 +1568,7 @@ function Insights({ toast }) {
               <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 44, marginTop: 6 }}>
                 {(spotStats.series || []).slice(-14).map((s, i) => {
                   const max = Math.max(1, ...spotStats.series.map((x) => x.count));
-                  return <div key={i} title={`${s.day}: ${s.count}`} style={{ flex: 1, background: "var(--gold)", opacity: 0.55 + 0.45 * (s.count / max), height: `${20 + 80 * (s.count / max)}%`, borderRadius: 2, minWidth: 4 }} />;
+                  return <div key={s.day || `bar-${i}`} title={`${s.day}: ${s.count}`} style={{ flex: 1, background: "var(--gold)", opacity: 0.55 + 0.45 * (s.count / max), height: `${20 + 80 * (s.count / max)}%`, borderRadius: 2, minWidth: 4 }} />;
                 })}
                 {(!spotStats.series || spotStats.series.length === 0) && <div className="text-muted fs-11">Waiting for impressions…</div>}
               </div>

@@ -425,7 +425,7 @@ export default function Landing() {
         </h2>
         <div className="testi-grid" style={{ textAlign: "left" }}>
           {TESTIMONIALS.map((t, i) => (
-            <div className="testi-card" key={i} data-testid={`testi-${i}`}>
+            <div className="testi-card" key={t.name} data-testid={`testi-${i}`}>
               <div className="testi-stars">{"★".repeat(t.stars)}</div>
               <div className="testi-quote">"{t.quote}"</div>
               <div className="testi-person">
