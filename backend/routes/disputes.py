@@ -1,4 +1,10 @@
-"""Dispute creation & admin resolution."""
+"""Dispute creation & admin resolution.
+
+BookTalent is a lead-generation marketplace — there are no internal wallets.
+Refunds are actioned by the admin via /payments/{id}/refund (Razorpay). This
+router only records the dispute + the admin's decision so a paper trail
+survives; any money movement is handled elsewhere.
+"""
 from __future__ import annotations
 from typing import Callable, Literal, Optional
 
@@ -26,8 +32,6 @@ def make_router(
     utcnow: Callable,
     new_id: Callable,
     clean: Callable,
-    refund_to_wallet: Callable,
-    release_payment_to_artist: Callable,
 ) -> APIRouter:
     r = APIRouter()
 
@@ -55,13 +59,17 @@ def make_router(
         if not d:
             raise HTTPException(404, "Not found")
         booking = await db.bookings.find_one({"id": d["booking_id"]})
-        if body.decision == "refund":
-            amount = body.amount or booking.get("amount_paid", 0)
-            await refund_to_wallet(booking["customer_id"], amount, f"Dispute refund {booking['ref']}")
-        elif body.decision == "release":
-            await release_payment_to_artist(booking)
-        elif body.decision == "partial":
-            await refund_to_wallet(booking["customer_id"], body.amount or 0, f"Partial refund {booking['ref']}")
+        # Flag related payment for refund when admin decides in customer favour.
+        # Actual money-back is processed through /payments/{id}/refund.
+        if body.decision in ("refund", "partial") and booking:
+            note = (
+                f"Dispute {body.decision} for booking {booking.get('ref', '')}"
+                + (f" — amount ₹{body.amount}" if body.amount else "")
+            )
+            await db.payments.update_many(
+                {"booking_id": booking["id"], "status": "completed"},
+                {"$set": {"refund_pending": True, "refund_note": note, "refund_flagged_at": utcnow()}},
+            )
         await db.disputes.update_one(
             {"id": did},
             {"$set": {

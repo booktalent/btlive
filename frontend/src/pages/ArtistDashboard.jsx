@@ -37,7 +37,6 @@ const SIDEBAR = [
   { id: "calendar", label: "📅 Availability" },
   { id: "bookings", label: "🎟️ Bookings" },
   { id: "insights", label: "📈 Insights" },
-  { id: "wallet", label: "💰 Wallet" },
   { id: "reviews", label: "⭐ Reviews" },
   { id: "boost", label: "🚀 Boost Profile" },
   { id: "subscription", label: "💎 Subscription" },
@@ -50,7 +49,7 @@ export default function ArtistDashboard() {
   const toast = useToast();
   const nav = useNavigate();
   const [tab, setTab] = useState("overview");
-  const [data, setData] = useState({ bookings: [], packages: [], media: [], analytics: {}, wallet: {}, txns: [], reviews: [] });
+  const [data, setData] = useState({ bookings: [], packages: [], media: [], analytics: {}, reviews: [] });
   const [showWizard, setShowWizard] = useState(false);
   const [counterModal, setCounterModal] = useState(null);
 
@@ -80,16 +79,14 @@ export default function ArtistDashboard() {
   }, [user]);
 
   const refresh = async () => {
-    const [b, p, m, a, w, t, r] = await Promise.all([
+    const [b, p, m, a, r] = await Promise.all([
       api.get("/bookings/mine"),
       api.get("/packages/mine"),
       api.get("/media"),
       api.get("/analytics/me"),
-      api.get("/wallet"),
-      api.get("/wallet/transactions"),
       api.get(`/reviews/artist/${user.id}`),
     ]);
-    setData({ bookings: b.data, packages: p.data, media: m.data, analytics: a.data, wallet: w.data, txns: t.data, reviews: r.data });
+    setData({ bookings: b.data, packages: p.data, media: m.data, analytics: a.data, reviews: r.data });
   };
 
   const doAction = async (bid, action) => {
@@ -148,7 +145,6 @@ export default function ArtistDashboard() {
           {tab === "calendar" && <Availability refresh={refresh} toast={toast} />}
           {tab === "bookings" && <ArtistBookings data={data} doAction={doAction} />}
           {tab === "insights" && <Insights toast={toast} />}
-          {tab === "wallet" && <Wallet data={data} refresh={refresh} toast={toast} />}
           {tab === "reviews" && <Reviews data={data} refresh={refresh} toast={toast} />}
           {tab === "boost" && <Boost refresh={refresh} toast={toast} />}
           {tab === "subscription" && <Subscription toast={toast} />}
@@ -953,61 +949,6 @@ function ArtistBookings({ data, doAction }) {
       </div>
       <div className="card">
         <BookingsTable bookings={list} role="artist" onAction={doAction} />
-      </div>
-    </div>
-  );
-}
-
-function Wallet({ data, refresh, toast }) {
-  const [amt, setAmt] = useState("");
-  const withdraw = async () => {
-    if (!amt || Number(amt) <= 0) return;
-    try {
-      await api.post("/wallet/withdraw", { amount: Number(amt) });
-      toast("Withdrawal requested");
-      setAmt("");
-      refresh();
-    } catch (e) { toast(formatApiError(e), "error"); }
-  };
-  return (
-    <div data-testid="wallet-tab">
-      <div className="card card-pad mb-16" style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.1), rgba(109,40,217,0.05))" }}>
-        <div className="text-muted fs-12 mb-8">Available Balance</div>
-        <div className="font-serif" style={{ fontSize: 48, fontWeight: 700, color: "var(--gold-light)" }} data-testid="wallet-balance">
-          {fmtINRFull(data.wallet?.balance || 0)}
-        </div>
-        <div className="grid grid-4 mt-20">
-          <div><div className="text-muted fs-11">Pending</div><div className="fw-700 fs-16">{fmtINRFull(data.wallet?.pending || 0)}</div></div>
-          <div><div className="text-muted fs-11">Total Earned</div><div className="fw-700 fs-16">{fmtINRFull(data.wallet?.total_earned || 0)}</div></div>
-          <div><div className="text-muted fs-11">Withdrawn</div><div className="fw-700 fs-16">{fmtINRFull(data.wallet?.total_withdrawn || 0)}</div></div>
-        </div>
-        <div className="flex gap-12 mt-20" style={{ alignItems: "end" }}>
-          <div className="field" style={{ marginBottom: 0, flex: 1 }}>
-            <div className="field-label">Withdraw Amount</div>
-            <input type="number" className="field-input" value={amt} onChange={(e) => setAmt(e.target.value)} placeholder="Enter amount" data-testid="withdraw-amount" />
-          </div>
-          <button className="btn btn-gold" onClick={withdraw} data-testid="withdraw-btn">💸 Withdraw</button>
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-head"><div className="card-title">📜 Transaction History</div></div>
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Description</th><th>Date</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead>
-            <tbody>
-              {data.txns.length === 0 && <tr><td colSpan={5} className="empty">No transactions</td></tr>}
-              {data.txns.map((t) => (
-                <tr key={t.id} data-testid={`txn-${t.id}`}>
-                  <td>{t.description}</td>
-                  <td className="fs-12 text-muted">{t.created_at?.slice(0, 10)}</td>
-                  <td><span className="pill pill-purple">{t.type}</span></td>
-                  <td className={t.amount > 0 ? "text-green fw-700" : "text-red fw-700"}>{fmtINRFull(Math.abs(t.amount))}</td>
-                  <td><span className={`status-pill ${t.status === "completed" ? "sp-confirmed" : "sp-pending"}`}>{t.status}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
   );

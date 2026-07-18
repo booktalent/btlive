@@ -38,7 +38,6 @@ from iter11_routes import make_iter11_router
 from chat_routes import make_chat_router
 from notification_service import dispatch as notify_dispatch
 from routes import reviews as routes_reviews
-from routes import wallet as routes_wallet
 from routes import coupons as routes_coupons
 from routes import blogs as routes_blogs
 from routes import disputes as routes_disputes
@@ -370,7 +369,7 @@ class BookingStatusUpdate(BaseModel):
 
 class PaymentInitBody(BaseModel):
     booking_id: str
-    method: Literal["card", "upi", "netbanking", "wallet"]
+    method: Literal["card", "upi", "netbanking"]
 
 
 class PaymentVerifyBody(BaseModel):
@@ -405,11 +404,6 @@ class MessageBody(BaseModel):
     to_user_id: str
     text: str
     booking_id: Optional[str] = None
-
-
-class WithdrawBody(BaseModel):
-    amount: float
-    bank_id: Optional[str] = None
 
 
 class CouponBody(BaseModel):
@@ -509,17 +503,6 @@ async def register(body: RegisterBody, response: Response):
         "company_name": body.company_name,
     }
     await db.users.insert_one(user_doc)
-
-    # Create wallet
-    await db.wallets.insert_one({
-        "id": new_id(),
-        "user_id": uid,
-        "balance": 0.0,
-        "pending": 0.0,
-        "total_earned": 0.0,
-        "total_withdrawn": 0.0,
-        "created_at": now,
-    })
 
     # Create role-specific profile
     if body.role == "artist":
@@ -713,8 +696,6 @@ async def me(user: dict = Depends(get_current_user)):
     if user["role"] == "artist":
         prof = await db.artist_profiles.find_one({"user_id": user["id"]})
         user["artist_profile"] = clean(prof) if prof else None
-    wallet = await db.wallets.find_one({"user_id": user["id"]})
-    user["wallet"] = clean(wallet) if wallet else None
     return user
 
 
@@ -1450,9 +1431,11 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
             log.warning("Confirmation email failed: %s", _e)
     elif body.action == "reject" and (is_artist or is_admin) and doc["status"] in ("pending_artist", "pending_payment"):
         new_status = "rejected"
-        # refund token if paid
+        # If a Platform Service Fee was already collected, mark the payment for
+        # refund. Actual money-back happens via the Razorpay refund endpoint,
+        # not through any internal wallet.
         if doc.get("amount_paid", 0) > 0:
-            await _refund_to_wallet(doc["customer_id"], doc["amount_paid"], f"Refund for booking {doc['ref']}")
+            await _mark_platform_fee_refundable(doc, f"Refund for rejected booking {doc['ref']}")
     elif body.action == "counter" and is_artist and body.counter_price:
         history_entry["counter_price"] = body.counter_price
         new_pricing = calc_booking_pricing(float(body.counter_price), doc["pricing"]["addons_total"], doc["pricing"]["coupon_discount"])
@@ -1474,12 +1457,14 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
         new_status = "completed_by_artist"
     elif body.action == "approve_completion" and (is_customer or is_admin) and doc["status"] in ("completed_by_artist", "completed"):
         new_status = "completed"
-        # release funds: token + balance to artist wallet (minus platform fee)
-        await _release_payment_to_artist(doc)
+        # BookTalent is a lead-generation marketplace only — no artist wallet
+        # settlement. We simply mark the booking complete and bump artist
+        # stats. Artist Performance Fee is settled directly Customer ↔ Artist.
+        await _record_completion(doc)
     elif body.action == "cancel" and (is_customer or is_admin) and doc["status"] in ("pending_artist", "pending_payment", "confirmed"):
         new_status = "cancelled"
         if doc.get("amount_paid", 0) > 0:
-            await _refund_to_wallet(doc["customer_id"], doc["amount_paid"], f"Refund for cancelled booking {doc['ref']}")
+            await _mark_platform_fee_refundable(doc, f"Refund for cancelled booking {doc['ref']}")
     else:
         raise HTTPException(400, "Action not allowed in current state")
 
@@ -1612,36 +1597,48 @@ Digital signatures recorded electronically upon booking confirmation.
     return cid
 
 
-async def _refund_to_wallet(user_id: str, amount: float, note: str):
-    await db.wallets.update_one({"user_id": user_id}, {"$inc": {"balance": amount}})
+async def _mark_platform_fee_refundable(booking: dict, note: str):
+    """
+    BookTalent's lead-generation model: the only money we ever collected is
+    the Platform Service Fee + GST (Razorpay charge on the customer). When a
+    booking is cancelled/rejected after payment, we flag the payment record so
+    an admin can trigger the actual Razorpay refund from the Payments UI.
+    No internal wallets are involved.
+    """
+    await db.payments.update_many(
+        {"booking_id": booking["id"], "status": "completed"},
+        {"$set": {"refund_pending": True, "refund_note": note, "refund_flagged_at": utcnow()}},
+    )
+    # Audit trail on the customer ledger (informational only).
     await db.transactions.insert_one({
-        "id": new_id(), "user_id": user_id, "type": "refund", "amount": amount,
-        "status": "completed", "description": note, "created_at": utcnow(),
+        "id": new_id(), "user_id": booking["customer_id"], "type": "refund_flagged",
+        "amount": float(booking.get("amount_paid", 0)), "status": "pending_admin_refund",
+        "description": note, "booking_id": booking["id"], "created_at": utcnow(),
     })
 
 
-async def _release_payment_to_artist(booking: dict):
+async def _record_completion(booking: dict):
     """
-    BookTalent does NOT collect the artist performance fee — that is paid
-    directly Customer ↔ Artist. This helper still records the equivalent
-    amount in the artist's wallet for activity/earnings tracking ONLY.
-    No real money moves through this path under the current business model.
+    Marketplace model: BookTalent does NOT collect the Artist Performance Fee.
+    That is settled directly Customer ↔ Artist. This helper just bumps artist
+    stats and writes an informational ledger row.
     """
-    artist_share = booking["pricing"].get("artist_fee",
-                                          booking["pricing"].get("package_fee", 0)
-                                          + booking["pricing"].get("addons_total", 0)
-                                          - booking["pricing"].get("coupon_discount", 0))
-    await db.wallets.update_one({"user_id": booking["artist_id"]}, {
-        "$inc": {"total_earned": artist_share},
-    })
+    artist_fee = float(booking["pricing"].get(
+        "artist_fee",
+        booking["pricing"].get("package_fee", 0)
+        + booking["pricing"].get("addons_total", 0)
+        - booking["pricing"].get("coupon_discount", 0),
+    ))
     await db.transactions.insert_one({
         "id": new_id(), "user_id": booking["artist_id"], "type": "direct_settlement",
-        "amount": artist_share, "status": "informational",
+        "amount": artist_fee, "status": "informational",
         "description": f"Direct settlement from customer for booking {booking['ref']} (not processed by BookTalent)",
         "booking_id": booking["id"], "created_at": utcnow(),
     })
-    # bump artist stats
-    await db.artist_profiles.update_one({"user_id": booking["artist_id"]}, {"$inc": {"events_done": 1}})
+    await db.artist_profiles.update_one(
+        {"user_id": booking["artist_id"]},
+        {"$inc": {"events_done": 1}},
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1777,11 +1774,10 @@ async def payment_verify(body: PaymentVerifyBody, user: dict = Depends(get_curre
         {"$set": {"payment_status": "token_paid", "amount_paid": new_amount_paid, "status": "pending_artist"},
          "$push": {"history": {"at": utcnow(), "action": "paid_token", "by": user["id"], "amount": pay["amount"], "gateway": pay.get("gateway")}}},
     )
-    # Under the intermediary-marketplace model, the customer's payment is the
-    # BookTalent Platform Service Fee + GST — NOT money belonging to the artist.
-    # We therefore DO NOT add it to the artist's wallet pending balance.
-    # (Artist Performance Fee is settled directly Customer ↔ Artist.)
-    # Customer ledger
+    # BookTalent (lead-generation model): the customer's payment is only the
+    # Platform Service Fee + GST — money owed to BookTalent. No artist wallet
+    # exists; the Artist Performance Fee is settled directly Customer ↔ Artist.
+    # Customer ledger (audit only)
     await db.transactions.insert_one({
         "id": new_id(), "user_id": user["id"], "type": "payment",
         "amount": -pay["amount"], "status": "completed",
@@ -1864,15 +1860,14 @@ async def refund_payment(payment_id: str, body: dict, user: dict = Depends(admin
     else:
         await db.payments.update_one({"id": payment_id}, {"$set": {"status": "refunded", "refunded_at": utcnow()}})
 
-    # Credit wallet
-    await _refund_to_wallet(pay["user_id"], amount, f"Refund for payment {payment_id}")
+    # Audit-only ledger row — the actual money-back happened via Razorpay above.
+    await db.transactions.insert_one({
+        "id": new_id(), "user_id": pay["user_id"], "type": "refund",
+        "amount": amount, "status": "completed",
+        "description": f"Refund processed for payment {payment_id}",
+        "created_at": utcnow(),
+    })
     return {"ok": True, "amount": amount}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# WALLET
-# ─────────────────────────────────────────────────────────────────────────────
-# ── Wallet endpoints moved to routes/wallet.py (Iter 13) ─────────────────────
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1964,8 +1959,9 @@ async def conversation_messages(cid: str, user: dict = Depends(get_current_user)
 # ─────────────────────────────────────────────────────────────────────────────
 @api.get("/admin/stats")
 async def admin_stats(_: dict = Depends(admin_only)):
-    # GMV = artist_fee marketplace volume (informational — money flowing through platform)
-    # Platform Revenue = what BookTalent actually collects (platform_fee + gst)
+    # BookTalent is a lead-generation marketplace. We surface the marketplace
+    # volume (artist fees — informational) and, most importantly, what the
+    # platform actually collects: Platform Service Fee + GST.
     total_gmv = 0.0          # marketplace volume (artist fees only — not BT revenue)
     platform_rev = 0.0       # what BT invoiced (platform_fee only — net of GST)
     gst_collected = 0.0
@@ -1975,6 +1971,14 @@ async def admin_stats(_: dict = Depends(admin_only)):
         platform_rev += float(p.get("platform_fee", 0))
         gst_collected += float(p.get("gst", 0))
 
+    # Subscription + boost revenue — direct platform income streams.
+    subs_rev = 0.0
+    async for s in db.subscriptions.find({"status": {"$in": ["active", "expired"]}}):
+        subs_rev += float(s.get("price_paid", 0) or s.get("price", 0) or 0)
+    boost_rev = 0.0
+    async for bs in db.boost_subscriptions.find({"status": {"$in": ["active", "expired"]}}):
+        boost_rev += float(bs.get("price_paid", 0) or (bs.get("package_snapshot") or {}).get("price", 0) or 0)
+
     total_bookings = await db.bookings.count_documents({})
     pending_bookings = await db.bookings.count_documents({"status": {"$in": ["pending_artist", "pending_payment"]}})
     today = datetime.now().strftime("%Y-%m-%d")
@@ -1983,23 +1987,20 @@ async def admin_stats(_: dict = Depends(admin_only)):
     total_artists = await db.users.count_documents({"role": "artist"})
     total_customers = await db.users.count_documents({"role": "customer"})
     open_disputes = await db.disputes.count_documents({"status": "open"})
-    pending_payouts = await db.withdrawals.count_documents({"status": "pending"})
+    pending_refunds = await db.payments.count_documents({"refund_pending": True, "status": "completed"})
     pending_kyc = await db.kyc_submissions.count_documents({"status": "pending"})
 
     # avg rating
     avgs = await db.artist_profiles.find({"rating_avg": {"$gt": 0}}).to_list(1000)
     avg_rating = (sum(a["rating_avg"] for a in avgs) / len(avgs)) if avgs else 0
 
-    # escrow = sum of all wallets pending
-    escrow = 0
-    async for w in db.wallets.find():
-        escrow += float(w.get("pending", 0))
-
     return {
         "gmv": total_gmv,                       # marketplace artist-fee volume (informational)
-        "platform_revenue": platform_rev,       # BookTalent net platform fee earnings
+        "platform_revenue": round(platform_rev, 2),  # BookTalent net platform fee earnings
         "gst_collected": round(gst_collected, 2),
-        "bookTalent_total_collected": round(platform_rev + gst_collected, 2),
+        "subscription_revenue": round(subs_rev, 2),
+        "boost_revenue": round(boost_rev, 2),
+        "bookTalent_total_collected": round(platform_rev + gst_collected + subs_rev + boost_rev, 2),
         "total_bookings": total_bookings,
         "pending_bookings": pending_bookings,
         "bookings_today": bookings_today,
@@ -2007,10 +2008,9 @@ async def admin_stats(_: dict = Depends(admin_only)):
         "total_artists": total_artists,
         "total_customers": total_customers,
         "open_disputes": open_disputes,
-        "pending_payouts": pending_payouts,
+        "pending_refunds": pending_refunds,
         "pending_kyc": pending_kyc,
         "avg_rating": round(avg_rating, 2),
-        "escrow": escrow,
     }
 
 
@@ -2069,30 +2069,18 @@ async def admin_suspend(user_id: str, _: dict = Depends(admin_only)):
     return {"ok": True, "suspended": suspended}
 
 
-@api.get("/admin/withdrawals")
-async def admin_withdrawals(_: dict = Depends(admin_only)):
-    docs = await db.withdrawals.find().sort("created_at", -1).to_list(500)
+@api.get("/admin/refunds")
+async def admin_refunds(_: dict = Depends(admin_only)):
+    """Payments flagged for refund (booking cancelled/rejected). Admin
+    processes the actual Razorpay refund via /payments/{id}/refund."""
+    docs = await db.payments.find({"refund_pending": True, "status": "completed"}).sort("refund_flagged_at", -1).to_list(500)
     out = []
     for d in docs:
         d = clean(d)
-        u = await db.users.find_one({"id": d["user_id"]})
-        d["user"] = clean(u)
+        u = await db.users.find_one({"id": d.get("user_id")})
+        d["user"] = clean(u) if u else None
         out.append(d)
     return out
-
-
-@api.post("/admin/withdrawals/{wid}/release")
-async def admin_release_withdrawal(wid: str, _: dict = Depends(admin_only)):
-    w = await db.withdrawals.find_one({"id": wid})
-    if not w:
-        raise HTTPException(404, "Not found")
-    await db.withdrawals.update_one({"id": wid}, {"$set": {"status": "completed", "released_at": utcnow()}})
-    await db.wallets.update_one({"user_id": w["user_id"]}, {"$inc": {"total_withdrawn": w["amount"]}})
-    await db.transactions.update_one(
-        {"user_id": w["user_id"], "type": "withdrawal", "amount": -w["amount"], "status": "pending"},
-        {"$set": {"status": "completed"}},
-    )
-    return {"ok": True}
 
 
 # COUPONS
@@ -2427,10 +2415,6 @@ async def _seed_demo():
             "emoji": emoji,
             "created_at": now, "updated_at": now,
         })
-        await db.wallets.insert_one({
-            "id": new_id(), "user_id": uid, "balance": 48250, "pending": 18000,
-            "total_earned": 240000, "total_withdrawn": 190000, "created_at": now,
-        })
         for name, price, dur, feats, popular in packages:
             await db.packages.insert_one({
                 "id": new_id(), "artist_id": uid, "name": name, "description": "",
@@ -2448,7 +2432,6 @@ async def _seed_demo():
             "role": "customer", "kyc_status": "unverified", "verified": False,
             "created_at": utcnow(),
         })
-        await db.wallets.insert_one({"id": new_id(), "user_id": cid, "balance": 0, "pending": 0, "total_earned": 0, "total_withdrawn": 0, "created_at": utcnow()})
 
     # seed a coupon
     if not await db.coupons.find_one({"code": "WEDDING20"}):
@@ -2520,10 +2503,6 @@ app.include_router(
     prefix="/api",
 )
 app.include_router(
-    routes_wallet.make_router(get_current_user=get_current_user, **_common_deps),
-    prefix="/api",
-)
-app.include_router(
     routes_coupons.make_router(get_current_user=get_current_user, admin_only=admin_only,
                                validate_coupon=_validate_coupon, **_common_deps),
     prefix="/api",
@@ -2534,8 +2513,6 @@ app.include_router(
 )
 app.include_router(
     routes_disputes.make_router(get_current_user=get_current_user, admin_only=admin_only,
-                                refund_to_wallet=_refund_to_wallet,
-                                release_payment_to_artist=_release_payment_to_artist,
                                 **_common_deps),
     prefix="/api",
 )
@@ -2613,13 +2590,16 @@ async def _iter7_startup():
     if migrated:
         log.info("Backfilled artist_fee on %d legacy bookings", migrated)
 
-    # 2. Reset negative artist-wallet pending balances (legacy escrow bug).
-    fix_res = await db.wallets.update_many(
-        {"pending": {"$lt": 0}},
-        {"$set": {"pending": 0}},
-    )
-    if fix_res.modified_count:
-        log.info("Reset %d negative wallet pending balances", fix_res.modified_count)
+    # 2. Business-model pivot (Iter 36): BookTalent is a lead-generation
+    # marketplace only. Drop any legacy wallet / withdrawal collections so
+    # the system never references them again.
+    try:
+        for legacy_coll in ("wallets", "withdrawals"):
+            if legacy_coll in await db.list_collection_names():
+                await db[legacy_coll].drop()
+                log.info("Dropped legacy collection: %s", legacy_coll)
+    except Exception as _e:
+        log.warning("Legacy wallet/withdrawal cleanup skipped: %s", _e)
 
 
 @app.on_event("shutdown")

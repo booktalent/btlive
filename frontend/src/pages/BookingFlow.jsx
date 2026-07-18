@@ -570,12 +570,11 @@ export default function BookingFlow() {
               <div className="card card-pad" data-testid="step-5">
                 <h2 className="font-serif fs-20 fw-700 mb-8">Secure Payment</h2>
                 <p className="text-muted fs-13 mb-20">Pay your 5% booking token to confirm.</p>
-                <div className="grid grid-4 gap-10 mb-20">
+                <div className="grid grid-3 gap-10 mb-20">
                   {[
                     { id: "card", label: "💳 Card" },
                     { id: "upi", label: "📲 UPI" },
                     { id: "netbanking", label: "🏦 Bank" },
-                    { id: "wallet", label: "👛 Wallet" },
                   ].map((m) => (
                     <div
                       key={m.id} onClick={() => setPaymentMethod(m.id)}

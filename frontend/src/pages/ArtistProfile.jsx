@@ -240,7 +240,7 @@ export default function ArtistProfile() {
                   </button>
                   <div style={{ marginTop: 16, fontSize: 12, color: "var(--white-muted)" }}>
                     <div style={{ padding: "8px 0" }}>✓ Auto-generated legal contract</div>
-                    <div style={{ padding: "8px 0" }}>✓ Escrow-protected payment</div>
+                    <div style={{ padding: "8px 0" }}>✓ Direct payment to artist as per agreement</div>
                     <div style={{ padding: "8px 0" }}>✓ Free cancellation within 24 hrs</div>
                     <div style={{ padding: "8px 0" }}>✓ GST invoice included</div>
                   </div>

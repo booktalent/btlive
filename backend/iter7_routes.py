@@ -100,7 +100,7 @@ class BoostPackageBody(BaseModel):
 
 class BoostPurchaseBody(BaseModel):
     package_id: str
-    payment_method: Literal["razorpay", "stripe", "paypal", "wallet", "mock"] = "mock"
+    payment_method: Literal["razorpay", "stripe", "paypal", "mock"] = "mock"
     payment_ref: Optional[str] = None
 
 
@@ -868,7 +868,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         # Default FAQs
         faq_seed = [
             ("How do I book an artist?", "Search for the artist, pick a package, choose your event date, complete the payment and the artist will confirm within 24 hours.", "booking"),
-            ("How does payment work?", "Payments are held in escrow and released to the artist 24 hours after the event is marked complete.", "payment"),
+            ("How does payment work?", "BookTalent is a lead-generation marketplace. On booking, you pay only the Platform Service Fee (5% of the artist fee) plus 18% GST to BookTalent. The Artist Performance Fee is paid directly by you to the artist as per the signed agreement.", "payment"),
             ("What is the cancellation policy?", "Cancellations 7 days before the event are refunded 90%. 3-7 days = 50%. Within 72 hours = no refund.", "cancellation"),
             ("How do I become an artist on BookTalent?", "Sign up as 'Artist', complete onboarding, upload your portfolio and submit KYC. Approval takes 24-48 hours.", "artist"),
         ]

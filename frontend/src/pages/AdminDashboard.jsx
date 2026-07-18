@@ -18,7 +18,7 @@ const SIDEBAR = [
   { id: "bookings", label: "📋 Bookings" },
   { id: "concierge", label: "🎩 Concierge" },
   { id: "kyc", label: "🪪 KYC Queue" },
-  { id: "payouts", label: "💸 Payouts" },
+  { id: "refunds", label: "↩️ Refunds" },
   { id: "coupons", label: "🎫 Coupons" },
   { id: "users", label: "👥 Users" },
   { id: "disputes", label: "⚖️ Disputes" },
@@ -76,14 +76,21 @@ export default function AdminDashboard() {
             <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(stats.gmv || 0)} label="Marketplace GMV (artist fees)" />
             <Kpi icon="📋" cls="kpi-icon-purple" num={stats.total_bookings || 0} label="Bookings" />
             <Kpi icon="👥" cls="kpi-icon-green" num={stats.total_users || 0} label="Users" />
-            <Kpi icon="🏦" cls="kpi-icon-blue" num={fmtINRFull(stats.platform_revenue || 0)} label="Platform Service Revenue" />
+            <Kpi icon="🏦" cls="kpi-icon-blue" num={fmtINRFull(stats.bookTalent_total_collected || 0)} label="BookTalent Total Collected" />
           </div>
 
           <div className="kpi-grid mb-24">
-            <Kpi icon="⚖" cls="kpi-icon-amber" num={fmtINRFull(stats.escrow || 0)} label="Escrow" />
-            <Kpi icon="↑" cls="kpi-icon-purple" num={stats.pending_payouts || 0} label="Pending Payouts" />
+            <Kpi icon="🧾" cls="kpi-icon-gold" num={fmtINRFull(stats.platform_revenue || 0)} label="Platform Service Fee (5%)" />
+            <Kpi icon="🇮🇳" cls="kpi-icon-amber" num={fmtINRFull(stats.gst_collected || 0)} label="GST Collected (18%)" />
+            <Kpi icon="💎" cls="kpi-icon-purple" num={fmtINRFull(stats.subscription_revenue || 0)} label="Subscription Revenue" />
+            <Kpi icon="🚀" cls="kpi-icon-blue" num={fmtINRFull(stats.boost_revenue || 0)} label="Boost Revenue" />
+          </div>
+
+          <div className="kpi-grid mb-24">
+            <Kpi icon="↩️" cls="kpi-icon-amber" num={stats.pending_refunds || 0} label="Refunds Pending" />
             <Kpi icon="🪪" cls="kpi-icon-blue" num={stats.pending_kyc || 0} label="KYC Pending" />
             <Kpi icon="⚠️" cls="kpi-icon-red" num={stats.open_disputes || 0} label="Open Disputes" />
+            <Kpi icon="⭐" cls="kpi-icon-gold" num={stats.avg_rating || 0} label="Avg. Artist Rating" />
           </div>
 
           {tab === "overview" && <OverviewAdmin stats={stats} />}
@@ -92,7 +99,7 @@ export default function AdminDashboard() {
           {tab === "concierge" && <AdminConcierge toast={toast} />}
           {tab === "outstation-report" && <AdminOutstationReport toast={toast} />}
           {tab === "kyc" && <AdminKYC toast={toast} />}
-          {tab === "payouts" && <AdminPayouts toast={toast} />}
+          {tab === "refunds" && <AdminRefunds toast={toast} />}
           {tab === "coupons" && <AdminCoupons toast={toast} />}
           {tab === "users" && <AdminUsers />}
           {tab === "disputes" && <AdminDisputes toast={toast} />}
@@ -282,31 +289,42 @@ function AdminKYC({ toast }) {
   );
 }
 
-function AdminPayouts({ toast }) {
+function AdminRefunds({ toast }) {
   const [list, setList] = useState([]);
-  useEffect(() => { api.get("/admin/withdrawals").then(r => setList(r.data)); }, []);
-  const release = async (wid) => {
-    await api.post(`/admin/withdrawals/${wid}/release`);
-    toast("Released");
-    api.get("/admin/withdrawals").then(r => setList(r.data));
+  const [busy, setBusy] = useState(null);
+  const reload = () => api.get("/admin/refunds").then(r => setList(r.data)).catch(() => {});
+  useEffect(() => { reload(); }, []);
+  const processRefund = async (paymentId) => {
+    if (!window.confirm("Process refund via Razorpay for this payment?")) return;
+    setBusy(paymentId);
+    try {
+      await api.post(`/payments/${paymentId}/refund`, { reason: "admin_dispute_refund" });
+      toast("Refund initiated");
+      reload();
+    } catch (e) { toast(e?.response?.data?.detail || "Refund failed", "error"); }
+    setBusy(null);
   };
   return (
-    <div className="card" data-testid="admin-payouts">
-      <div className="card-head"><div className="card-title">💸 Withdrawal Requests ({list.length})</div></div>
+    <div className="card" data-testid="admin-refunds">
+      <div className="card-head">
+        <div className="card-title">↩️ Platform Fee Refunds ({list.length})</div>
+        <div className="text-muted fs-12">Bookings cancelled/rejected — refund the Platform Service Fee via Razorpay.</div>
+      </div>
       <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>User</th><th>Amount</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Customer</th><th>Amount</th><th>Flagged</th><th>Reason</th><th>Actions</th></tr></thead>
           <tbody>
+            {list.length === 0 && <tr><td colSpan={5} className="empty">No refunds pending</td></tr>}
             {list.map((w) => (
-              <tr key={w.id} data-testid={`withdraw-${w.id}`}>
-                <td>{w.user?.first_name} {w.user?.last_name}</td>
-                <td className="text-gold font-serif fs-16 fw-700">{fmtINRFull(w.amount)}</td>
-                <td className="text-muted fs-12">{w.created_at?.slice(0, 10)}</td>
-                <td><span className={`pill ${w.status === "pending" ? "pill-amber" : "pill-green"}`}>{w.status}</span></td>
+              <tr key={w.id} data-testid={`refund-${w.id}`}>
+                <td>{w.user?.first_name} {w.user?.last_name}<div className="text-muted fs-11">{w.user?.email}</div></td>
+                <td className="text-gold font-serif fs-16 fw-700">{fmtINRFull(w.amount || 0)}</td>
+                <td className="text-muted fs-12">{w.refund_flagged_at?.slice(0, 10)}</td>
+                <td className="fs-12">{w.refund_note || "—"}</td>
                 <td>
-                  {w.status === "pending" && (
-                    <button className="btn btn-green btn-xs" onClick={() => release(w.id)} data-testid={`release-${w.id}`}>Release</button>
-                  )}
+                  <button className="btn btn-green btn-xs" disabled={busy === w.id} onClick={() => processRefund(w.id)} data-testid={`process-refund-${w.id}`}>
+                    {busy === w.id ? "Processing…" : "Process Refund"}
+                  </button>
                 </td>
               </tr>
             ))}

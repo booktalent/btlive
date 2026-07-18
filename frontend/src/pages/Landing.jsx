@@ -56,7 +56,7 @@ export default function Landing() {
         </h1>
         <p className="hero-sub">
           Join 68,000+ event planners and artists on the most premium talent booking platform in India.
-          Transparent pricing, verified artists, secure escrow payments.
+          Transparent 5% platform fee, verified artists, direct settlement with your artist.
         </p>
         <form className="hero-search" onSubmit={search} data-testid="hero-search-form">
           <input
