@@ -57,19 +57,45 @@ export default function Landing() {
   const [featuredFaqs, setFeaturedFaqs] = useState([]);
   const [openFaq, setOpenFaq] = useState({});
   const [spotlight, setSpotlight] = useState({ cards: [], latest_booking: null });
+  const [spotIdx, setSpotIdx] = useState(0);
+  const [myCity, setMyCity] = useState("");
 
   useEffect(() => {
     // Sprint 5 — dynamic homepage rails
     const geo = localStorage.getItem("bt_city") || "";
+    if (geo) setMyCity(geo);
     api.get(`/homepage/sections?limit=8${geo ? `&city=${encodeURIComponent(geo)}` : ""}`).then((r) => {
       setRails(r.data || []);
     }).catch(() => setRails([])).finally(() => setLoading(false));
     api.get("/cities").then(r => setCities(r.data));
-    // Iter 39 — featured FAQs for the landing page
     api.get("/faqs/search?featured=true").then(r => setFeaturedFaqs(r.data || [])).catch(() => {});
-    // Iter 42 — Homepage Banner spotlight cards + booking pulse
     api.get("/homepage/spotlight").then(r => setSpotlight(r.data || { cards: [] })).catch(() => {});
+    // Iter 44 — auto-detect visitor's city (best-effort, browser locale first)
+    if (!geo) {
+      // Try browser guess via IP-less locale (very cheap fallback)
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+        const guess = tz.split("/").pop() || "";
+        if (guess) setMyCity(guess.replace(/_/g, " "));
+      } catch (_) { /* noop */ }
+    }
   }, []);
+
+  // Auto-rotate the hero spotlight cards every 8s.
+  useEffect(() => {
+    if (!spotlight.cards || spotlight.cards.length <= 3) return;
+    const t = setInterval(() => {
+      setSpotIdx((i) => (i + 1) % spotlight.cards.length);
+    }, 8000);
+    return () => clearInterval(t);
+  }, [spotlight.cards]);
+
+  // 3 rotating cards derived from the spotlight pool.
+  const visibleSpotlight = (() => {
+    const arr = spotlight.cards || [];
+    if (arr.length <= 3) return arr;
+    return [arr[spotIdx % arr.length], arr[(spotIdx + 1) % arr.length], arr[(spotIdx + 2) % arr.length]];
+  })();
 
   const search = (e) => {
     e?.preventDefault();
@@ -152,9 +178,9 @@ export default function Landing() {
         </div>
 
         <div className="hero-right" data-testid="hero-spotlight">
-          {spotlight.cards.slice(0, 3).map((c, i) => (
+          {visibleSpotlight.slice(0, 3).map((c, i) => (
             <Link
-              key={c.user_id}
+              key={`${c.user_id}-${spotIdx}`}
               to={`/artist/${c.slug || c.user_id}`}
               className={`spotlight-card spotlight-card-${i + 1}`}
               data-testid={`spotlight-card-${i}`}
@@ -285,13 +311,31 @@ export default function Landing() {
           Artists in your <span className="accent">city</span>
         </h2>
         <div className="cities-grid">
-          {CITY_TILES.map((c) => (
-            <Link key={c.slug} to={`/artists/city/${c.slug}`} className="city-card" data-testid={`city-tile-${c.slug}`}>
-              <div className="city-icon">{c.icon}</div>
-              <div className="city-name">{c.name}</div>
-              <div className="city-count">{c.count}+ artists</div>
-            </Link>
-          ))}
+          {(() => {
+            const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
+            const my = norm(myCity);
+            const ordered = [...CITY_TILES].sort((a, b) => {
+              const am = my && (norm(a.name) === my || norm(a.slug) === my) ? -1 : 0;
+              const bm = my && (norm(b.name) === my || norm(b.slug) === my) ? -1 : 0;
+              return am - bm;
+            });
+            return ordered.map((c) => {
+              const isMine = my && (norm(c.name) === my || norm(c.slug) === my);
+              return (
+                <Link
+                  key={c.slug}
+                  to={`/artists/city/${c.slug}`}
+                  className={`city-card ${isMine ? "city-card-mine" : ""}`}
+                  data-testid={`city-tile-${c.slug}`}
+                >
+                  {isMine && <span className="city-mine-badge">📍 Your city</span>}
+                  <div className="city-icon">{c.icon}</div>
+                  <div className="city-name">{c.name}</div>
+                  <div className="city-count">{c.count}+ artists</div>
+                </Link>
+              );
+            });
+          })()}
         </div>
       </section>
 
@@ -405,32 +449,58 @@ function HomeRail({ rail }) {
         </div>
         <Link to={`/search?section=${encodeURIComponent(rail.code)}`} className="btn btn-ghost btn-sm" data-testid={`rail-more-${rail.code}`}>View All →</Link>
       </div>
-      <div className="grid grid-4">
-        {items.map((a) => (
-          <Link to={`/artist/${a.user_id}`} key={a.user_id} className="artist-card" data-testid={`rail-card-${rail.code}-${a.user_id}`}>
-            <ArtistCardThumb
-              artist={a}
-              className="artist-card-cover"
-              placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>}
-            >
-              {a.is_boosted && <span className="boost-tag">★ BOOSTED</span>}
-              {a.plan_code === "elite" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #f472b6, #d4af37)" }}>👑 ELITE</span>}
-              {a.plan_code === "platinum" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #a78bfa, #7c3aed)" }}>💎 PLATINUM</span>}
-              {a.plan_code === "gold" && !a.is_boosted && <span className="boost-tag" style={{ background: "linear-gradient(135deg, #fbbf24, #d4af37)" }}>🥇 GOLD</span>}
-            </ArtistCardThumb>
-            <div className="artist-card-body">
-              <div className="artist-card-name">
-                {a.stage_name}
-                {a.verified_badge && <span style={{ color: "var(--gold)", marginLeft: 6 }}>✓</span>}
+      <div className="artist-grid-v2">
+        {items.map((a) => {
+          const cityLine = [a.category, a.city].filter(Boolean).join(" · ");
+          const tags = (a.tags || a.genres || []).slice(0, 4);
+          return (
+            <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card-v2" data-testid={`rail-card-${rail.code}-${a.user_id}`}>
+              <div className="artist-img-wrap">
+                <ArtistCardThumb
+                  artist={a}
+                  className="artist-cover-v2"
+                  placeholder={<span style={{ fontSize: 64 }}>{a.emoji || "🎤"}</span>}
+                />
+                <div className="artist-overlay" />
+                {a.is_boosted ? (
+                  <div className="artist-badge boosted"><span>★</span> Boosted</div>
+                ) : a.plan_code === "elite" ? (
+                  <div className="artist-badge elite">👑 Elite</div>
+                ) : a.plan_code === "platinum" ? (
+                  <div className="artist-badge platinum">💎 Platinum</div>
+                ) : (
+                  <div className="artist-badge available"><span className="badge-dot" /> Available</div>
+                )}
+                <div className="artist-img-info">
+                  <div className="artist-name-big">
+                    {a.stage_name}
+                    {a.verified_badge && <span style={{ color: "var(--gold)", marginLeft: 6 }}>✓</span>}
+                  </div>
+                  <div className="artist-type-tag">{cityLine}</div>
+                </div>
               </div>
-              <div className="artist-card-meta">{a.category} · 📍 {a.city}</div>
-              <div className="artist-card-foot">
-                <span className="artist-card-rating">★ {(a.rating_avg || 0).toFixed(1)} <span style={{ color: "var(--white-muted)", fontWeight: 400 }}>({a.review_count || 0})</span></span>
-                <span className="artist-card-price">{a.starting_price ? fmtINRFull(a.starting_price) : "—"}<small>/event</small></span>
+              <div className="artist-body-v2">
+                <div className="artist-rating-row">
+                  <span className="stars">{"★".repeat(Math.max(1, Math.round(a.rating_avg || 0)))}</span>
+                  <span className="artist-rating-val">{(a.rating_avg || 0).toFixed(1)}</span>
+                  <span className="artist-reviews">({a.review_count || 0} reviews)</span>
+                </div>
+                {tags.length > 0 && (
+                  <div className="artist-tags">
+                    {tags.map((t) => <span className="atag" key={t}>{t}</span>)}
+                  </div>
+                )}
+                <div className="artist-footer">
+                  <div>
+                    <div className="artist-price-label">Starting from</div>
+                    <div className="artist-price">{a.starting_price ? fmtINRFull(a.starting_price) : "—"} <span>/ event</span></div>
+                  </div>
+                  <span className="btn btn-gold btn-sm">Book Now</span>
+                </div>
               </div>
-            </div>
-          </Link>
-        ))}
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
