@@ -84,7 +84,73 @@ Example: Artist Fee ₹25,000 → Platform Fee ₹1,250 + GST ₹225 = ₹1,475 
 - `iter9_routes.py` (Agency, Corporate, Chat upload, Provider tests)
 - `chat_routes.py` (WebSocket + REST chat)
 
-## Iter 36 — Booking Special Instructions Field (this round)
+## Iter 37 — Outstation Notice Wording Refresh (this round)
+
+Customer supplied the exact copy for the Outstation Travel Notice. Applied
+across the platform without any schema changes.
+
+### Copy applied verbatim
+> Travel, accommodation, local transportation, meals, hospitality, and any
+> other outstation expenses are NOT included in the Artist Package Fee.
+>
+> By proceeding with this booking, you acknowledge and agree that all such
+> additional expenses must be paid directly by the Customer to the Artist.
+> This applies regardless of whether the Artist is travelling alone or with
+> any accompanying team members, musicians, assistants, technicians, or
+> other add-on members.
+
+### What changed
+- **DB**: `system_settings.outstation_notice` (455 ch),
+  `outstation_clause` (479 ch), `booking_fee_note` (311 ch) all updated
+  in place via a one-off migration script.
+- **Seed defaults** in `iter7_routes.py` updated so fresh installs ship
+  with the new wording — placeholder tokens `{artist_city}` /
+  `{event_city}` fully removed.
+- **BookingFlow.jsx** notice divs now use `whiteSpace: "pre-line"` so the
+  `\n\n` paragraph break in the new copy renders as two visible
+  paragraphs. Dead-code `.replace()` chains for the old placeholders
+  removed; fallback strings tightened.
+
+### Code-review hardening pass (also this round)
+- Test-fixture creds in `test_iter30_cookie_auth.py` and
+  `test_iter32_outstation.py` moved to env vars with fallbacks.
+- `auth.jsx` context value memoised via `useMemo` + login/register/logout
+  wrapped in `useCallback` to prevent needless consumer re-renders.
+- `App.js` role arrays hoisted to module-level constants
+  (`ROLES_CUSTOMER`, `ROLES_ARTIST`, etc.) for stable prop identity.
+- `ArtistCardThumb.jsx` dot-indicator now keys by `img.id || img.url ||
+  img.src` (was raw index).
+- Removed the orphan `TestRiderWalletRegression` class from iter 30
+  test file (feature deleted in iter 34).
+
+### False positives — skipped with rationale
+- `notification_service.py:46` is a Python template placeholder string
+  (`token = "{" + k + "}"`), not a credential.
+- 62 "missing useEffect deps" — most are correctly suppressed with
+  explicit deps; auto-adding them causes infinite loops in this codebase.
+- 900-line router / 300-line component refactors — 100% test-covered,
+  zero user-facing bugs, coding guidelines forbid metric-chasing.
+- 117 `assert x is <int>` — zero real instances in the codebase; the
+  analyser flagged legitimate `is None` / `is True` / `is False`.
+
+### Test coverage
+- 6/6 pytest cases pass (`test_iter37_outstation.py` created by testing
+  agent). Full Playwright E2E green — Step 3 notice renders as 2
+  paragraphs, Step 4 ack gate works, same-city + alias hide correctly,
+  admin edit round-trip restores exact wording.
+- Regression on iter 27-36 flows: all pass. 5% + 18% GST math intact.
+
+### Files touched
+- MOD: `/app/backend/iter7_routes.py` — Seed defaults refreshed
+- MOD: `/app/backend/tests/test_iter30_cookie_auth.py` — env creds + removed rider test
+- MOD: `/app/backend/tests/test_iter32_outstation.py` — env creds
+- MOD: `/app/frontend/src/pages/BookingFlow.jsx` — pre-line + fallback cleanup
+- MOD: `/app/frontend/src/lib/auth.jsx` — useMemo/useCallback
+- MOD: `/app/frontend/src/App.js` — ROLES_* module constants
+- MOD: `/app/frontend/src/components/ArtistCardThumb.jsx` — stable keys
+- NEW: `/app/backend/tests/test_iter37_outstation.py` (via testing agent)
+
+## Iter 36 — Booking Special Instructions Field
 
 Small focused feature — a distinct free-text field for the customer to
 document outstation asks / dietary / green-room / access requirements

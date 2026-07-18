@@ -432,10 +432,8 @@ export default function BookingFlow() {
                           Outstation Booking Notice
                         </div>
                         <div className="fs-13" style={{ lineHeight: 1.5, whiteSpace: "pre-line" }}>
-                          {(platformSettings.outstation_notice ||
-                            "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
-                            .replace("{artist_city}", artist.profile.city)
-                            .replace("{event_city}", form.city)}
+                          {platformSettings.outstation_notice ||
+                            "Travel, accommodation, local transportation, meals, hospitality, and any other outstation expenses are NOT included in the Artist Package Fee. Please arrange these directly with the artist."}
                         </div>
                       </div>
                     </div>
@@ -543,10 +541,8 @@ export default function BookingFlow() {
                       📢 Outstation Booking
                     </div>
                     <div className="fs-13 mb-8" style={{ lineHeight: 1.5, whiteSpace: "pre-line" }}>
-                      {(platformSettings.outstation_notice ||
-                        "This artist is based in {artist_city} and your event is in {event_city}. Travel, accommodation, local transport, food, hospitality and any other outstation logistics are not included in the Artist Package Fee and will be arranged and paid directly by you (the Customer).")
-                        .replace("{artist_city}", artist.profile.city)
-                        .replace("{event_city}", form.city)}
+                      {platformSettings.outstation_notice ||
+                        "Travel, accommodation, local transportation, meals, hospitality, and any other outstation expenses are NOT included in the Artist Package Fee. Please arrange these directly with the artist."}
                     </div>
                     <label className="flex items-center gap-8">
                       <input type="checkbox" checked={!!form.outstation_ack} onChange={(e) => set("outstation_ack", e.target.checked)} data-testid="outstation-ack" />
