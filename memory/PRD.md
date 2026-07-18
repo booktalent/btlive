@@ -1,5 +1,16 @@
 # BookTalent — Product Requirements Document
 
+
+## 🎯 BUSINESS MODEL — LEAD GENERATION MARKETPLACE (Iter 38 — 2026-02-18)
+BookTalent is **strictly a Lead Generation & Booking Marketplace, NOT an Escrow platform.**
+- BookTalent collects ONLY: **5% Platform Service Fee + 18% GST** on that fee.
+- Artist Performance Fee is settled **directly Customer ↔ Artist** per the signed agreement.
+- **REMOVED (Iter 38):** Wallets (customer/artist/agency), withdrawals, escrow/pending-payout tracking, `routes/wallet.py`, `/api/admin/withdrawals*` endpoints, `wallets` + `withdrawals` collections (auto-dropped on startup), all wallet UI (artist "💰 Wallet" tab, booking "👛 Wallet" payment method, admin "Escrow"/"Pending Payouts" KPIs).
+- **NEW admin KPIs:** `platform_revenue`, `gst_collected`, `subscription_revenue`, `boost_revenue`, `bookTalent_total_collected`, `pending_refunds`.
+- **NEW endpoint:** `GET /api/admin/refunds` — payments flagged for Razorpay refund (booking cancelled/rejected/disputed). Admin triggers actual refund via `POST /api/payments/{id}/refund`.
+- Validated end-to-end by testing_agent_v3_fork (iteration_36.json): 15/15 backend + full UI.
+
+
 ## 🔒 PERMANENT PRODUCTION CHARTER (Iter 21 — immutable)
 BookTalent is deployed on a Linux VPS (Nginx + FastAPI + React + systemd).
 Every future code change MUST preserve this deployment architecture.
