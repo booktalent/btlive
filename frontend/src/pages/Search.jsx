@@ -279,8 +279,8 @@ export default function Search() {
         </div>
 
         {loading ? (
-          <div className="grid grid-4">
-            {[...Array(8)].map((_, i) => <div key={i} className="skeleton" style={{ height: 320 }} />)}
+          <div className="artist-grid-v2">
+            {[...Array(8)].map((_, i) => <div key={i} className="sk-artist-card" data-testid={`sk-search-${i}`} />)}
           </div>
         ) : items.length === 0 ? (
           <div className="empty">
@@ -290,32 +290,53 @@ export default function Search() {
           </div>
         ) : (
           <>
-            <div className="grid grid-4">
+            <div className="artist-grid-v2">
               {items.map((a) => {
+                const cityLine = [a.category, a.city].filter(Boolean).join(" · ");
+                const tags = (a.tags || a.genres || []).slice(0, 4);
                 return (
-                  <Link to={`/artist/${a.user_id}`} key={a.user_id} className="artist-card" data-testid={`artist-card-${a.user_id}`}>
-                    <ArtistCardThumb
-                      artist={a}
-                      className="artist-card-cover"
-                      placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>}
-                    >
-                      {a.is_featured && <span className="boost-tag">★ FEATURED</span>}
-                      {a.plan_code === "elite" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #f472b6, #d4af37)" }}>👑 ELITE</span>}
-                      {a.plan_code === "platinum" && <span className="boost-tag" style={{ top: 30, background: "linear-gradient(135deg, #a78bfa, #7c3aed)" }}>💎 PLATINUM</span>}
-                      {a.plan_code === "gold" && !a.is_featured && <span className="boost-tag" style={{ background: "linear-gradient(135deg, #fbbf24, #d4af37)" }}>🥇 GOLD</span>}
-                    </ArtistCardThumb>
-                    <div className="artist-card-body">
-                      <div className="artist-card-name">
-                        {a.stage_name}
-                        {a.verified_badge && <span style={{ color: "var(--gold)", marginLeft: 6 }}>✓</span>}
+                  <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card-v2" data-testid={`artist-card-${a.user_id}`}>
+                    <div className="artist-img-wrap">
+                      <ArtistCardThumb
+                        artist={a}
+                        className="artist-cover-v2"
+                        placeholder={<span style={{ fontSize: 64 }}>{a.emoji || "🎤"}</span>}
+                      />
+                      <div className="artist-overlay" />
+                      {a.is_boosted || a.is_featured ? (
+                        <div className="artist-badge boosted"><span>★</span> Boosted</div>
+                      ) : a.plan_code === "elite" ? (
+                        <div className="artist-badge elite">👑 Elite</div>
+                      ) : a.plan_code === "platinum" ? (
+                        <div className="artist-badge platinum">💎 Platinum</div>
+                      ) : (
+                        <div className="artist-badge available"><span className="badge-dot" /> Available</div>
+                      )}
+                      <div className="artist-img-info">
+                        <div className="artist-name-big">
+                          {a.stage_name}
+                          {a.verified_badge && <span style={{ color: "var(--gold)", marginLeft: 6 }}>✓</span>}
+                        </div>
+                        <div className="artist-type-tag">{cityLine}</div>
                       </div>
-                      <div className="artist-card-meta">{a.category} · 📍 {a.city}</div>
-                      <div className="artist-card-foot">
-                        <span className="artist-card-rating">
-                          ★ {(a.rating_avg || 0).toFixed(1)}{" "}
-                          <span style={{ color: "var(--white-muted)", fontWeight: 400 }}>({a.review_count || 0})</span>
-                        </span>
-                        <span className="artist-card-price">{a.starting_price || a.base_price ? fmtINRFull(a.starting_price || a.base_price) : "—"}<small>/event</small></span>
+                    </div>
+                    <div className="artist-body-v2">
+                      <div className="artist-rating-row">
+                        <span className="stars">{"★".repeat(Math.max(1, Math.round(a.rating_avg || 0)))}</span>
+                        <span className="artist-rating-val">{(a.rating_avg || 0).toFixed(1)}</span>
+                        <span className="artist-reviews">({a.review_count || 0} reviews)</span>
+                      </div>
+                      {tags.length > 0 && (
+                        <div className="artist-tags">
+                          {tags.map((t) => <span className="atag" key={t}>{t}</span>)}
+                        </div>
+                      )}
+                      <div className="artist-footer">
+                        <div>
+                          <div className="artist-price-label">Starting from</div>
+                          <div className="artist-price">{a.starting_price || a.base_price ? fmtINRFull(a.starting_price || a.base_price) : "—"} <span>/ event</span></div>
+                        </div>
+                        <span className="btn btn-gold btn-sm">Book Now</span>
                       </div>
                     </div>
                   </Link>
@@ -326,8 +347,8 @@ export default function Search() {
             {pages > 1 && hasMore && (
               <div ref={sentinelRef} style={{ padding: 32, textAlign: "center" }} data-testid="infinite-scroll-sentinel">
                 {loadingMore ? (
-                  <div className="grid grid-4" style={{ marginTop: 12 }}>
-                    {[...Array(4)].map((_, i) => <div key={`m${i}`} className="skeleton" style={{ height: 320 }} />)}
+                  <div className="artist-grid-v2" style={{ marginTop: 12 }}>
+                    {[...Array(4)].map((_, i) => <div key={`m${i}`} className="sk-artist-card" />)}
                   </div>
                 ) : (
                   <div className="text-muted fs-13">Scroll to load more…</div>

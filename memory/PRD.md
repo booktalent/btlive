@@ -734,3 +734,14 @@ Files touched: `chat_routes.py`, `iter9_routes.py` (`chat_upload`), `ChatBox.jsx
 ## Test Files
 - `/app/test_reports/iteration_5..9.json`
 - `/app/backend/tests/test_iter6..test_iter10.py`
+
+## 2026-02-18 — Discover Artists V2 Card Styling
+- `Search.jsx` (`/discover`) now renders artist cards using the Homepage V2 style:
+  - `artist-grid-v2` responsive grid (4→3→2→1 cols)
+  - `ArtistCardThumb` inside `artist-cover-v2` with rotating gallery
+  - Boosted / Elite / Platinum / Available badges (overlay top-right)
+  - Name + category · city overlay on image
+  - Star rating row, tags row, "Starting from" price label, "Book Now" CTA
+  - Skeleton grid switched to `sk-artist-card` for visual consistency
+- Verified via screenshot at `/search`.
+
