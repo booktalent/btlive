@@ -1083,6 +1083,11 @@ function Boost({ refresh, toast }) {
               <div className="text-muted fs-12 mb-12">+ {p.gst_pct}% GST = {fmtINRFull(total)}</div>
               <div className="fs-12 mb-8" style={{ marginBottom: 8 }}>⏱️ {p.duration_days} days</div>
               {p.description && <div className="text-muted fs-12 mb-12">{p.description}</div>}
+              {p.type === "homepage_banner" && (
+                <div className="text-muted fs-11" style={{ marginBottom: 10, padding: 8, background: "rgba(212,175,55,0.08)", borderRadius: 8, borderLeft: "2px solid var(--gold)" }}>
+                  🏆 Your profile card will appear in the <b>hero spotlight on the homepage</b> — right next to the "Book India's Finest Talent" headline.
+                </div>
+              )}
               <button className="btn btn-gold btn-block mt-16" onClick={() => purchase(p)} disabled={busy === p.id} data-testid={`purchase-${p.id}`}>
                 {busy === p.id ? "Activating..." : "Activate"}
               </button>

@@ -197,4 +197,75 @@ def make_router(*, db, clean, get_current_user_optional=None, **_extra) -> APIRo
 
         return rails
 
+    @r.get("/homepage/spotlight")
+    async def homepage_spotlight():
+        """Iter 42 — powers the floating artist cards + booking pulse on the
+        landing hero. Priority order for the 3 cards:
+
+          1. Artists holding an active `homepage_banner` boost (recency-sorted).
+          2. Admin-featured artists (`is_featured=true`) to fill any gaps.
+
+        Also returns the most recent confirmed booking so we can render the
+        "New booking confirmed · <venue> · <date>" toast for social proof.
+        """
+        cards, seen = [], set()
+
+        # 1. Active homepage_banner boost buyers
+        now = datetime.now(timezone.utc).isoformat()
+        subs = await db.boost_subscriptions.find({
+            "type": "homepage_banner", "status": "active",
+            "expires_at": {"$gt": now},
+        }).sort("created_at", -1).limit(6).to_list(6)
+        boost_ids = [s["artist_id"] for s in subs if s.get("artist_id")]
+        if boost_ids:
+            docs = await db.artist_profiles.find({"user_id": {"$in": boost_ids}}).to_list(len(boost_ids))
+            by_id = {d["user_id"]: d for d in docs}
+            for aid in boost_ids:
+                if aid in by_id and aid not in seen:
+                    cards.append(by_id[aid]); seen.add(aid)
+                if len(cards) >= 3:
+                    break
+
+        # 2. Fill with featured artists if fewer than 3 spotlight buyers.
+        if len(cards) < 3:
+            fill = await db.artist_profiles.find({
+                "is_featured": True, "user_id": {"$nin": list(seen) or [""]}
+            }).sort("rating_avg", -1).limit(3 - len(cards)).to_list(3)
+            for d in fill:
+                if d["user_id"] not in seen:
+                    cards.append(d); seen.add(d["user_id"])
+                if len(cards) >= 3:
+                    break
+
+        # 3. Fallback: top-rated overall
+        if len(cards) < 3:
+            fill = await db.artist_profiles.find({
+                "user_id": {"$nin": list(seen) or [""]}
+            }).sort([("rating_avg", -1), ("review_count", -1)]).limit(3 - len(cards)).to_list(3)
+            for d in fill:
+                if d["user_id"] not in seen:
+                    cards.append(d); seen.add(d["user_id"])
+                if len(cards) >= 3:
+                    break
+
+        enriched = await _enrich(db, cards, clean)
+
+        # Social-proof toast — the most recent confirmed booking.
+        latest_toast = None
+        recent = await db.bookings.find({
+            "status": {"$in": ["confirmed", "completed"]}
+        }).sort("created_at", -1).limit(1).to_list(1)
+        if recent:
+            b = recent[0]
+            latest_toast = {
+                "venue": b.get("venue") or b.get("event_venue") or b.get("event_city") or "Private Event",
+                "event_date": (b.get("event_date") or b.get("created_at") or "")[:10],
+            }
+
+        return {
+            "cards": enriched,
+            "spotlight_active": len(boost_ids) > 0,
+            "latest_booking": latest_toast,
+        }
+
     return r

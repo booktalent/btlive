@@ -23,6 +23,7 @@ export default function Landing() {
   const [cities, setCities] = useState([]);
   const [featuredFaqs, setFeaturedFaqs] = useState([]);
   const [openFaq, setOpenFaq] = useState({});
+  const [spotlight, setSpotlight] = useState({ cards: [], latest_booking: null });
 
   useEffect(() => {
     // Sprint 5 — dynamic homepage rails
@@ -33,6 +34,8 @@ export default function Landing() {
     api.get("/cities").then(r => setCities(r.data));
     // Iter 39 — featured FAQs for the landing page
     api.get("/faqs/search?featured=true").then(r => setFeaturedFaqs(r.data || [])).catch(() => {});
+    // Iter 42 — Homepage Banner spotlight cards + booking pulse
+    api.get("/homepage/spotlight").then(r => setSpotlight(r.data || { cards: [] })).catch(() => {});
   }, []);
 
   const search = (e) => {
@@ -70,50 +73,93 @@ export default function Landing() {
       <div className="orb orb-3" />
       <Nav />
 
-      <section className="hero">
-        <div className="hero-tag">India's #1 Talent Marketplace</div>
-        <h1>
-          Book India's<br/>
-          <span className="gold-grad">Finest</span> Talent,<br/>
-          <span className="italic">On Demand</span>
-        </h1>
-        <p className="hero-sub">
-          Join 68,000+ event planners and artists on the most premium talent booking platform in India.
-          Transparent 5% platform fee, verified artists, direct settlement with your artist.
-        </p>
-        <form className="hero-search" onSubmit={search} data-testid="hero-search-form">
-          <input
-            placeholder="Search for singers, DJs, comedians…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            data-testid="hero-search-input"
-          />
-          <select
-            className="field-input"
-            style={{ maxWidth: 180, background: "transparent", border: "none" }}
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            data-testid="hero-city-select"
-          >
-            <option value="">All Cities</option>
-            {cities.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <button type="submit" className="btn btn-gold" data-testid="hero-search-btn">Search →</button>
-        </form>
+      <section className="hero hero-split" data-testid="hero-split">
+        <div className="hero-left">
+          <div className="hero-tag">✦ India's #1 Premium Talent Marketplace</div>
+          <h1>
+            India's<br/>
+            <span className="gold-grad">Finest Talent,</span><br/>
+            <span className="italic">On Demand</span>
+          </h1>
+          <p className="hero-sub" style={{ maxWidth: 520 }}>
+            Discover, compare and instantly book singers, DJs, comedians, anchors and 5000+ verified artists for weddings, corporate events, concerts and private shows.
+          </p>
+          <div className="hero-cta-row" data-testid="hero-cta-row">
+            <Link to="/search" className="btn btn-gold btn-lg" data-testid="hero-cta-browse">
+              ✦ Browse Artists
+            </Link>
+            <Link to="/signup?role=artist" className="btn btn-ghost btn-lg" data-testid="hero-cta-list">
+              List as Artist
+            </Link>
+          </div>
+          <form className="hero-search hero-search-inline" onSubmit={search} data-testid="hero-search-form">
+            <span className="hero-search-icon">🔍</span>
+            <input
+              placeholder='"Punjabi singer for wedding in Mumbai under ₹80k"'
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              data-testid="hero-search-input"
+            />
+            <button type="submit" className="btn btn-purple" data-testid="hero-search-btn">Search</button>
+          </form>
+          <div className="hero-stats">
+            <div>
+              <div className="hero-stat-num">5,200+</div>
+              <div className="hero-stat-label">Verified Artists</div>
+            </div>
+            <div>
+              <div className="hero-stat-num">48K+</div>
+              <div className="hero-stat-label">Events Booked</div>
+            </div>
+            <div>
+              <div className="hero-stat-num">32</div>
+              <div className="hero-stat-label">Cities Covered</div>
+            </div>
+          </div>
+        </div>
 
-        <div className="hero-stats">
-          <div>
-            <div className="hero-stat-num">5,200+</div>
-            <div className="hero-stat-label">Verified Artists</div>
-          </div>
-          <div>
-            <div className="hero-stat-num">48K+</div>
-            <div className="hero-stat-label">Events Booked</div>
-          </div>
-          <div>
-            <div className="hero-stat-num">32</div>
-            <div className="hero-stat-label">Cities Covered</div>
-          </div>
+        <div className="hero-right" data-testid="hero-spotlight">
+          {spotlight.cards.slice(0, 3).map((c, i) => (
+            <Link
+              key={c.user_id}
+              to={`/artist/${c.slug || c.user_id}`}
+              className={`spotlight-card spotlight-card-${i + 1}`}
+              data-testid={`spotlight-card-${i}`}
+              {...(c.profile_image ? {
+                style: {
+                  background: `linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.65)), url(${c.profile_image}) center/cover`,
+                },
+              } : {})}
+            >
+              {!c.profile_image && (
+                <div className="spotlight-emoji" aria-hidden>
+                  {c.emoji || (c.category?.toLowerCase().includes("dj") ? "🎧" : c.category?.toLowerCase().includes("com") ? "🎭" : "🎤")}
+                </div>
+              )}
+              <div className="spotlight-body">
+                {c.kyc_status === "approved" && <span className="spotlight-badge">✓ Verified Artist</span>}
+                <div className="spotlight-name">{c.stage_name}</div>
+                <div className="spotlight-cat">{c.category}</div>
+                <div className="spotlight-foot">
+                  <span className="spotlight-rating">
+                    {"★".repeat(Math.round(c.rating_avg || 0)) || "★"} ({c.review_count || 0})
+                  </span>
+                  {c.starting_price && <span className="spotlight-price">{fmtINRFull(c.starting_price).replace("₹", "₹")}</span>}
+                </div>
+              </div>
+            </Link>
+          ))}
+          {spotlight.latest_booking && (
+            <div className="spotlight-toast" data-testid="spotlight-toast">
+              <div className="spotlight-toast-icon">📅</div>
+              <div>
+                <div className="spotlight-toast-title">New booking confirmed</div>
+                <div className="spotlight-toast-sub">
+                  {spotlight.latest_booking.venue} · {spotlight.latest_booking.event_date}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
