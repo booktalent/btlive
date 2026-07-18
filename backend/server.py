@@ -2721,6 +2721,12 @@ async def _iter7_startup():
     except Exception as _e:
         log.warning("Legacy wallet/withdrawal cleanup skipped: %s", _e)
 
+    # 3. Iter 45 — spotlight impression dedup index.
+    try:
+        await db.spotlight_impressions.create_index("key", unique=True)
+    except Exception as _e:
+        log.warning("Could not create spotlight_impressions index: %s", _e)
+
 
 @app.on_event("shutdown")
 async def shutdown():

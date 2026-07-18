@@ -268,4 +268,67 @@ def make_router(*, db, clean, get_current_user_optional=None, **_extra) -> APIRo
             "latest_booking": latest_toast,
         }
 
+    # ── Impression tracking (Iter 45) ────────────────────────────────────
+    @r.post("/homepage/spotlight/impression")
+    async def spotlight_impression(payload: dict):
+        """
+        Records one impression per artist per session per day so a rotating
+        card doesn't inflate the count on the same browser. Payload:
+          { "user_id": "<artist user_id>", "session": "<random client id>" }
+        """
+        aid = (payload or {}).get("user_id")
+        sess = (payload or {}).get("session") or "anon"
+        if not aid:
+            return {"ok": False}
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        key = f"{aid}|{sess}|{day}"
+        try:
+            # Idempotent — the unique key stops the same session from double-counting.
+            await db.spotlight_impressions.insert_one({
+                "artist_id": aid, "session": sess, "day": day,
+                "key": key, "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            # Duplicate key means we already counted this session today.
+            return {"ok": True, "deduped": True}
+        return {"ok": True}
+
+    @r.get("/artist/analytics/spotlight/{artist_id}")
+    async def artist_spotlight_stats(artist_id: str):
+        """Returns total impressions + last-7-day impressions for the artist's
+        Homepage Banner boost so it can be surfaced in the Artist dashboard."""
+        from collections import Counter
+        docs = await db.spotlight_impressions.find({"artist_id": artist_id}).to_list(20000)
+        total = len(docs)
+        # last 7 days
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+        last7 = sum(1 for d in docs if (d.get("day") or "") >= cutoff)
+        # daily breakdown for spark line
+        by_day = Counter(d.get("day") for d in docs if d.get("day") and d["day"] >= cutoff)
+        return {
+            "total_impressions": total,
+            "last_7d": last7,
+            "series": [{"day": k, "count": by_day[k]} for k in sorted(by_day.keys())],
+        }
+
+    # ── Localised category counts (Iter 45) ──────────────────────────────
+    @r.get("/homepage/category-stats")
+    async def category_stats(city: Optional[str] = None):
+        """Returns artist counts per category, optionally scoped to a city.
+        The frontend uses this to highlight categories that are strongest in
+        the visitor's city so the Categories grid feels local."""
+        query = {}
+        if city:
+            query["city"] = {"$regex": f"^{re.escape(city)}$", "$options": "i"}
+        pipeline = [
+            {"$match": query},
+            {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+        ]
+        cur = db.artist_profiles.aggregate(pipeline)
+        out = {}
+        async for doc in cur:
+            if doc.get("_id"):
+                out[doc["_id"].lower()] = doc["count"]
+        return {"city": city or "", "counts": out}
+
     return r

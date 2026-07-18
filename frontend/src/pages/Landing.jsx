@@ -59,6 +59,7 @@ export default function Landing() {
   const [spotlight, setSpotlight] = useState({ cards: [], latest_booking: null });
   const [spotIdx, setSpotIdx] = useState(0);
   const [myCity, setMyCity] = useState("");
+  const [catStats, setCatStats] = useState({});
 
   useEffect(() => {
     // Sprint 5 — dynamic homepage rails
@@ -70,9 +71,11 @@ export default function Landing() {
     api.get("/cities").then(r => setCities(r.data));
     api.get("/faqs/search?featured=true").then(r => setFeaturedFaqs(r.data || [])).catch(() => {});
     api.get("/homepage/spotlight").then(r => setSpotlight(r.data || { cards: [] })).catch(() => {});
-    // Iter 44 — auto-detect visitor's city (best-effort, browser locale first)
+    // Iter 45 — city-scoped category counts (for "local hot" highlight)
+    api.get(`/homepage/category-stats${geo ? `?city=${encodeURIComponent(geo)}` : ""}`)
+      .then(r => setCatStats(r.data?.counts || {})).catch(() => {});
+    // Iter 44 — auto-detect visitor's city (best-effort, browser timezone)
     if (!geo) {
-      // Try browser guess via IP-less locale (very cheap fallback)
       try {
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
         const guess = tz.split("/").pop() || "";
@@ -80,6 +83,23 @@ export default function Landing() {
       } catch (_) { /* noop */ }
     }
   }, []);
+
+  // Iter 45 — send an impression for each spotlight card shown (deduped by
+  // per-session key + per-day on the backend, so rotation doesn't inflate).
+  useEffect(() => {
+    if (!spotlight.cards || spotlight.cards.length === 0) return;
+    let sess = localStorage.getItem("bt_session");
+    if (!sess) {
+      sess = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem("bt_session", sess);
+    }
+    spotlight.cards.forEach((c) => {
+      if (c.user_id) {
+        api.post("/homepage/spotlight/impression", { user_id: c.user_id, session: sess })
+          .catch(() => {});
+      }
+    });
+  }, [spotlight.cards]);
 
   // Auto-rotate the hero spotlight cards every 8s.
   useEffect(() => {
@@ -178,6 +198,13 @@ export default function Landing() {
         </div>
 
         <div className="hero-right" data-testid="hero-spotlight">
+          {(spotlight.cards || []).length === 0 && (
+            <>
+              <div className="sk sk-spotlight-card sk-spot-1" data-testid="sk-spot-1" />
+              <div className="sk sk-spotlight-card sk-spot-2" data-testid="sk-spot-2" />
+              <div className="sk sk-spotlight-card sk-spot-3" data-testid="sk-spot-3" />
+            </>
+          )}
           {visibleSpotlight.slice(0, 3).map((c, i) => (
             <Link
               key={`${c.user_id}-${spotIdx}`}
@@ -248,14 +275,48 @@ export default function Landing() {
           <Link to="/search" className="btn btn-ghost" data-testid="categories-view-all">View All →</Link>
         </div>
         <div className="cat-grid">
-          {CAT_TILES.map((c) => (
-            <Link key={c.slug} to={`/artists/${c.slug}`} className="cat-card" data-testid={`cat-tile-${c.slug}`}>
-              <span className="cat-icon">{c.icon}</span>
-              <div className="cat-name">{c.name}</div>
-              <div className="cat-count">{c.count}+ Artists</div>
-              <span className="cat-arrow">↗</span>
-            </Link>
-          ))}
+          {(() => {
+            // Fuzzy-match tile slugs to actual category names in the DB.
+            // e.g. "singer" tile → any category that starts with or contains
+            // "singer" / "vocalist"; "dj" → contains "dj"; "comedian" → contains
+            // "comed"; "dancer" → contains "danc" and so on.
+            const KEYWORDS = {
+              singer: ["singer", "vocalist"], dj: ["dj"], comedian: ["comed"],
+              anchor: ["anchor", "emcee"], dancer: ["danc"],
+              magician: ["magic"], band: ["band", "orchestra"],
+              celebrity: ["celebrity", "influencer"],
+            };
+            const withCounts = CAT_TILES.map((c) => {
+              let localCount = 0;
+              const kws = KEYWORDS[c.slug] || [c.slug];
+              for (const [k, v] of Object.entries(catStats)) {
+                if (kws.some((kw) => k.includes(kw))) localCount += v;
+              }
+              return { ...c, localCount };
+            });
+            withCounts.sort((a, b) => b.localCount - a.localCount);
+            const hottestSlug = myCity && withCounts[0]?.localCount > 0 ? withCounts[0].slug : null;
+            return withCounts.map((c) => (
+              <Link
+                key={c.slug}
+                to={`/artists/${c.slug}`}
+                className={`cat-card ${c.slug === hottestSlug ? "cat-card-local" : ""}`}
+                data-testid={`cat-tile-${c.slug}`}
+              >
+                {c.slug === hottestSlug && (
+                  <span className="cat-local-flag" data-testid={`cat-hot-${c.slug}`}>Hot in {myCity}</span>
+                )}
+                <span className="cat-icon">{c.icon}</span>
+                <div className="cat-name">{c.name}</div>
+                <div className="cat-count">
+                  {c.localCount > 0 && myCity
+                    ? <>{c.localCount}+ in <span className="cat-local-count">{myCity}</span> · {c.count}+ nationwide</>
+                    : <>{c.count}+ Artists</>}
+                </div>
+                <span className="cat-arrow">↗</span>
+              </Link>
+            ));
+          })()}
         </div>
       </section>
 
@@ -275,8 +336,25 @@ export default function Landing() {
       <section className="section">
         <div className="container">
           {loading ? (
-            <div className="grid grid-4">
-              {[...Array(4)].map((_, i) => <div key={i} className="skeleton" style={{ height: 320 }} />)}
+            <div>
+              <div className="section-head" style={{ marginBottom: 20 }}>
+                <div>
+                  <div className="sk sk-line" style={{ width: 180, height: 24, marginBottom: 8 }} />
+                  <div className="sk sk-line" style={{ width: 260, height: 14 }} />
+                </div>
+              </div>
+              <div className="artist-grid-v2">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="sk-artist-card" data-testid={`sk-rail-${i}`}>
+                    <div className="sk sk-cover" />
+                    <div className="sk-body">
+                      <div className="sk sk-line mid" />
+                      <div className="sk sk-line short" />
+                      <div className="sk sk-line short" style={{ marginTop: 12 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             rails.map((rail) => (
@@ -432,6 +510,11 @@ export default function Landing() {
 // Sprint 5 — Dynamic homepage rail. Horizontal-scrolling artist row.
 // ────────────────────────────────────────────────────────────────────────
 function HomeRail({ rail }) {
+  // Iter 45 — inline filter chips (category / city / price band)
+  const [fCat, setFCat] = React.useState("all");
+  const [fCity, setFCity] = React.useState("all");
+  const [fPrice, setFPrice] = React.useState("all");
+
   if (!rail?.items?.length) return null;
   // Dedupe by user_id to guard against duplicate-key warnings
   const seen = new Set();
@@ -440,6 +523,25 @@ function HomeRail({ rail }) {
     seen.add(a.user_id);
     return true;
   });
+
+  const cats = ["all", ...Array.from(new Set(items.map((a) => a.category).filter(Boolean))).slice(0, 5)];
+  const cities = ["all", ...Array.from(new Set(items.map((a) => a.city).filter(Boolean))).slice(0, 5)];
+  const PRICE_BANDS = [
+    { id: "all",   label: "Any price", test: () => true },
+    { id: "low",   label: "Under ₹25k",  test: (p) => p && p < 25000 },
+    { id: "mid",   label: "₹25k – ₹75k", test: (p) => p && p >= 25000 && p < 75000 },
+    { id: "high",  label: "₹75k – ₹2L",  test: (p) => p && p >= 75000 && p < 200000 },
+    { id: "elite", label: "₹2L+",         test: (p) => p && p >= 200000 },
+  ];
+
+  const filtered = items.filter((a) => {
+    if (fCat !== "all" && a.category !== fCat) return false;
+    if (fCity !== "all" && a.city !== fCity) return false;
+    const band = PRICE_BANDS.find((b) => b.id === fPrice);
+    if (band && !band.test(a.starting_price)) return false;
+    return true;
+  });
+  const anyActive = fCat !== "all" || fCity !== "all" || fPrice !== "all";
   return (
     <div className="mb-32" data-testid={`rail-${rail.code}`} style={{ marginBottom: 40 }}>
       <div className="section-head">
@@ -449,8 +551,46 @@ function HomeRail({ rail }) {
         </div>
         <Link to={`/search?section=${encodeURIComponent(rail.code)}`} className="btn btn-ghost btn-sm" data-testid={`rail-more-${rail.code}`}>View All →</Link>
       </div>
+
+      {(cats.length > 2 || cities.length > 2) && (
+        <div className="rail-filters" data-testid={`rail-filters-${rail.code}`}>
+          {cats.length > 2 && (<>
+            <span className="rail-filter-label">Type</span>
+            {cats.map((c) => (
+              <button key={c} className={`rail-chip ${fCat === c ? "active" : ""}`} onClick={() => setFCat(c)} data-testid={`rail-cat-${rail.code}-${c}`}>
+                {c === "all" ? "All" : c}
+              </button>
+            ))}
+          </>)}
+          {cities.length > 2 && (<>
+            <span className="rail-filter-label" style={{ marginLeft: 8 }}>City</span>
+            {cities.map((c) => (
+              <button key={c} className={`rail-chip ${fCity === c ? "active" : ""}`} onClick={() => setFCity(c)} data-testid={`rail-city-${rail.code}-${c}`}>
+                {c === "all" ? "All" : c}
+              </button>
+            ))}
+          </>)}
+          <span className="rail-filter-label" style={{ marginLeft: 8 }}>Price</span>
+          {PRICE_BANDS.map((b) => (
+            <button key={b.id} className={`rail-chip ${fPrice === b.id ? "active" : ""}`} onClick={() => setFPrice(b.id)} data-testid={`rail-price-${rail.code}-${b.id}`}>
+              {b.label}
+            </button>
+          ))}
+          {anyActive && (
+            <button className="rail-chip" onClick={() => { setFCat("all"); setFCity("all"); setFPrice("all"); }} data-testid={`rail-clear-${rail.code}`} style={{ color: "var(--gold-light)" }}>
+              ✕ Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <div className="rail-empty" data-testid={`rail-empty-${rail.code}`}>
+          No matches — try relaxing the filters.
+        </div>
+      ) : (
       <div className="artist-grid-v2">
-        {items.map((a) => {
+        {filtered.map((a) => {
           const cityLine = [a.category, a.city].filter(Boolean).join(" · ");
           const tags = (a.tags || a.genres || []).slice(0, 4);
           return (
@@ -502,6 +642,7 @@ function HomeRail({ rail }) {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

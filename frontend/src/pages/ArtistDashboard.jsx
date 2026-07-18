@@ -1525,9 +1525,14 @@ function Concierge({ toast }) {
 function Insights({ toast }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [spotStats, setSpotStats] = useState(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     api.get("/artist/insights").then((r) => setData(r.data)).catch((e) => toast(formatApiError(e), "error")).finally(() => setLoading(false));
+    if (user?.id) {
+      api.get(`/artist/analytics/spotlight/${user.id}`).then((r) => setSpotStats(r.data)).catch(() => {});
+    }
   }, []); // eslint-disable-line
 
   if (loading) return <div className="loading"><div className="spinner" /></div>;
@@ -1544,6 +1549,34 @@ function Insights({ toast }) {
         <h2 className="font-serif fs-20 fw-700">📈 Insights</h2>
         <p className="text-muted fs-13">See where demand is coming from, and how well your profile converts.</p>
       </div>
+
+      {/* Iter 45 — Homepage Banner spotlight ROI card */}
+      {spotStats && (spotStats.total_impressions > 0 || spotStats.last_7d > 0) && (
+        <div className="card card-pad mb-24" data-testid="spotlight-stats" style={{ background: "linear-gradient(135deg, rgba(212,175,55,0.08), rgba(109,40,217,0.05))" }}>
+          <div className="fw-700 mb-8">🏆 Homepage Banner Performance</div>
+          <div className="grid grid-3 gap-12">
+            <div>
+              <div className="text-muted fs-11" style={{ textTransform: "uppercase", letterSpacing: 1 }}>All-time impressions</div>
+              <div className="font-serif" style={{ fontSize: 32, fontWeight: 700, color: "var(--gold-light)" }} data-testid="spot-total">{spotStats.total_impressions.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-muted fs-11" style={{ textTransform: "uppercase", letterSpacing: 1 }}>Last 7 days</div>
+              <div className="font-serif" style={{ fontSize: 32, fontWeight: 700 }} data-testid="spot-7d">{spotStats.last_7d.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-muted fs-11" style={{ textTransform: "uppercase", letterSpacing: 1 }}>Daily trend</div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 44, marginTop: 6 }}>
+                {(spotStats.series || []).slice(-14).map((s, i) => {
+                  const max = Math.max(1, ...spotStats.series.map((x) => x.count));
+                  return <div key={i} title={`${s.day}: ${s.count}`} style={{ flex: 1, background: "var(--gold)", opacity: 0.55 + 0.45 * (s.count / max), height: `${20 + 80 * (s.count / max)}%`, borderRadius: 2, minWidth: 4 }} />;
+                })}
+                {(!spotStats.series || spotStats.series.length === 0) && <div className="text-muted fs-11">Waiting for impressions…</div>}
+              </div>
+            </div>
+          </div>
+          <div className="text-muted fs-11" style={{ marginTop: 10 }}>Each unique visitor per day counts once. Impressions grow while your Homepage Banner boost is active.</div>
+        </div>
+      )}
 
       {/* Funnel KPIs */}
       <div className="grid grid-4 gap-12 mb-24">
