@@ -1,6 +1,15 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎨 Iter 41 — Home / Category / City / Blog banners fully admin-editable (2026-02-18)
+- **Home page hero**: 6 new admin-editable public settings (`home_hero_image/eyebrow/title/subtitle/cta_label/cta_url`) — Landing renders them when set and falls back to the default poetic hero otherwise. Managed via Admin → Settings → 🏠 Homepage Hero Banner.
+- **Category & City landing banners**: `MasterItem` model now accepts `hero_image / hero_title / hero_subtitle / hero_cta_label / hero_cta_url`. Category (`/artists/<slug>`) and City (`/artists/city/<slug>`) pages show these as a hero when set. Managed via Admin → Master Data (each row now has a "▼ Featured Banner" toggle).
+- **Per-blog article banner**: `BlogBody` extended with the same 5 hero fields + `author` + full PUT/DELETE endpoints (`/api/admin/blogs`, `/api/admin/blogs/{bid}`). New **AdminBlogs** UI tab in Admin sidebar lets you write, publish/unpublish, add tags, attach a per-post banner, and view live.
+- **Regression fix**: `PUT /api/admin/master/{entity}/{id}` no longer auto-rewrites the slug from name — SEO URLs stay stable when admins only tweak the banner.
+- Backend pytest: test_iter41_page_banners.py — 4/4 passing.
+
+
+
 ## 🖼️ Iter 40 — Admin User CRUD + Featured Banners (2026-02-18)
 - Admin User Management: `PUT /api/admin/users/{uid}` (edit name/email/phone/role + artist profile fields), `DELETE /api/admin/users/{uid}` with `?hard=true` for permanent wipe (default is soft/anonymised). Admin cannot delete self.
 - Frontend AdminArtists + AdminUsers get a single **Delete** button that opens a two-option modal (Deactivate / Delete permanently with type-DELETE confirmation) + Edit modal + Suspend/Unsuspend toggle. The confusing extra ✕ hard-delete button was removed.

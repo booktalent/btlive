@@ -73,13 +73,33 @@ export default function CategoryLanding() {
         {!data && <div className="skeleton" style={{ height: 300 }} />}
         {data && cat && (
           <>
-            <div className="landing-hero" style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 64, marginBottom: 8 }}>{cat.icon || "🎤"}</div>
-              <h1 style={{ fontSize: 42 }} data-testid="cat-h1">{title}</h1>
-              <p className="text-muted" style={{ maxWidth: 720 }}>
-                {description}
-              </p>
-            </div>
+            {(cat.hero_image || cat.hero_title) ? (
+              <div
+                className="page-hero"
+                data-testid="cat-hero"
+                style={{
+                  backgroundImage: cat.hero_image
+                    ? `linear-gradient(180deg, rgba(0,0,0,0.4), rgba(0,0,0,0.65)), url(${cat.hero_image})`
+                    : undefined,
+                }}
+              >
+                <div className="page-hero-inner">
+                  <h1 data-testid="cat-h1">{cat.hero_title || title}</h1>
+                  <p data-testid="cat-hero-sub">{cat.hero_subtitle || description}</p>
+                  {cat.hero_cta_url && (
+                    <a href={cat.hero_cta_url} className="btn btn-gold" data-testid="cat-hero-cta">
+                      {cat.hero_cta_label || "Explore"} →
+                    </a>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="landing-hero" style={{ marginBottom: 32 }}>
+                <div style={{ fontSize: 64, marginBottom: 8 }}>{cat.icon || "🎤"}</div>
+                <h1 style={{ fontSize: 42 }} data-testid="cat-h1">{title}</h1>
+                <p className="text-muted" style={{ maxWidth: 720 }}>{description}</p>
+              </div>
+            )}
             {artists.length === 0 ? (
               <div className="empty" style={{ padding: 40 }}>No {cat.name.toLowerCase()} listed yet — check back soon or <Link to="/search">browse all artists</Link>.</div>
             ) : (

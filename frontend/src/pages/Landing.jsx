@@ -23,6 +23,7 @@ export default function Landing() {
   const [cities, setCities] = useState([]);
   const [featuredFaqs, setFeaturedFaqs] = useState([]);
   const [openFaq, setOpenFaq] = useState({});
+  const [settings, setSettings] = useState({});
 
   useEffect(() => {
     // Sprint 5 — dynamic homepage rails
@@ -33,6 +34,8 @@ export default function Landing() {
     api.get("/cities").then(r => setCities(r.data));
     // Iter 39 — featured FAQs for the landing page
     api.get("/faqs/search?featured=true").then(r => setFeaturedFaqs(r.data || [])).catch(() => {});
+    // Iter 41 — admin-editable homepage hero (public settings)
+    api.get("/settings/public").then(r => setSettings(r.data || {})).catch(() => {});
   }, []);
 
   const search = (e) => {
@@ -70,17 +73,37 @@ export default function Landing() {
       <div className="orb orb-3" />
       <Nav />
 
-      <section className="hero">
-        <div className="hero-tag">India's #1 Talent Marketplace</div>
-        <h1>
-          Book India's<br/>
-          <span className="gold-grad">Finest</span> Talent,<br/>
-          <span className="italic">On Demand</span>
-        </h1>
-        <p className="hero-sub">
-          Join 68,000+ event planners and artists on the most premium talent booking platform in India.
-          Transparent 5% platform fee, verified artists, direct settlement with your artist.
+      <section
+        className={`hero ${settings.home_hero_image ? "hero-with-image" : ""}`}
+        style={settings.home_hero_image ? {
+          backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.75)), url(${settings.home_hero_image})`,
+          backgroundSize: "cover", backgroundPosition: "center",
+        } : undefined}
+        data-testid="home-hero"
+      >
+        <div className="hero-tag" data-testid="home-hero-eyebrow">
+          {settings.home_hero_eyebrow || "India's #1 Talent Marketplace"}
+        </div>
+        {settings.home_hero_title ? (
+          <h1 data-testid="home-hero-title" style={{ whiteSpace: "pre-line" }}>{settings.home_hero_title}</h1>
+        ) : (
+          <h1>
+            Book India's<br/>
+            <span className="gold-grad">Finest</span> Talent,<br/>
+            <span className="italic">On Demand</span>
+          </h1>
+        )}
+        <p className="hero-sub" data-testid="home-hero-subtitle">
+          {settings.home_hero_subtitle ||
+            "Join 68,000+ event planners and artists on the most premium talent booking platform in India. Transparent 5% platform fee, verified artists, direct settlement with your artist."}
         </p>
+        {settings.home_hero_cta_url && (
+          <div style={{ marginBottom: 20 }}>
+            <Link to={settings.home_hero_cta_url} className="btn btn-gold" data-testid="home-hero-cta">
+              {settings.home_hero_cta_label || "Explore"} →
+            </Link>
+          </div>
+        )}
         <form className="hero-search" onSubmit={search} data-testid="hero-search-form">
           <input
             placeholder="Search for singers, DJs, comedians…"

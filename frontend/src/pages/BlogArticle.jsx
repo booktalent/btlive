@@ -77,14 +77,39 @@ export default function BlogArticle() {
         ])] : null}
       />
       <Nav />
-      <section className="section container" style={{ paddingTop: 60, minHeight: "60vh", maxWidth: 820, margin: "0 auto" }}>
+      {blog && (blog.hero_image || blog.hero_title) && (
+        <div
+          className="page-hero"
+          data-testid="blog-article-hero"
+          style={{
+            backgroundImage: blog.hero_image
+              ? `linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.7)), url(${blog.hero_image})`
+              : undefined,
+          }}
+        >
+          <div className="page-hero-inner">
+            <h1 data-testid="blog-hero-h1">{blog.hero_title || blog.title}</h1>
+            {(blog.hero_subtitle || blog.excerpt) && (
+              <p data-testid="blog-hero-sub">{blog.hero_subtitle || blog.excerpt}</p>
+            )}
+            {blog.hero_cta_url && (
+              <a href={blog.hero_cta_url} className="btn btn-gold" data-testid="blog-article-hero-cta">
+                {blog.hero_cta_label || "Read on"} →
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+      <section className="section container" style={{ paddingTop: blog && (blog.hero_image || blog.hero_title) ? 20 : 60, minHeight: "60vh", maxWidth: 820, margin: "0 auto" }}>
         {!blog && <div className="skeleton" style={{ height: 400 }} />}
         {blog && (
           <>
-            {blog.cover_image && (
+            {blog.cover_image && !(blog.hero_image || blog.hero_title) && (
               <div style={{ height: 360, background: `url(${blog.cover_image}) center/cover`, borderRadius: 12, marginBottom: 24 }} />
             )}
-            <h1 style={{ fontSize: 42, marginBottom: 12 }} data-testid="blog-title">{blog.title}</h1>
+            {!(blog.hero_image || blog.hero_title) && (
+              <h1 style={{ fontSize: 42, marginBottom: 12 }} data-testid="blog-title">{blog.title}</h1>
+            )}
             <div className="text-muted fs-13 mb-24" data-testid="blog-meta">
               {blog.author || "BookTalent Editorial"} · {(blog.created_at || "").slice(0, 10)}
             </div>

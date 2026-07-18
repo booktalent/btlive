@@ -7,7 +7,7 @@ import { useToast } from "../lib/toast";
 import {
   AdminMaster, AdminBoost, AdminTemplates, AdminFAQs,
   AdminCMS, AdminBroadcast, AdminSettings, AdminAudit, AdminReports,
-  AdminReviewsModeration, AdminProviders,
+  AdminReviewsModeration, AdminProviders, AdminBlogs,
 } from "./admin/AdminEnterprise";
 import AdminConcierge from "./admin/AdminConcierge";
 import AdminOutstationReport from "./admin/AdminOutstationReport";
@@ -28,6 +28,7 @@ const SIDEBAR = [
   { id: "templates", label: "📧 Templates" },
   { id: "faqs", label: "❓ FAQs" },
   { id: "cms", label: "📄 CMS Pages" },
+  { id: "blogs", label: "📝 Blogs" },
   { id: "broadcast", label: "📢 Broadcast" },
   { id: "reports", label: "📈 Reports" },
   { id: "reviews-mod", label: "🛡️ Reviews Moderation" },
@@ -108,6 +109,7 @@ export default function AdminDashboard() {
           {tab === "templates" && <AdminTemplates toast={toast} />}
           {tab === "faqs" && <AdminFAQs toast={toast} />}
           {tab === "cms" && <AdminCMS toast={toast} />}
+          {tab === "blogs" && <AdminBlogs toast={toast} />}
           {tab === "broadcast" && <AdminBroadcast toast={toast} />}
           {tab === "reports" && <AdminReports />}
           {tab === "reviews-mod" && <AdminReviewsModeration toast={toast} />}

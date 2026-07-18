@@ -5,44 +5,59 @@ import api, { fmtINRFull } from "../../lib/api";
    Master Data — Categories / Cities / Event Types / Languages
    ───────────────────────────────────────────────────────────────── */
 export function AdminMaster({ toast }) {
+  const EMPTY = { name: "", icon: "", sort_order: 0, active: true,
+    hero_image: "", hero_title: "", hero_subtitle: "", hero_cta_label: "", hero_cta_url: "" };
   const [entity, setEntity] = useState("categories");
   const [list, setList] = useState([]);
-  const [form, setForm] = useState({ name: "", icon: "", sort_order: 0, active: true });
+  const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState(null);
+  const [showBanner, setShowBanner] = useState(false);
+  const supportsBanner = entity === "categories" || entity === "cities";
 
   const load = () => api.get(`/admin/master/${entity}`).then((r) => setList(r.data));
-  // `load` is redefined every render; including it would infinite-loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [entity]);
 
   const save = async () => {
     if (!form.name.trim()) return toast("Name is required");
+    const body = supportsBanner ? form : {
+      name: form.name, icon: form.icon, sort_order: form.sort_order, active: form.active,
+    };
     if (editing) {
-      await api.put(`/admin/master/${entity}/${editing}`, form);
+      await api.put(`/admin/master/${entity}/${editing}`, body);
       toast("Updated");
     } else {
-      await api.post(`/admin/master/${entity}`, form);
+      await api.post(`/admin/master/${entity}`, body);
       toast("Added");
     }
-    setForm({ name: "", icon: "", sort_order: 0, active: true });
-    setEditing(null);
-    load();
+    setForm(EMPTY); setEditing(null); setShowBanner(false); load();
   };
 
   const remove = async (id) => {
     if (!window.confirm("Delete this entry?")) return;
     await api.delete(`/admin/master/${entity}/${id}`);
-    toast("Deleted");
-    load();
+    toast("Deleted"); load();
   };
 
-  const edit = (item) => { setEditing(item.id); setForm({ name: item.name, icon: item.icon || "", sort_order: item.sort_order || 0, active: !!item.active }); };
+  const edit = (item) => {
+    setEditing(item.id);
+    setForm({
+      name: item.name, icon: item.icon || "", sort_order: item.sort_order || 0, active: !!item.active,
+      hero_image: item.hero_image || "", hero_title: item.hero_title || "",
+      hero_subtitle: item.hero_subtitle || "", hero_cta_label: item.hero_cta_label || "",
+      hero_cta_url: item.hero_cta_url || "",
+    });
+    setShowBanner(!!(item.hero_image || item.hero_title));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const previewHref = (m) => entity === "categories" ? `/artists/${m.slug}` : entity === "cities" ? `/artists/city/${m.slug}` : null;
 
   return (
     <div className="card" data-testid="admin-master">
       <div className="card-head" style={{ justifyContent: "space-between", display: "flex", alignItems: "center" }}>
         <div className="card-title">🗂️ Master Data</div>
-        <select value={entity} onChange={(e) => setEntity(e.target.value)} className="input" style={{ width: 200 }} data-testid="master-entity-select">
+        <select value={entity} onChange={(e) => { setEntity(e.target.value); setForm(EMPTY); setEditing(null); setShowBanner(false); }} className="input" style={{ width: 200 }} data-testid="master-entity-select">
           <option value="categories">Categories</option>
           <option value="cities">Cities</option>
           <option value="event-types">Event Types</option>
@@ -50,15 +65,35 @@ export function AdminMaster({ toast }) {
         </select>
       </div>
       <div style={{ padding: 14 }}>
-        <div className="grid grid-4 gap-12" style={{ marginBottom: 14 }}>
+        <div className="grid grid-4 gap-12" style={{ marginBottom: 10 }}>
           <input className="input" placeholder="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} data-testid="master-name" />
           <input className="input" placeholder="Icon (emoji)" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} data-testid="master-icon" />
           <input className="input" type="number" placeholder="Sort order" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })} data-testid="master-sort" />
           <button className="btn btn-gold" onClick={save} data-testid="master-save">{editing ? "Update" : "+ Add"}</button>
         </div>
+        {supportsBanner && (
+          <>
+            <button className="btn btn-ghost btn-xs" onClick={() => setShowBanner(!showBanner)} data-testid="master-toggle-banner" style={{ marginBottom: 10 }}>
+              {showBanner ? "▲ Hide Featured Banner" : "▼ Featured Banner (hero on landing page)"}
+            </button>
+            {showBanner && (
+              <div style={{ padding: 12, background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: 12 }}>
+                <input className="input mb-8" placeholder="Banner image URL (1600×600)" value={form.hero_image} onChange={(e) => setForm({ ...form, hero_image: e.target.value })} style={{ width: "100%" }} data-testid="master-hero-image" />
+                <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+                  <input className="input" placeholder="Banner title" value={form.hero_title} onChange={(e) => setForm({ ...form, hero_title: e.target.value })} data-testid="master-hero-title" />
+                  <input className="input" placeholder="Banner subtitle" value={form.hero_subtitle} onChange={(e) => setForm({ ...form, hero_subtitle: e.target.value })} data-testid="master-hero-subtitle" />
+                </div>
+                <div className="grid grid-2 gap-12">
+                  <input className="input" placeholder="CTA label (e.g. Book now)" value={form.hero_cta_label} onChange={(e) => setForm({ ...form, hero_cta_label: e.target.value })} data-testid="master-hero-cta-label" />
+                  <input className="input" placeholder="CTA URL" value={form.hero_cta_url} onChange={(e) => setForm({ ...form, hero_cta_url: e.target.value })} data-testid="master-hero-cta-url" />
+                </div>
+              </div>
+            )}
+          </>
+        )}
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Name</th><th>Slug</th><th>Icon</th><th>Order</th><th>Active</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Slug</th><th>Icon</th><th>Order</th><th>Banner</th><th>Active</th><th>Actions</th></tr></thead>
             <tbody>
               {list.map((m) => (
                 <tr key={m.id} data-testid={`master-row-${m.id}`}>
@@ -66,9 +101,13 @@ export function AdminMaster({ toast }) {
                   <td className="text-muted fs-12">{m.slug}</td>
                   <td>{m.icon || "—"}</td>
                   <td>{m.sort_order}</td>
+                  <td className="fs-11">
+                    {supportsBanner && (m.hero_image || m.hero_title) ? <span className="pill" style={{ background: "linear-gradient(135deg, var(--gold), var(--gold-light))", color: "#000" }}>🖼️ Set</span> : <span className="text-muted">—</span>}
+                  </td>
                   <td>{m.active ? <span className="pill pill-green">Yes</span> : <span className="pill pill-amber">No</span>}</td>
                   <td>
                     <button className="btn btn-ghost btn-xs" onClick={() => edit(m)} data-testid={`master-edit-${m.id}`}>Edit</button>
+                    {previewHref(m) && <a className="btn btn-ghost btn-xs" href={previewHref(m)} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6 }} data-testid={`master-view-${m.id}`}>View ↗</a>}
                     <button className="btn btn-red btn-xs" onClick={() => remove(m.id)} style={{ marginLeft: 6 }} data-testid={`master-del-${m.id}`}>Delete</button>
                   </td>
                 </tr>
@@ -571,10 +610,10 @@ export function AdminSettings({ toast }) {
   const [list, setList] = useState([]);
   const [draft, setDraft] = useState({});
   const [blog, setBlog] = useState({ blog_hero_image: "", blog_hero_title: "", blog_hero_subtitle: "", blog_hero_cta_label: "", blog_hero_cta_url: "" });
+  const [home, setHome] = useState({ home_hero_image: "", home_hero_eyebrow: "", home_hero_title: "", home_hero_subtitle: "", home_hero_cta_label: "", home_hero_cta_url: "" });
   const load = () => api.get("/admin/settings").then((r) => {
     setList(r.data);
     setDraft({});
-    // Prefill Blog Banner section from existing settings
     const map = Object.fromEntries((r.data || []).map((s) => [s.key, s.value]));
     setBlog({
       blog_hero_image: map.blog_hero_image || "",
@@ -582,6 +621,14 @@ export function AdminSettings({ toast }) {
       blog_hero_subtitle: map.blog_hero_subtitle || "",
       blog_hero_cta_label: map.blog_hero_cta_label || "",
       blog_hero_cta_url: map.blog_hero_cta_url || "",
+    });
+    setHome({
+      home_hero_image: map.home_hero_image || "",
+      home_hero_eyebrow: map.home_hero_eyebrow || "",
+      home_hero_title: map.home_hero_title || "",
+      home_hero_subtitle: map.home_hero_subtitle || "",
+      home_hero_cta_label: map.home_hero_cta_label || "",
+      home_hero_cta_url: map.home_hero_cta_url || "",
     });
   });
   useEffect(() => { load(); }, []);
@@ -598,8 +645,36 @@ export function AdminSettings({ toast }) {
     }
     toast("Blog banner saved"); load();
   };
+  const saveHome = async () => {
+    for (const [k, v] of Object.entries(home)) {
+      await api.put(`/admin/settings/${k}`, { value: v });
+    }
+    toast("Homepage banner saved"); load();
+  };
   return (
     <div data-testid="admin-settings">
+      {/* Homepage Featured Banner panel */}
+      <div className="card mb-24">
+        <div className="card-head">
+          <div className="card-title">🏠 Homepage Hero Banner <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— overrides the default hero on /</span></div>
+        </div>
+        <div style={{ padding: 14 }}>
+          <input className="input mb-8" placeholder="Banner image URL (1920×900 recommended)" value={home.home_hero_image} onChange={(e) => setHome({ ...home, home_hero_image: e.target.value })} style={{ width: "100%" }} data-testid="home-hero-image" />
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+            <input className="input" placeholder="Eyebrow tag (small text above title)" value={home.home_hero_eyebrow} onChange={(e) => setHome({ ...home, home_hero_eyebrow: e.target.value })} data-testid="home-hero-eyebrow" />
+            <input className="input" placeholder="Banner title (use \\n for line breaks)" value={home.home_hero_title} onChange={(e) => setHome({ ...home, home_hero_title: e.target.value })} data-testid="home-hero-title" />
+          </div>
+          <input className="input mb-8" placeholder="Banner subtitle" value={home.home_hero_subtitle} onChange={(e) => setHome({ ...home, home_hero_subtitle: e.target.value })} style={{ width: "100%" }} data-testid="home-hero-subtitle" />
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 12 }}>
+            <input className="input" placeholder="CTA label (e.g. Explore Artists)" value={home.home_hero_cta_label} onChange={(e) => setHome({ ...home, home_hero_cta_label: e.target.value })} data-testid="home-hero-cta-label" />
+            <input className="input" placeholder="CTA URL (e.g. /search)" value={home.home_hero_cta_url} onChange={(e) => setHome({ ...home, home_hero_cta_url: e.target.value })} data-testid="home-hero-cta-url" />
+          </div>
+          <button className="btn btn-gold" onClick={saveHome} data-testid="home-hero-save">Save Homepage Banner</button>
+          <a className="btn btn-ghost" href="/" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }} data-testid="home-hero-preview">Preview / ↗</a>
+          <div className="text-muted fs-11" style={{ marginTop: 10 }}>Leave any field blank to fall back to the default copy. Clear all fields to disable the custom hero.</div>
+        </div>
+      </div>
+
       {/* Blog Featured Banner panel */}
       <div className="card mb-24">
         <div className="card-head">
@@ -617,7 +692,7 @@ export function AdminSettings({ toast }) {
           </div>
           <button className="btn btn-gold" onClick={saveBlog} data-testid="blog-hero-save">Save Blog Banner</button>
           <a className="btn btn-ghost" href="/blog" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }} data-testid="blog-hero-preview">Preview /blog ↗</a>
-          <div className="text-muted fs-11" style={{ marginTop: 10 }}>Note: for CMS pages (About Us, Terms, etc.), open the CMS Pages tab, edit the page and expand ▼ Banner + Advanced SEO.</div>
+          <div className="text-muted fs-11" style={{ marginTop: 10 }}>Per-article banners are set inside each blog post (Admin → Blogs → Edit).</div>
         </div>
       </div>
 
@@ -869,3 +944,130 @@ export function AdminProviders({ toast }) {
   );
 }
 
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Blogs — admin CRUD with per-article featured banner (Iter 41)
+// ═══════════════════════════════════════════════════════════════════════
+export function AdminBlogs({ toast }) {
+  const EMPTY = {
+    title: "", slug: "", content: "", cover_image: "", excerpt: "", author: "",
+    tags: [], published: true,
+    hero_image: "", hero_title: "", hero_subtitle: "", hero_cta_label: "", hero_cta_url: "",
+  };
+  const [list, setList] = useState([]);
+  const [form, setForm] = useState(EMPTY);
+  const [editing, setEditing] = useState(null);
+  const [showBanner, setShowBanner] = useState(false);
+  const [tagInput, setTagInput] = useState("");
+
+  const load = () => api.get("/admin/blogs").then((r) => setList(r.data)).catch(() => setList([]));
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    if (!form.title.trim() || !form.slug.trim()) return toast("Title & slug required");
+    try {
+      if (editing) await api.put(`/admin/blogs/${editing}`, form);
+      else await api.post("/admin/blogs", form);
+      toast("Saved"); setEditing(null); setForm(EMPTY); setShowBanner(false); setTagInput(""); load();
+    } catch (e) { toast(e?.response?.data?.detail || "Save failed", "error"); }
+  };
+  const edit = (b) => {
+    setEditing(b.id);
+    setForm({ ...EMPTY, ...b, tags: b.tags || [] });
+    setShowBanner(!!(b.hero_image || b.hero_title));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const del = async (id) => {
+    if (!window.confirm("Delete this blog article?")) return;
+    await api.delete(`/admin/blogs/${id}`); toast("Deleted"); load();
+  };
+  const togglePublish = async (b) => {
+    await api.put(`/admin/blogs/${b.id}`, { ...b, published: !b.published });
+    toast(b.published ? "Unpublished" : "Published"); load();
+  };
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (t && !form.tags.includes(t)) setForm({ ...form, tags: [...form.tags, t] });
+    setTagInput("");
+  };
+  const removeTag = (t) => setForm({ ...form, tags: form.tags.filter((x) => x !== t) });
+
+  return (
+    <div className="card" data-testid="admin-blogs">
+      <div className="card-head">
+        <div className="card-title">📝 Blogs ({list.length}) <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— live on /blog & /blog/&lt;slug&gt;</span></div>
+      </div>
+      <div style={{ padding: 14 }}>
+        <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+          <input className="input" placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="blog-title" />
+          <input className="input" placeholder="Slug (e.g. how-to-book-a-singer)" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} data-testid="blog-slug" />
+        </div>
+        <input className="input mb-8" placeholder="Author (defaults to BookTalent Editorial)" value={form.author} onChange={(e) => setForm({ ...form, author: e.target.value })} style={{ width: "100%" }} data-testid="blog-author" />
+        <input className="input mb-8" placeholder="Cover image URL" value={form.cover_image} onChange={(e) => setForm({ ...form, cover_image: e.target.value })} style={{ width: "100%" }} data-testid="blog-cover" />
+        <input className="input mb-8" placeholder="Excerpt (short teaser)" value={form.excerpt} onChange={(e) => setForm({ ...form, excerpt: e.target.value })} style={{ width: "100%" }} data-testid="blog-excerpt" />
+        <textarea className="input" rows={8} placeholder="HTML content" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} style={{ width: "100%", marginBottom: 8, fontFamily: "monospace", fontSize: 13 }} data-testid="blog-content" />
+
+        <div className="flex gap-8" style={{ alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+          <input className="input" placeholder="Add a tag & press Enter" value={tagInput} onChange={(e) => setTagInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }} data-testid="blog-tag-input" style={{ maxWidth: 220 }} />
+          {form.tags.map((t) => (
+            <span key={t} className="pill pill-purple" style={{ cursor: "pointer" }} onClick={() => removeTag(t)} data-testid={`blog-tag-${t}`}>#{t} ×</span>
+          ))}
+        </div>
+
+        <div className="flex gap-12" style={{ marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <label className="flex gap-6" style={{ alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={form.published} onChange={(e) => setForm({ ...form, published: e.target.checked })} data-testid="blog-published" /> Published
+          </label>
+          <button className="btn btn-ghost btn-xs" onClick={() => setShowBanner(!showBanner)} data-testid="blog-toggle-banner">
+            {showBanner ? "▲ Hide Featured Banner" : "▼ Featured Banner for this article"}
+          </button>
+        </div>
+
+        {showBanner && (
+          <div style={{ padding: 12, background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: 12 }}>
+            <input className="input mb-8" placeholder="Banner image URL (1600×600)" value={form.hero_image} onChange={(e) => setForm({ ...form, hero_image: e.target.value })} style={{ width: "100%" }} data-testid="blog-hero-image" />
+            <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+              <input className="input" placeholder="Banner title (defaults to article title)" value={form.hero_title} onChange={(e) => setForm({ ...form, hero_title: e.target.value })} data-testid="blog-hero-title" />
+              <input className="input" placeholder="Banner subtitle" value={form.hero_subtitle} onChange={(e) => setForm({ ...form, hero_subtitle: e.target.value })} data-testid="blog-hero-subtitle" />
+            </div>
+            <div className="grid grid-2 gap-12">
+              <input className="input" placeholder="CTA label" value={form.hero_cta_label} onChange={(e) => setForm({ ...form, hero_cta_label: e.target.value })} data-testid="blog-hero-cta-label" />
+              <input className="input" placeholder="CTA URL" value={form.hero_cta_url} onChange={(e) => setForm({ ...form, hero_cta_url: e.target.value })} data-testid="blog-hero-cta-url" />
+            </div>
+          </div>
+        )}
+
+        <button className="btn btn-gold" onClick={save} data-testid="blog-save">{editing ? "Update Article" : "+ Add Article"}</button>
+        {editing && <button className="btn btn-ghost" onClick={() => { setEditing(null); setForm(EMPTY); setShowBanner(false); setTagInput(""); }} style={{ marginLeft: 8 }} data-testid="blog-cancel">Cancel</button>}
+
+        <div className="table-wrap" style={{ marginTop: 18 }}>
+          <table className="table">
+            <thead><tr><th>Title</th><th>Slug</th><th>Author</th><th>Banner</th><th>Published</th><th>Actions</th></tr></thead>
+            <tbody>
+              {list.map((b) => (
+                <tr key={b.id} data-testid={`blog-row-${b.id}`}>
+                  <td className="fw-600">{b.title}</td>
+                  <td className="font-mono fs-11">{b.slug}</td>
+                  <td className="fs-12">{b.author || "—"}</td>
+                  <td className="fs-11">{(b.hero_image || b.hero_title) ? <span className="pill" style={{ background: "linear-gradient(135deg, var(--gold), var(--gold-light))", color: "#000" }}>🖼️ Set</span> : <span className="text-muted">—</span>}</td>
+                  <td>
+                    <button className={`pill ${b.published ? "pill-green" : "pill-amber"}`} onClick={() => togglePublish(b)} style={{ border: "none", cursor: "pointer" }} data-testid={`blog-toggle-publish-${b.id}`}>
+                      {b.published ? "Yes" : "No"}
+                    </button>
+                  </td>
+                  <td>
+                    <button className="btn btn-ghost btn-xs" onClick={() => edit(b)} data-testid={`blog-edit-${b.id}`}>Edit</button>
+                    <a className="btn btn-ghost btn-xs" href={`/blog/${b.slug}`} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6 }} data-testid={`blog-view-${b.id}`}>View ↗</a>
+                    <button className="btn btn-red btn-xs" onClick={() => del(b.id)} style={{ marginLeft: 6 }} data-testid={`blog-delete-${b.id}`}>Delete</button>
+                  </td>
+                </tr>
+              ))}
+              {list.length === 0 && <tr><td colSpan={6} className="empty">No blog articles yet. Add one above.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

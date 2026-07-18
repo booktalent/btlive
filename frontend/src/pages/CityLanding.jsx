@@ -68,11 +68,33 @@ export default function CityLanding() {
         {!data && <div className="skeleton" style={{ height: 300 }} />}
         {data && city && (
           <>
-            <div className="landing-hero" style={{ marginBottom: 32 }}>
-              <div style={{ fontSize: 64, marginBottom: 8 }}>📍</div>
-              <h1 style={{ fontSize: 42 }} data-testid="city-h1">{title}</h1>
-              <p className="text-muted" style={{ maxWidth: 720 }}>{description}</p>
-            </div>
+            {(city.hero_image || city.hero_title) ? (
+              <div
+                className="page-hero"
+                data-testid="city-hero"
+                style={{
+                  backgroundImage: city.hero_image
+                    ? `linear-gradient(180deg, rgba(0,0,0,0.4), rgba(0,0,0,0.65)), url(${city.hero_image})`
+                    : undefined,
+                }}
+              >
+                <div className="page-hero-inner">
+                  <h1 data-testid="city-h1">{city.hero_title || title}</h1>
+                  <p data-testid="city-hero-sub">{city.hero_subtitle || description}</p>
+                  {city.hero_cta_url && (
+                    <a href={city.hero_cta_url} className="btn btn-gold" data-testid="city-hero-cta">
+                      {city.hero_cta_label || "Explore"} →
+                    </a>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="landing-hero" style={{ marginBottom: 32 }}>
+                <div style={{ fontSize: 64, marginBottom: 8 }}>📍</div>
+                <h1 style={{ fontSize: 42 }} data-testid="city-h1">{title}</h1>
+                <p className="text-muted" style={{ maxWidth: 720 }}>{description}</p>
+              </div>
+            )}
             {artists.length === 0 ? (
               <div className="empty" style={{ padding: 40 }}>No artists listed for {city.name} yet — check back soon or <Link to="/search">browse all cities</Link>.</div>
             ) : (

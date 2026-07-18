@@ -49,6 +49,12 @@ class MasterItem(BaseModel):
     icon: Optional[str] = None
     sort_order: int = 0
     active: bool = True
+    # Iter 41 — Featured banner on category / city SEO landing pages
+    hero_image: Optional[str] = None
+    hero_title: Optional[str] = None
+    hero_subtitle: Optional[str] = None
+    hero_cta_label: Optional[str] = None
+    hero_cta_url: Optional[str] = None
 
 
 class FAQItem(BaseModel):
@@ -184,6 +190,11 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             "icon": body.icon,
             "sort_order": body.sort_order,
             "active": body.active,
+            "hero_image": body.hero_image or "",
+            "hero_title": body.hero_title or "",
+            "hero_subtitle": body.hero_subtitle or "",
+            "hero_cta_label": body.hero_cta_label or "",
+            "hero_cta_url": body.hero_cta_url or "",
             "created_at": utcnow(),
         }
         await db[col].insert_one(doc)
@@ -197,8 +208,11 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             raise HTTPException(404, "Unknown master entity")
         updates = {k: v for k, v in body.dict().items() if v is not None}
         updates["updated_at"] = utcnow()
-        if body.name and not body.slug:
-            updates["slug"] = slugify(body.name)
+        # Only regenerate the slug when the admin explicitly passes a new
+        # slug — do NOT auto-derive from name on update or we'd silently
+        # break every existing public URL for this row.
+        if not body.slug:
+            updates.pop("slug", None)
         await db[col].update_one({"id": item_id}, {"$set": updates})
         await audit(user, "master.update", entity, item_id, updates)
         doc = await db[col].find_one({"id": item_id})
@@ -304,6 +318,13 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         "blog_hero_subtitle",
         "blog_hero_cta_label",
         "blog_hero_cta_url",
+        # Iter 41 — Home page hero (admin-editable seasonal promo)
+        "home_hero_image",
+        "home_hero_eyebrow",
+        "home_hero_title",
+        "home_hero_subtitle",
+        "home_hero_cta_label",
+        "home_hero_cta_url",
     }
 
     @r.get("/settings/public")
