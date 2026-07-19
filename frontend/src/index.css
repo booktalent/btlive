@@ -1091,3 +1091,90 @@ textarea:-webkit-autofill {
   .auth-mobile-logo { font-size: 15px; }
   .auth-right { padding: 24px 20px !important; }
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+   Media carousel — prev/next arrows on lightbox
+   ──────────────────────────────────────────────────────────────────────── */
+.media-lightbox-nav {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 32px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+.media-lightbox-nav:hover {
+  background: rgba(0,0,0,0.75);
+  border-color: var(--gold);
+  color: var(--gold-light);
+}
+.media-lightbox-nav.prev { left: 20px; }
+.media-lightbox-nav.next { right: 20px; }
+.media-lightbox-nav:active { transform: translateY(-50%) scale(0.94); }
+.media-lightbox-counter { opacity: 0.7; }
+
+/* ────────────────────────────────────────────────────────────────────────
+   Sticky "Book Now" bar — mobile-only on artist profile
+   ──────────────────────────────────────────────────────────────────────── */
+.mobile-book-bar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .mobile-book-bar {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 100;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(9, 9, 18, 0.92);
+    border-top: 1px solid var(--glass-border);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 -8px 24px rgba(0,0,0,0.35);
+  }
+  .mobile-book-bar-price {
+    flex: 1;
+    line-height: 1.15;
+    min-width: 0;
+  }
+  .mobile-book-bar-label {
+    font-size: 10px;
+    color: var(--white-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .mobile-book-bar-amount {
+    font-family: var(--font-serif);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--gold-light);
+    margin-top: 2px;
+  }
+  .mobile-book-bar-cta {
+    flex-shrink: 0;
+    padding: 12px 22px;
+    font-size: 14px;
+  }
+
+  /* Give the page bottom padding so the sticky bar never overlaps the footer/content */
+  [data-testid="artist-profile-page"] { padding-bottom: 88px; }
+
+  /* Carousel arrows a touch smaller on phones */
+  .media-lightbox-nav { width: 44px; height: 44px; font-size: 26px; }
+  .media-lightbox-nav.prev { left: 8px; }
+  .media-lightbox-nav.next { right: 8px; }
+}
+

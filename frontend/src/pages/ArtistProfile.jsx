@@ -14,7 +14,7 @@ export default function ArtistProfile() {
   const [tab, setTab] = useState("about");
   const [selectedPkg, setSelectedPkg] = useState(null);
   const [artistId, setArtistId] = useState(id);
-  const [lightbox, setLightbox] = useState(null); // { src, isVideo, title }
+  const [lightbox, setLightbox] = useState(null); // { items: MediaItem[], idx: number }
   const nav = useNavigate();
   const { user } = useAuth();
 
@@ -221,27 +221,32 @@ export default function ArtistProfile() {
                 <h3 className="card-title mb-16">Performance Gallery</h3>
                 {media.length === 0 ? (
                   <div className="empty"><div className="empty-icon">📷</div><div className="empty-title">No media yet</div></div>
-                ) : (
-                  <div className="media-grid">
-                    {media.filter((m) => m.type !== "kyc").map((m) => {
-                      const src = `${api.defaults.baseURL}/media/${m.id}`;
-                      const isVideo = m.mime?.startsWith("video/");
-                      return (
+                ) : (() => {
+                  const viewable = media.filter((m) => m.type !== "kyc");
+                  const items = viewable.map((m) => ({
+                    id: m.id,
+                    src: `${api.defaults.baseURL}/media/${m.id}`,
+                    isVideo: m.mime?.startsWith("video/"),
+                    title: m.title || "",
+                  }));
+                  return (
+                    <div className="media-grid">
+                      {items.map((it, i) => (
                         <button
-                          key={m.id}
+                          key={it.id}
                           type="button"
                           className="media-tile"
-                          data-testid={`media-${m.id}`}
-                          onClick={() => setLightbox({ src, isVideo, title: m.title || "" })}
-                          aria-label={`Open ${isVideo ? "video" : "image"} in viewer`}
+                          data-testid={`media-${it.id}`}
+                          onClick={() => setLightbox({ items, idx: i })}
+                          aria-label={`Open ${it.isVideo ? "video" : "image"} ${i + 1} of ${items.length}`}
                         >
-                          {isVideo ? <video src={src} muted /> : <img src={src} alt={m.title || ""} />}
-                          <span className="media-tile-play" aria-hidden>{isVideo ? "▶" : "⤢"}</span>
+                          {it.isVideo ? <video src={it.src} muted /> : <img src={it.src} alt={it.title} />}
+                          <span className="media-tile-play" aria-hidden>{it.isVideo ? "▶" : "⤢"}</span>
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -327,45 +332,142 @@ export default function ArtistProfile() {
           </div>
         </div>
       </div>
-      {lightbox && (
-        <div
-          className="media-lightbox"
-          onClick={() => setLightbox(null)}
-          role="dialog"
-          aria-modal="true"
-          data-testid="media-lightbox"
-        >
+      {selectedPkg && (
+        <div className="mobile-book-bar" data-testid="mobile-book-bar">
+          <div className="mobile-book-bar-price">
+            <div className="mobile-book-bar-label">Starting from</div>
+            <div className="mobile-book-bar-amount">{fmtINRFull(selectedPkg.price)}</div>
+          </div>
           <button
             type="button"
-            className="media-lightbox-close"
-            onClick={(e) => { e.stopPropagation(); setLightbox(null); }}
-            aria-label="Close viewer"
-            data-testid="media-lightbox-close"
-          >×</button>
-          <div
-            className="media-lightbox-content"
-            onClick={(e) => e.stopPropagation()}
+            className="btn btn-gold mobile-book-bar-cta"
+            onClick={startBooking}
+            data-testid="mobile-book-bar-btn"
           >
-            {lightbox.isVideo ? (
-              <video
-                src={lightbox.src}
-                controls
-                autoPlay
-                playsInline
-                data-testid="media-lightbox-video"
-              />
-            ) : (
-              <img
-                src={lightbox.src}
-                alt={lightbox.title}
-                data-testid="media-lightbox-image"
-              />
-            )}
-            {lightbox.title && <div className="media-lightbox-title">{lightbox.title}</div>}
-          </div>
+            🔐 Book Now
+          </button>
         </div>
       )}
+      {lightbox && (
+        <MediaCarousel lightbox={lightbox} onClose={() => setLightbox(null)} onChange={setLightbox} />
+      )}
       <Footer />
+    </div>
+  );
+}
+
+
+// ─── Swipeable / keyboard-navigable media carousel ─────────────────────
+function MediaCarousel({ lightbox, onClose, onChange }) {
+  const { items, idx } = lightbox;
+  const total = items.length;
+  const current = items[idx];
+  const touchRef = React.useRef({ x: 0, active: false });
+
+  const goPrev = React.useCallback(() => {
+    if (total < 2) return;
+    onChange({ items, idx: (idx - 1 + total) % total });
+  }, [items, idx, total, onChange]);
+
+  const goNext = React.useCallback(() => {
+    if (total < 2) return;
+    onChange({ items, idx: (idx + 1) % total });
+  }, [items, idx, total, onChange]);
+
+  // Keyboard: ← → for nav, Esc for close
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "ArrowLeft") goPrev();
+      else if (e.key === "ArrowRight") goNext();
+      else if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goPrev, goNext, onClose]);
+
+  // Preload neighbours to make swipe feel instant
+  React.useEffect(() => {
+    if (total < 2) return;
+    [1, -1].forEach((d) => {
+      const n = items[(idx + d + total) % total];
+      if (n && !n.isVideo) { const im = new Image(); im.src = n.src; }
+    });
+  }, [idx, items, total]);
+
+  const onTouchStart = (e) => { touchRef.current = { x: e.touches[0].clientX, active: true }; };
+  const onTouchEnd = (e) => {
+    if (!touchRef.current.active) return;
+    const dx = (e.changedTouches[0]?.clientX ?? touchRef.current.x) - touchRef.current.x;
+    touchRef.current.active = false;
+    if (Math.abs(dx) < 40) return;
+    if (dx > 0) goPrev(); else goNext();
+  };
+
+  return (
+    <div
+      className="media-lightbox"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      data-testid="media-lightbox"
+    >
+      <button
+        type="button"
+        className="media-lightbox-close"
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        aria-label="Close viewer"
+        data-testid="media-lightbox-close"
+      >×</button>
+
+      {total > 1 && (
+        <>
+          <button
+            type="button"
+            className="media-lightbox-nav prev"
+            onClick={(e) => { e.stopPropagation(); goPrev(); }}
+            aria-label="Previous"
+            data-testid="media-lightbox-prev"
+          >‹</button>
+          <button
+            type="button"
+            className="media-lightbox-nav next"
+            onClick={(e) => { e.stopPropagation(); goNext(); }}
+            aria-label="Next"
+            data-testid="media-lightbox-next"
+          >›</button>
+        </>
+      )}
+
+      <div
+        className="media-lightbox-content"
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {current.isVideo ? (
+          <video
+            key={current.id}
+            src={current.src}
+            controls
+            autoPlay
+            playsInline
+            data-testid="media-lightbox-video"
+          />
+        ) : (
+          <img
+            key={current.id}
+            src={current.src}
+            alt={current.title}
+            data-testid="media-lightbox-image"
+          />
+        )}
+        {(current.title || total > 1) && (
+          <div className="media-lightbox-title">
+            {current.title}
+            {total > 1 && <span className="media-lightbox-counter"> · {idx + 1} / {total}</span>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

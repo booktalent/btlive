@@ -755,3 +755,21 @@ Files touched: `chat_routes.py`, `iter9_routes.py` (`chat_upload`), `ChatBox.jsx
 - New CSS: `.profile-header-row`, `.profile-stats-grid`, `.profile-main-grid`, `.media-tile-play`, `.media-lightbox*`, `.auth-mobile-topbar/back/logo`. Existing global mobile block at `@media (max-width: 767px)` extended.
 - Files touched: `frontend/src/pages/ArtistProfile.jsx`, `frontend/src/pages/Auth.jsx`, `frontend/src/index.css`.
 
+
+## 2026-02-19 — Blog Covers, Sticky Mobile Book Bar, Media Carousel
+- **Blog demo content**: Removed the placeholder `Regression Test Blog` and seeded 4 published posts with real Unsplash cover images:
+  - `how-to-book-perfect-wedding-singer` (also has full hero banner)
+  - `corporate-event-entertainment-2026`
+  - `artist-spotlight-djs-of-mumbai`
+  - `planning-a-sangeet-artist-lineup`
+- **Blog hero banner**: Set `blog_hero_image`, `blog_hero_title` ("The BookTalent Journal"), `blog_hero_subtitle` in `system_settings` — `/blog` list page now has a live hero.
+- **Sticky mobile Book Now bar**: New `.mobile-book-bar` shown only at ≤767px on `/artist/:id`. Fixed to viewport bottom with `backdrop-filter: blur(14px)`, respects `env(safe-area-inset-bottom)`. Shows "Starting from ₹X" + a `🔐 Book Now` CTA that fires the same `startBooking()` as the sidebar. Page bottom padding increased to 88px to prevent overlap.
+- **Media Carousel**: Refactored the lightbox to a reusable `<MediaCarousel />` component. Features:
+  - ‹ / › nav buttons (with `data-testid="media-lightbox-prev/next"`)
+  - Keyboard shortcuts: ← / → to navigate, Esc to close
+  - Touch swipe support (>40px horizontal delta on touchend)
+  - `1 / N` counter in the footer
+  - Image preloading for neighbours (idx±1) — swipes feel instant
+  - Wraps around at both ends
+- Files touched: `frontend/src/pages/ArtistProfile.jsx`, `frontend/src/index.css`, `blogs` + `system_settings` collections seeded.
+
