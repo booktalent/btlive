@@ -514,6 +514,7 @@ function HomeRail({ rail }) {
   const [fCat, setFCat] = React.useState("all");
   const [fCity, setFCity] = React.useState("all");
   const [fPrice, setFPrice] = React.useState("all");
+  const [showFilters, setShowFilters] = React.useState(false);
 
   if (!rail?.items?.length) return null;
   // Dedupe by user_id to guard against duplicate-key warnings
@@ -542,6 +543,8 @@ function HomeRail({ rail }) {
     return true;
   });
   const anyActive = fCat !== "all" || fCity !== "all" || fPrice !== "all";
+  const activeCount = [fCat, fCity, fPrice].filter((v) => v !== "all").length;
+  const hasFilterableFacets = cats.length > 2 || cities.length > 2;
   return (
     <div className="mb-32" data-testid={`rail-${rail.code}`} style={{ marginBottom: 40 }}>
       <div className="section-head">
@@ -549,10 +552,23 @@ function HomeRail({ rail }) {
           <h2 className="section-title" style={{ fontSize: 24 }}>{rail.title}</h2>
           <p className="section-sub">{rail.subtitle}</p>
         </div>
-        <Link to={`/search?section=${encodeURIComponent(rail.code)}`} className="btn btn-ghost btn-sm" data-testid={`rail-more-${rail.code}`}>View All →</Link>
+        <div className="section-head-actions">
+          {hasFilterableFacets && (
+            <button
+              type="button"
+              className={`btn btn-ghost btn-sm rail-filter-toggle ${showFilters ? "active" : ""}`}
+              onClick={() => setShowFilters((s) => !s)}
+              data-testid={`rail-filter-toggle-${rail.code}`}
+              aria-expanded={showFilters}
+            >
+              {showFilters ? "▲" : "▼"} Filter{activeCount > 0 && <span className="rail-filter-count">{activeCount}</span>}
+            </button>
+          )}
+          <Link to={`/search?section=${encodeURIComponent(rail.code)}`} className="btn btn-ghost btn-sm" data-testid={`rail-more-${rail.code}`}>View All →</Link>
+        </div>
       </div>
 
-      {(cats.length > 2 || cities.length > 2) && (
+      {hasFilterableFacets && showFilters && (
         <div className="rail-filters" data-testid={`rail-filters-${rail.code}`}>
           {cats.length > 2 && (<>
             <span className="rail-filter-label">Type</span>
