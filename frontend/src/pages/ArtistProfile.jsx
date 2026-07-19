@@ -14,6 +14,7 @@ export default function ArtistProfile() {
   const [tab, setTab] = useState("about");
   const [selectedPkg, setSelectedPkg] = useState(null);
   const [artistId, setArtistId] = useState(id);
+  const [lightbox, setLightbox] = useState(null); // { src, isVideo, title }
   const nav = useNavigate();
   const { user } = useAuth();
 
@@ -127,9 +128,9 @@ export default function ArtistProfile() {
           <div style={{ position: "absolute", inset: 0, background: profile.cover_image ? "transparent" : "linear-gradient(180deg, transparent 40%, rgba(9,9,18,0.8))" }} />
         </div>
 
-        <div style={{ display: "flex", alignItems: "end", gap: 24, padding: "0 24px", marginTop: -50, marginBottom: 24, position: "relative" }}>
+        <div className="profile-header-row" data-testid="profile-header">
           <div
-            className="avatar avatar-xl"
+            className="avatar avatar-xl profile-header-avatar"
             style={{
               background: profile.profile_image
                 ? `url(${mediaUrl(profile.profile_image)}?v=${profile.updated_at || ""}) center/cover`
@@ -140,21 +141,21 @@ export default function ArtistProfile() {
           >
             {!profile.profile_image && (profile.emoji || "🎤")}
           </div>
-          <div style={{ flex: 1, paddingBottom: 8 }}>
-            <h1 className="font-serif" style={{ fontSize: 38, fontWeight: 700, marginBottom: 8 }} data-testid="artist-name">{profile.stage_name}</h1>
+          <div className="profile-header-info">
+            <h1 className="font-serif profile-name" data-testid="artist-name">{profile.stage_name}</h1>
             <div className="flex gap-8 items-center" style={{ flexWrap: "wrap" }}>
               {profile.kyc_status === "approved" && <span className="pill pill-green">✓ KYC Verified</span>}
               <span className="pill pill-gold">{profile.category}</span>
               <span className="text-muted fs-13">📍 {profile.city}</span>
             </div>
           </div>
-          <div className="text-right">
+          <div className="profile-header-cta">
             <div className="pill pill-amber">⚡ Responds in ~2 hrs</div>
             <div className="text-muted fs-12 mt-8">{profile.profile_views} profile views</div>
           </div>
         </div>
 
-        <div className="grid grid-4 mb-24" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+        <div className="profile-stats-grid mb-24">
           <div className="card card-pad text-center">
             <div className="font-serif fs-20 fw-700 text-gold">★ {profile.rating_avg.toFixed(1)}</div>
             <div className="text-muted fs-11 mt-4">Rating</div>
@@ -171,13 +172,13 @@ export default function ArtistProfile() {
             <div className="font-serif fs-20 fw-700">{profile.experience_years || 8} yrs</div>
             <div className="text-muted fs-11 mt-4">Experience</div>
           </div>
-          <div className="card card-pad text-center">
+          <div className="card card-pad text-center profile-stat-full">
             <div className="font-serif fs-20 fw-700">{profile.followers}</div>
             <div className="text-muted fs-11 mt-4">Followers</div>
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 24 }}>
+        <div className="profile-main-grid">
           <div>
             <div className="tab-bar" data-testid="profile-tabs">
               {["about", "media", "packages", "reviews"].map((t) => (
@@ -222,15 +223,23 @@ export default function ArtistProfile() {
                   <div className="empty"><div className="empty-icon">📷</div><div className="empty-title">No media yet</div></div>
                 ) : (
                   <div className="media-grid">
-                    {media.filter((m) => m.type !== "kyc").map((m) => (
-                      <div key={m.id} className="media-tile" data-testid={`media-${m.id}`}>
-                        {m.mime?.startsWith("video/") ? (
-                          <video src={`${api.defaults.baseURL}/media/${m.id}`} muted />
-                        ) : (
-                          <img src={`${api.defaults.baseURL}/media/${m.id}`} alt={m.title || ""} />
-                        )}
-                      </div>
-                    ))}
+                    {media.filter((m) => m.type !== "kyc").map((m) => {
+                      const src = `${api.defaults.baseURL}/media/${m.id}`;
+                      const isVideo = m.mime?.startsWith("video/");
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          className="media-tile"
+                          data-testid={`media-${m.id}`}
+                          onClick={() => setLightbox({ src, isVideo, title: m.title || "" })}
+                          aria-label={`Open ${isVideo ? "video" : "image"} in viewer`}
+                        >
+                          {isVideo ? <video src={src} muted /> : <img src={src} alt={m.title || ""} />}
+                          <span className="media-tile-play" aria-hidden>{isVideo ? "▶" : "⤢"}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -318,6 +327,44 @@ export default function ArtistProfile() {
           </div>
         </div>
       </div>
+      {lightbox && (
+        <div
+          className="media-lightbox"
+          onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-modal="true"
+          data-testid="media-lightbox"
+        >
+          <button
+            type="button"
+            className="media-lightbox-close"
+            onClick={(e) => { e.stopPropagation(); setLightbox(null); }}
+            aria-label="Close viewer"
+            data-testid="media-lightbox-close"
+          >×</button>
+          <div
+            className="media-lightbox-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {lightbox.isVideo ? (
+              <video
+                src={lightbox.src}
+                controls
+                autoPlay
+                playsInline
+                data-testid="media-lightbox-video"
+              />
+            ) : (
+              <img
+                src={lightbox.src}
+                alt={lightbox.title}
+                data-testid="media-lightbox-image"
+              />
+            )}
+            {lightbox.title && <div className="media-lightbox-title">{lightbox.title}</div>}
+          </div>
+        </div>
+      )}
       <Footer />
     </div>
   );

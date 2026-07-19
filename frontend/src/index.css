@@ -917,3 +917,177 @@ textarea:-webkit-autofill {
   place-items: center;
   text-align: center;
 }
+
+
+/* ────────────────────────────────────────────────────────────────────────
+   Artist Profile — responsive header, stats & booking sidebar
+   ──────────────────────────────────────────────────────────────────────── */
+.profile-header-row {
+  display: flex;
+  align-items: end;
+  gap: 24px;
+  padding: 0 24px;
+  margin-top: -50px;
+  margin-bottom: 24px;
+  position: relative;
+}
+.profile-header-info { flex: 1; padding-bottom: 8px; }
+.profile-header-cta { text-align: right; }
+.profile-name { font-size: 38px; font-weight: 700; margin-bottom: 8px; }
+
+.profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 18px;
+}
+
+.profile-main-grid {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 24px;
+}
+
+/* ── Media tile — clickable, with subtle hover state + zoom hint ── */
+.media-tile {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--glass);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 200ms ease, border-color 200ms ease;
+}
+.media-tile:hover { transform: translateY(-2px); border-color: var(--gold); }
+.media-tile img,
+.media-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.media-tile-play {
+  position: absolute;
+  right: 10px; bottom: 10px;
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 14px;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+
+/* ── Lightbox modal ── */
+.media-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: fadeIn 200ms ease;
+  cursor: zoom-out;
+}
+.media-lightbox-content {
+  position: relative;
+  max-width: min(92vw, 1200px);
+  max-height: 88vh;
+  cursor: default;
+}
+.media-lightbox-content img,
+.media-lightbox-content video {
+  max-width: 100%;
+  max-height: 88vh;
+  border-radius: 10px;
+  display: block;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.media-lightbox-close {
+  position: fixed;
+  top: 18px; right: 20px;
+  width: 44px; height: 44px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 10000;
+}
+.media-lightbox-close:hover { border-color: var(--gold); color: var(--gold-light); }
+.media-lightbox-title {
+  color: #fff;
+  text-align: center;
+  padding: 12px 0 0;
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+/* ── Auth mobile top bar — hidden on desktop ── */
+.auth-mobile-topbar { display: none; }
+
+/* ────────────────────────────────────────────────────────────────────────
+   Mobile (≤767) — artist profile + auth
+   ──────────────────────────────────────────────────────────────────────── */
+@media (max-width: 767px) {
+  /* Artist profile — stack header vertically, name/CTA no longer cramped */
+  .profile-header-row {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 12px;
+    padding: 0 12px;
+    margin-top: -60px;
+  }
+  .profile-header-avatar {
+    width: 96px !important;
+    height: 96px !important;
+  }
+  .profile-header-info { text-align: center; padding-bottom: 0; }
+  .profile-header-cta { text-align: center; }
+  .profile-name { font-size: 26px !important; margin-bottom: 6px; }
+  .profile-header-info .flex { justify-content: center; }
+
+  /* Stats — 2-col grid, 5th tile spans both columns */
+  .profile-stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+  .profile-stat-full { grid-column: 1 / -1; }
+
+  /* Booking sidebar — collapse into single column so it appears below content */
+  .profile-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .profile-main-grid [data-testid="booking-sidebar"] .card { position: static !important; }
+
+  /* Media lightbox tuning */
+  .media-lightbox { padding: 12px; }
+  .media-lightbox-close { top: 10px; right: 12px; width: 40px; height: 40px; }
+
+  /* Auth — the left panel is display:none, so surface a top bar with logo + back link */
+  .auth-mobile-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: rgba(9,9,18,0.9);
+    border-bottom: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .auth-mobile-back {
+    color: var(--gold-light);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .auth-mobile-logo { font-size: 15px; }
+  .auth-right { padding: 24px 20px !important; }
+}

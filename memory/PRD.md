@@ -745,3 +745,13 @@ Files touched: `chat_routes.py`, `iter9_routes.py` (`chat_upload`), `ChatBox.jsx
   - Skeleton grid switched to `sk-artist-card` for visual consistency
 - Verified via screenshot at `/search`.
 
+
+## 2026-02-19 — Mobile Friendliness Pass (Auth + Artist Profile)
+- **Auth page mobile top bar**: The `.auth-left` panel (logo + hero copy) is hidden at ≤980px. Added a sticky `.auth-mobile-topbar` with a `← Home` link + BookTalent logo so users can always navigate away from signin/signup on mobile.
+- **Artist Profile — responsive header**: Extracted inline flex header into `.profile-header-row`. On mobile it stacks vertically (avatar → name → CTAs) with centered alignment, so name and "Responds in ~2 hrs" are no longer cramped side-by-side.
+- **Artist Profile — 2-column stats on mobile**: Rating / Reviews / Events Done / Experience render as a 2×2 grid, Followers gets a `.profile-stat-full` class that spans both columns in row 3.
+- **Artist Profile — booking sidebar**: `.profile-main-grid` collapses from `1fr 360px` to `1fr` on mobile so the "🔐 Book Now" sidebar stacks below the tabs content and stops being invisible.
+- **Media lightbox**: `.media-tile` is now a `<button>` that opens a `.media-lightbox` fullscreen modal (dim backdrop, click-outside to close, × close button, `<video controls>` for videos, plain `<img>` for photos). Play/expand hint chip added to tile corner.
+- New CSS: `.profile-header-row`, `.profile-stats-grid`, `.profile-main-grid`, `.media-tile-play`, `.media-lightbox*`, `.auth-mobile-topbar/back/logo`. Existing global mobile block at `@media (max-width: 767px)` extended.
+- Files touched: `frontend/src/pages/ArtistProfile.jsx`, `frontend/src/pages/Auth.jsx`, `frontend/src/index.css`.
+

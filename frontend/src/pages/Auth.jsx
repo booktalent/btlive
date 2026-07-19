@@ -96,6 +96,15 @@ export default function Auth({ mode = "signin" }) {
 
   return (
     <div className="auth-wrap" data-testid="auth-page">
+      <div className="auth-mobile-topbar" data-testid="auth-mobile-topbar">
+        <Link to="/" className="auth-mobile-back" data-testid="auth-mobile-home">
+          ← Home
+        </Link>
+        <Link to="/" className="logo auth-mobile-logo" data-testid="auth-mobile-logo">
+          <div className="logo-mark">B</div>
+          <span>Book<span className="gold">Talent</span></span>
+        </Link>
+      </div>
       <div className="auth-left">
         <Link to="/" className="logo" data-testid="auth-logo">
           <div className="logo-mark">B</div>
