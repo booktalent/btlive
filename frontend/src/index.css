@@ -946,6 +946,15 @@ textarea:-webkit-autofill {
   grid-template-columns: 1fr 360px;
   gap: 24px;
 }
+.profile-main-grid > * { min-width: 0; }
+
+/* Collapse the booking sidebar to a single column on tablets & phones.
+   768-1024 doesn't have enough real estate for the 360px sticky sidebar
+   and forces horizontal overflow, so we stack it below the tabs. */
+@media (max-width: 1024px) {
+  .profile-main-grid { grid-template-columns: 1fr !important; }
+  .profile-main-grid [data-testid="booking-sidebar"] .card { position: static !important; }
+}
 
 /* ── Media tile — clickable, with subtle hover state + zoom hint ── */
 .media-tile {
@@ -1059,11 +1068,7 @@ textarea:-webkit-autofill {
   }
   .profile-stat-full { grid-column: 1 / -1; }
 
-  /* Booking sidebar — collapse into single column so it appears below content */
-  .profile-main-grid {
-    grid-template-columns: 1fr !important;
-  }
-  .profile-main-grid [data-testid="booking-sidebar"] .card { position: static !important; }
+  /* Booking sidebar rule lives in the ≤1024 block above so it also covers tablets. */
 
   /* Media lightbox tuning */
   .media-lightbox { padding: 12px; }
