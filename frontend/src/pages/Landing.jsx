@@ -320,19 +320,6 @@ export default function Landing() {
         </div>
       </section>
 
-      <div className="cat-strip mb-24">
-        {CATEGORIES.map((c) => (
-          <Link
-            key={c.slug}
-            to={c.slug === "all" ? "/search" : `/search?category=${encodeURIComponent(c.slug)}`}
-            className="cat-chip"
-            data-testid={`cat-chip-${c.slug}`}
-          >
-            <span>{c.icon}</span> {c.name}
-          </Link>
-        ))}
-      </div>
-
       <section className="section">
         <div className="container">
           {loading ? (
