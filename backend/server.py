@@ -2586,27 +2586,6 @@ async def cities():
     return ["Mumbai", "Delhi NCR", "Bangalore", "Chennai", "Hyderabad", "Kolkata", "Pune", "Jaipur", "Ahmedabad", "Goa"]
 
 
-# ── Token-gated one-shot DB dump download (for VPS migration) ────────────
-# Serves the pre-generated /app/booktalent_dump.archive.gz behind an
-# unguessable URL token. This is transient tooling — remove after migration.
-import hmac as _hmac
-from fastapi.responses import FileResponse as _FileResponse
-_DUMP_PATH = "/app/booktalent_dump.archive.gz"
-_DUMP_TOKEN = "c2ncn5JsPqKnKJcXYyjVHfucwwSgAiAzGArPJvY1CkEgCddY0AQBehFWeM7RoJx8"
-
-@api.get("/ops/dump/{token}")
-async def dump_download(token: str):
-    if not _hmac.compare_digest(token, _DUMP_TOKEN):
-        raise HTTPException(status_code=404, detail="Not found")
-    if not os.path.exists(_DUMP_PATH):
-        raise HTTPException(status_code=404, detail="Dump not available")
-    return _FileResponse(
-        _DUMP_PATH,
-        media_type="application/gzip",
-        filename="booktalent-mongodb-dump.archive.gz",
-    )
-
-
 app.include_router(api)
 
 

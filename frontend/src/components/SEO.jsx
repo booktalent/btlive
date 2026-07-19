@@ -78,7 +78,7 @@ export default function SEO({
       </script>
 
       {ldItems.map((obj, i) => (
-        <script key={i} type="application/ld+json">
+        <script key={`ld-${obj?.["@type"] || "obj"}-${i}`} type="application/ld+json">
           {JSON.stringify(obj)}
         </script>
       ))}
