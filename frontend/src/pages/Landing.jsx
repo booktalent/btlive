@@ -257,19 +257,29 @@ export default function Landing() {
               <div className="sk sk-spotlight-card sk-spot-3" data-testid="sk-spot-3" />
             </>
           )}
-          {visibleSpotlight.slice(0, 3).map((c, i) => (
+          {visibleSpotlight.slice(0, 3).map((c, i) => {
+            // Featured artists pay for hero placement — show their actual photo.
+            // Priority: profile_image → cover_image → first gallery thumb → emoji fallback.
+            const thumbs = c.gallery_thumbs || [];
+            const featuredThumb = thumbs.find((t) => t.is_featured) || thumbs[0];
+            const heroImg = c.profile_image
+              ? mediaUrl(c.profile_image)
+              : c.cover_image
+                ? mediaUrl(c.cover_image)
+                : (featuredThumb ? mediaUrl(featuredThumb.id) : null);
+            return (
             <Link
               key={`${c.user_id}-${spotIdx}`}
               to={`/artist/${c.slug || c.user_id}`}
               className={`spotlight-card spotlight-card-${i + 1}`}
               data-testid={`spotlight-card-${i}`}
-              {...(c.profile_image ? {
+              {...(heroImg ? {
                 style: {
-                  background: `linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.65)), url(${c.profile_image}) center/cover`,
+                  background: `linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.85) 100%), url(${heroImg}) center/cover no-repeat`,
                 },
               } : {})}
             >
-              {!c.profile_image && (
+              {!heroImg && (
                 <div className="spotlight-emoji" aria-hidden>
                   {c.emoji || (c.category?.toLowerCase().includes("dj") ? "🎧" : c.category?.toLowerCase().includes("com") ? "🎭" : "🎤")}
                 </div>
@@ -286,7 +296,7 @@ export default function Landing() {
                 </div>
               </div>
             </Link>
-          ))}
+          );})}
           {spotlight.latest_booking && (
             <div className="spotlight-toast" data-testid="spotlight-toast">
               <div className="spotlight-toast-icon">📅</div>

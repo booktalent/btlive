@@ -69,30 +69,34 @@ export default function AdminDashboard() {
       <main className="dash-content">
         <Nav />
         <div style={{ marginTop: 18 }}>
-          <div className="dash-head">
-            <div><h1>Platform Overview</h1><p>All systems operational</p></div>
-          </div>
+          {tab === "overview" && (
+            <>
+              <div className="dash-head">
+                <div><h1>Platform Overview</h1><p>All systems operational</p></div>
+              </div>
 
-          <div className="kpi-grid">
-            <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(stats.gmv || 0)} label="Marketplace GMV (artist fees)" />
-            <Kpi icon="📋" cls="kpi-icon-purple" num={stats.total_bookings || 0} label="Bookings" />
-            <Kpi icon="👥" cls="kpi-icon-green" num={stats.total_users || 0} label="Users" />
-            <Kpi icon="🏦" cls="kpi-icon-blue" num={fmtINRFull(stats.bookTalent_total_collected || 0)} label="BookTalent Total Collected" />
-          </div>
+              <div className="kpi-grid">
+                <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(stats.gmv || 0)} label="Marketplace GMV (artist fees)" />
+                <Kpi icon="📋" cls="kpi-icon-purple" num={stats.total_bookings || 0} label="Bookings" />
+                <Kpi icon="👥" cls="kpi-icon-green" num={stats.total_users || 0} label="Users" />
+                <Kpi icon="🏦" cls="kpi-icon-blue" num={fmtINRFull(stats.bookTalent_total_collected || 0)} label="BookTalent Total Collected" />
+              </div>
 
-          <div className="kpi-grid mb-24">
-            <Kpi icon="🧾" cls="kpi-icon-gold" num={fmtINRFull(stats.platform_revenue || 0)} label="Platform Service Fee (5%)" />
-            <Kpi icon="🇮🇳" cls="kpi-icon-amber" num={fmtINRFull(stats.gst_collected || 0)} label="GST Collected (18%)" />
-            <Kpi icon="💎" cls="kpi-icon-purple" num={fmtINRFull(stats.subscription_revenue || 0)} label="Subscription Revenue" />
-            <Kpi icon="🚀" cls="kpi-icon-blue" num={fmtINRFull(stats.boost_revenue || 0)} label="Boost Revenue" />
-          </div>
+              <div className="kpi-grid mb-24">
+                <Kpi icon="🧾" cls="kpi-icon-gold" num={fmtINRFull(stats.platform_revenue || 0)} label="Platform Service Fee (5%)" />
+                <Kpi icon="🇮🇳" cls="kpi-icon-amber" num={fmtINRFull(stats.gst_collected || 0)} label="GST Collected (18%)" />
+                <Kpi icon="💎" cls="kpi-icon-purple" num={fmtINRFull(stats.subscription_revenue || 0)} label="Subscription Revenue" />
+                <Kpi icon="🚀" cls="kpi-icon-blue" num={fmtINRFull(stats.boost_revenue || 0)} label="Boost Revenue" />
+              </div>
 
-          <div className="kpi-grid mb-24">
-            <Kpi icon="↩️" cls="kpi-icon-amber" num={stats.pending_refunds || 0} label="Refunds Pending" />
-            <Kpi icon="🪪" cls="kpi-icon-blue" num={stats.pending_kyc || 0} label="KYC Pending" />
-            <Kpi icon="⚠️" cls="kpi-icon-red" num={stats.open_disputes || 0} label="Open Disputes" />
-            <Kpi icon="⭐" cls="kpi-icon-gold" num={stats.avg_rating || 0} label="Avg. Artist Rating" />
-          </div>
+              <div className="kpi-grid mb-24">
+                <Kpi icon="↩️" cls="kpi-icon-amber" num={stats.pending_refunds || 0} label="Refunds Pending" />
+                <Kpi icon="🪪" cls="kpi-icon-blue" num={stats.pending_kyc || 0} label="KYC Pending" />
+                <Kpi icon="⚠️" cls="kpi-icon-red" num={stats.open_disputes || 0} label="Open Disputes" />
+                <Kpi icon="⭐" cls="kpi-icon-gold" num={stats.avg_rating || 0} label="Avg. Artist Rating" />
+              </div>
+            </>
+          )}
 
           {tab === "overview" && <OverviewAdmin stats={stats} />}
           {tab === "artists" && <AdminArtists toast={toast} />}
