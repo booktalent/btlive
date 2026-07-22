@@ -387,6 +387,29 @@ function Overview({ data, doAction, refresh }) {
               artistUserId={user.id}
               editable
               onEdit={(date, current) => setEditing({ date, current })}
+              onBulkEdit={async (dates, mode) => {
+                let multiplier = 1.5, label = "Weekend";
+                if (mode === "premium") {
+                  const input = window.prompt("Premium multiplier (e.g. 1.5)?", "1.5");
+                  if (!input) return;
+                  multiplier = parseFloat(input) || 1.5;
+                  const lbl = window.prompt("Label for these dates?", "Weekend");
+                  if (lbl) label = lbl;
+                }
+                try {
+                  for (const d of dates) {
+                    if (mode === "available") {
+                      await api.delete(`/availability/${d}`);
+                    } else if (mode === "blocked") {
+                      await api.post("/availability", { date: d, status: "blocked" });
+                    } else {
+                      await api.post("/availability", { date: d, status: "premium", premium_multiplier: multiplier, premium_label: label });
+                    }
+                  }
+                  setCalBump((n) => n + 1);
+                  if (refresh) refresh();
+                } catch (_) {}
+              }}
             />
           )}
         </div>

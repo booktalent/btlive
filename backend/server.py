@@ -52,6 +52,7 @@ from routes import insights as routes_insights
 from routes import city_aliases as routes_city_aliases
 from routes import outstation_report as routes_outstation_report
 from routes import cms_seo as routes_cms_seo
+from routes import questionnaire as routes_questionnaire
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -2901,6 +2902,14 @@ _cms_seo_router = routes_cms_seo.make_router(
     **_common_deps,
 )
 app.include_router(_cms_seo_router, prefix="/api")
+
+# Iter 47 — Dynamic Artist Onboarding Questionnaire (Layer 1 + Layer 2).
+app.include_router(
+    routes_questionnaire.make_router(
+        get_current_user=get_current_user, admin_only=admin_only, **_common_deps
+    ),
+    prefix="/api",
+)
 
 
 @app.on_event("startup")

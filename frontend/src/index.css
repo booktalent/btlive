@@ -1636,3 +1636,83 @@ textarea:-webkit-autofill {
 }
 .cmd-gst-detail strong { color: #fff; font-weight: 600; }
 
+
+/* ────────────────────────────────────────────────────────────────────────
+   Bulk availability action bar
+   ──────────────────────────────────────────────────────────────────────── */
+.bulk-action-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(212,175,55,0.14), rgba(124,58,237,0.14));
+  border: 1px solid rgba(212,175,55,0.35);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+.bulk-count { font-size: 13px; }
+.bulk-count strong { color: var(--gold-light); font-size: 15px; }
+.bulk-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.bulk-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--white-dim);
+  text-align: center;
+  padding: 4px;
+}
+.avail-cal-cell.bulk-picked {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+  animation: bulkPulse 1.5s ease-in-out infinite;
+}
+@keyframes bulkPulse {
+  0%, 100% { outline-color: var(--gold); }
+  50% { outline-color: rgba(212,175,55,0.4); }
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Cross-artist availability widget
+   ──────────────────────────────────────────────────────────────────────── */
+.cross-avail-form { display: flex; gap: 12px; align-items: center; }
+.cross-avail-form input { max-width: 220px; }
+.cross-avail-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.cross-avail-col {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.cross-avail-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--glass-border);
+  margin-bottom: 8px;
+}
+.cross-avail-title.free { color: #10b981; }
+.cross-avail-title.busy { color: #f87171; }
+.cross-avail-artists {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 240px; overflow-y: auto;
+}
+.cross-avail-chip {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(16,185,129,0.08);
+  border: 1px solid rgba(16,185,129,0.25);
+  transition: border-color 120ms ease;
+}
+.cross-avail-chip:hover { border-color: var(--gold); }
+.cross-avail-chip.busy {
+  background: rgba(239,68,68,0.08);
+  border-color: rgba(239,68,68,0.28);
+}
+@media (max-width: 767px) {
+  .cross-avail-lists { grid-template-columns: 1fr; }
+}
+

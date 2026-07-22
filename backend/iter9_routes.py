@@ -253,6 +253,120 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         rows = await db.bookings.find({"artist_id": {"$in": artist_ids}}).sort("created_at", -1).to_list(500)
         return [clean(r) for r in rows]
 
+    @r.get("/agency/gst-report.csv")
+    async def agency_gst_report(quarter: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """
+        Streams a CSV of every confirmed booking's platform fee + GST for the
+        given quarter (or the current quarter if none given).
+        Format: `2026-Q3`  →  Jul-Sep 2026.
+        """
+        if user["role"] != "agency":
+            raise HTTPException(403, "Agency only")
+        import io, csv
+        from datetime import datetime as _dt
+        # Resolve quarter start / end
+        now = _dt.utcnow()
+        if quarter and "-Q" in quarter:
+            year, q = quarter.split("-Q")
+            year = int(year); q = int(q)
+        else:
+            year = now.year
+            q = (now.month - 1) // 3 + 1
+        q_start_month = (q - 1) * 3 + 1
+        q_end_month = q_start_month + 2
+        start = f"{year:04d}-{q_start_month:02d}-01"
+        # Last day of q_end_month
+        if q_end_month == 12:
+            end = f"{year:04d}-12-31"
+        else:
+            end = f"{year:04d}-{q_end_month + 1:02d}-01"
+
+        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).to_list(500)
+        artist_ids = [r["artist_id"] for r in roster]
+        rows = []
+        if artist_ids:
+            async for b in db.bookings.find({
+                "artist_id": {"$in": artist_ids},
+                "status": {"$in": ["confirmed", "completed", "reviewed"]},
+                "event_date": {"$gte": start, "$lt": end},
+            }):
+                rows.append(b)
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "Booking Ref", "Artist", "Customer", "Event Date", "Event Type",
+            "Artist Fee (INR)", "Platform Service Fee (5%)", "GST on Fee (18%)",
+            "Total Collected by BookTalent", "Status",
+        ])
+        total_fee = total_gst = 0.0
+        for b in rows:
+            p = b.get("pricing", {}) or {}
+            fee = float(p.get("platform_fee", 0))
+            gst = float(p.get("gst", 0))
+            total_fee += fee
+            total_gst += gst
+            writer.writerow([
+                b.get("ref", b.get("id", "")),
+                b.get("artist_name", b.get("artist_id", "")),
+                b.get("customer_name", ""),
+                b.get("event_date", ""),
+                b.get("event_type", ""),
+                float(p.get("artist_fee", 0)),
+                fee, gst, fee + gst,
+                b.get("status", ""),
+            ])
+        writer.writerow([])
+        writer.writerow(["TOTALS", "", "", "", "", "", total_fee, total_gst, total_fee + total_gst, ""])
+
+        csv_bytes = buf.getvalue().encode("utf-8")
+        from fastapi.responses import Response
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="gst-report-{year}-Q{q}.csv"'},
+        )
+
+    @r.get("/agency/availability")
+    async def agency_availability(date: str, user: dict = Depends(get_current_user)):
+        """
+        On a given YYYY-MM-DD, returns which roster artists are free vs busy.
+        Handy for agencies rebalancing bookings across their roster.
+        """
+        if user["role"] != "agency":
+            raise HTTPException(403, "Agency only")
+        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).to_list(500)
+        artist_ids = [r["artist_id"] for r in roster]
+        if not artist_ids:
+            return {"date": date, "free": [], "busy": []}
+        # Any availability doc with status blocked/booked/premium on this date OR
+        # any pending_artist/confirmed booking with matching event_date = busy.
+        busy_ids = set()
+        async for a in db.availability.find({
+            "user_id": {"$in": artist_ids}, "date": date,
+            "status": {"$in": ["blocked", "booked"]},
+        }):
+            busy_ids.add(a["user_id"])
+        async for b in db.bookings.find({
+            "artist_id": {"$in": artist_ids}, "event_date": date,
+            "status": {"$in": ["pending_artist", "confirmed", "started"]},
+        }):
+            busy_ids.add(b["artist_id"])
+        # Enrich with basic artist info from artist_profiles
+        profiles = {}
+        async for p in db.artist_profiles.find({"user_id": {"$in": artist_ids}}):
+            profiles[p["user_id"]] = {
+                "user_id": p["user_id"],
+                "stage_name": p.get("stage_name"),
+                "category": p.get("category"),
+                "city": p.get("city"),
+                "starting_price": p.get("starting_price"),
+                "slug": p.get("slug"),
+            }
+        free = [profiles.get(aid) for aid in artist_ids if aid not in busy_ids and profiles.get(aid)]
+        busy = [profiles.get(aid) for aid in artist_ids if aid in busy_ids and profiles.get(aid)]
+        return {"date": date, "free": free, "busy": busy, "roster_count": len(artist_ids)}
+
     @r.get("/agency/stats")
     async def agency_stats(user: dict = Depends(get_current_user)):
         if user["role"] != "agency":

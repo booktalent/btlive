@@ -18,6 +18,10 @@ export function AgencyDashboard() {
   const [bookings, setBookings] = useState([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteCommission, setInviteCommission] = useState(10);
+  // Cross-artist availability lookup
+  const [availDate, setAvailDate] = useState("");
+  const [availData, setAvailData] = useState(null);
+  const [availLoading, setAvailLoading] = useState(false);
 
   const refresh = () => {
     api.get("/agency/stats").then((r) => setStats(r.data)).catch(() => {});
@@ -56,6 +60,17 @@ export function AgencyDashboard() {
       cancelEdit(id);
       refresh();
     } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  const lookupAvailability = async (d) => {
+    if (!d) { setAvailData(null); return; }
+    setAvailLoading(true);
+    try {
+      const r = await api.get(`/agency/availability?date=${d}`);
+      setAvailData(r.data);
+    } catch (e) {
+      toast(formatApiError(e), "error");
+    } finally { setAvailLoading(false); }
   };
 
   if (!user) return null;
@@ -201,11 +216,76 @@ export function AgencyDashboard() {
                             <div><span>GST (18% of fee)</span><strong className="text-gold">{fmtINRFull(gst)}</strong></div>
                             <div><span>Confirmed bookings</span><strong>{qBookings.length}</strong></div>
                           </div>
+                          <a
+                            className="btn btn-gold btn-xs mt-12"
+                            href={`${api.defaults.baseURL}/agency/gst-report.csv?quarter=${now.getFullYear()}-Q${Math.floor(qStartMonth / 3) + 1}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-testid="gst-download"
+                          >
+                            ⬇ Download {qLabel} CSV for CA
+                          </a>
                         </>
                       );
                     })()}
                   </div>
                 </div>
+              </div>
+
+              {/* Cross-artist Availability lookup */}
+              <div className="card card-pad mb-24" data-testid="cmd-cross-availability">
+                <div className="smart-panel-head">
+                  <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #22d3ee, #0891b2)" }}>🔍</span>
+                  <div>
+                    <div className="smart-panel-title">Cross-artist Availability</div>
+                    <div className="smart-panel-sub">Pick any date to see which of your roster is free vs busy</div>
+                  </div>
+                </div>
+                <div className="cross-avail-form">
+                  <input
+                    type="date"
+                    className="field-input"
+                    value={availDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    onChange={(e) => { setAvailDate(e.target.value); lookupAvailability(e.target.value); }}
+                    data-testid="cross-avail-date"
+                  />
+                  {availLoading && <span className="text-muted fs-12">Checking roster…</span>}
+                </div>
+                {availData && (
+                  <div className="cross-avail-lists mt-14">
+                    <div className="cross-avail-col">
+                      <div className="cross-avail-title free"><span className="dot dot-free" /> Free on {availData.date} · {availData.free.length}</div>
+                      {availData.free.length === 0 ? (
+                        <div className="text-muted fs-12" style={{ padding: 10 }}>No one is free — consider offering premium rates.</div>
+                      ) : (
+                        <div className="cross-avail-artists">
+                          {availData.free.map((a) => (
+                            <div key={a.user_id} className="cross-avail-chip" data-testid={`cross-free-${a.user_id}`}>
+                              <div className="fw-600 fs-13">{a.stage_name}</div>
+                              <div className="text-muted fs-11">{a.category} · {a.city} · {a.starting_price ? fmtINRFull(a.starting_price) : "—"}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="cross-avail-col">
+                      <div className="cross-avail-title busy"><span className="dot dot-blocked" /> Busy on {availData.date} · {availData.busy.length}</div>
+                      {availData.busy.length === 0 ? (
+                        <div className="text-muted fs-12" style={{ padding: 10 }}>Nobody is busy — great day for outbound.</div>
+                      ) : (
+                        <div className="cross-avail-artists">
+                          {availData.busy.map((a) => (
+                            <div key={a.user_id} className="cross-avail-chip busy" data-testid={`cross-busy-${a.user_id}`}>
+                              <div className="fw-600 fs-13">{a.stage_name}</div>
+                              <div className="text-muted fs-11">{a.category} · {a.city}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

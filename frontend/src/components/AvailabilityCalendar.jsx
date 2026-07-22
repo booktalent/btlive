@@ -8,14 +8,18 @@ import api from "../lib/api";
  * - Free future dates are clickable; onPick(dateStr) fires with "YYYY-MM-DD".
  * - Prev/next month navigation with a 3-month look-ahead lazy fetch.
  */
-export default function AvailabilityCalendar({ artistUserId, onPick, selected = null, basePrice = null, editable = false, onEdit = null }) {
+export default function AvailabilityCalendar({ artistUserId, onPick, selected = null, basePrice = null, editable = false, onEdit = null, onBulkEdit = null }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
   const [blocked, setBlocked] = useState(new Set());
-  const [premium, setPremium] = useState({}); // { "2026-08-15": {multiplier, label} }
+  const [premium, setPremium] = useState({});
   const [loading, setLoading] = useState(false);
+  // Bulk-select state — Shift+click extends range from lastPicked to current
+  const [bulkSelection, setBulkSelection] = useState(new Set());
+  const [lastPicked, setLastPicked] = useState(null);
+  const bulkMode = editable && !!onBulkEdit;
 
   const monthLabel = month.toLocaleString("en-IN", { month: "long", year: "numeric" });
   const today = useMemo(() => {
@@ -101,14 +105,46 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
             <button
               key={dateStr}
               type="button"
-              className={cls.join(" ")}
+              className={cls.join(" ") + (bulkSelection.has(dateStr) ? " bulk-picked" : "")}
               disabled={disabled && !editable}
-              onClick={() => {
-                if (editable && onEdit) return onEdit(dateStr, { isBlocked, isPremium, premium: premium[dateStr] });
+              onClick={(e) => {
+                if (editable && (e.shiftKey || e.ctrlKey || e.metaKey) && lastPicked) {
+                  // Shift+click: extend range from lastPicked to current
+                  const from = lastPicked < dateStr ? lastPicked : dateStr;
+                  const to = lastPicked < dateStr ? dateStr : lastPicked;
+                  const range = new Set(bulkSelection);
+                  const cur = new Date(from);
+                  const end = new Date(to);
+                  while (cur <= end) {
+                    range.add(cur.toISOString().split("T")[0]);
+                    cur.setDate(cur.getDate() + 1);
+                  }
+                  setBulkSelection(range);
+                  return;
+                }
+                if (editable && bulkMode && bulkSelection.size > 0) {
+                  // Toggle single day in existing selection
+                  const s = new Set(bulkSelection);
+                  s.has(dateStr) ? s.delete(dateStr) : s.add(dateStr);
+                  setBulkSelection(s);
+                  setLastPicked(dateStr);
+                  return;
+                }
+                if (editable && onEdit) {
+                  setLastPicked(dateStr);
+                  return onEdit(dateStr, { isBlocked, isPremium, premium: premium[dateStr] });
+                }
                 if (!disabled && onPick) onPick(dateStr);
               }}
+              onDoubleClick={() => {
+                // Double-click starts bulk mode with this date as anchor
+                if (editable && bulkMode) {
+                  setBulkSelection(new Set([dateStr]));
+                  setLastPicked(dateStr);
+                }
+              }}
               data-testid={`cal-day-${dateStr}`}
-              title={editable ? "Click to edit this date" : title}
+              title={editable ? (bulkSelection.size > 0 ? "Click to toggle · Shift+click to extend range" : "Click to edit · Double-click to start bulk selection") : title}
             >
               {d.getDate()}
               {isPremium && !isBlocked && !past && (
@@ -119,6 +155,20 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
         })}
       </div>
       {loading && <div className="avail-cal-loading">Loading availability…</div>}
+      {bulkMode && bulkSelection.size > 0 && (
+        <div className="bulk-action-bar" data-testid="bulk-action-bar">
+          <div className="bulk-count"><strong>{bulkSelection.size}</strong> dates selected</div>
+          <div className="bulk-actions">
+            <button className="btn btn-gold btn-xs" onClick={() => { onBulkEdit(Array.from(bulkSelection), "premium"); setBulkSelection(new Set()); }} data-testid="bulk-premium">💎 Mark all Premium</button>
+            <button className="btn btn-red btn-xs" onClick={() => { onBulkEdit(Array.from(bulkSelection), "blocked"); setBulkSelection(new Set()); }} data-testid="bulk-block">🔴 Block all</button>
+            <button className="btn btn-green btn-xs" onClick={() => { onBulkEdit(Array.from(bulkSelection), "available"); setBulkSelection(new Set()); }} data-testid="bulk-free">🟢 Clear all</button>
+            <button className="btn btn-ghost btn-xs" onClick={() => setBulkSelection(new Set())} data-testid="bulk-cancel">✕</button>
+          </div>
+        </div>
+      )}
+      {bulkMode && bulkSelection.size === 0 && (
+        <div className="bulk-hint" data-testid="bulk-hint">💡 Tip: double-click a date to start bulk selection · Shift+click to extend range</div>
+      )}
     </div>
   );
 }
