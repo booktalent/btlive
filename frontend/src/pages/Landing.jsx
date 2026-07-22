@@ -190,29 +190,37 @@ export default function Landing() {
             </div>
             <div className="hero-adv-field">
               <label htmlFor="hero-adv-city">City</label>
-              <select
+              <input
                 id="hero-adv-city"
+                type="text"
+                list="hero-city-list"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
+                placeholder="Any city"
+                autoComplete="off"
                 data-testid="hero-adv-city"
-              >
-                <option value="">Any city</option>
-                {cities.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              />
+              <datalist id="hero-city-list">
+                {cities.map((c) => <option key={c} value={c} />)}
+              </datalist>
             </div>
             <div className="hero-adv-field">
               <label htmlFor="hero-adv-category">Artist Type</label>
-              <select
+              <input
                 id="hero-adv-category"
+                type="text"
+                list="hero-cat-list"
                 value={advCategory}
                 onChange={(e) => setAdvCategory(e.target.value)}
+                placeholder="Any category"
+                autoComplete="off"
                 data-testid="hero-adv-category"
-              >
-                <option value="">Any category</option>
+              />
+              <datalist id="hero-cat-list">
                 {CATEGORIES.filter((c) => c.slug !== "all").map((c) => (
-                  <option key={c.slug} value={c.slug}>{c.icon} {c.name}</option>
+                  <option key={c.slug} value={c.slug}>{c.name}</option>
                 ))}
-              </select>
+              </datalist>
             </div>
             <button
               type="button"

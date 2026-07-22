@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import Nav from "../components/Nav";
+import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import api, { fmtINRFull, formatApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
@@ -350,13 +351,19 @@ export default function BookingFlow() {
             {step === 2 && (
               <div className="card card-pad" data-testid="step-2">
                 <h2 className="font-serif fs-20 fw-700 mb-8">Pick your Date & Time</h2>
-                <p className="text-muted fs-13 mb-20">Select an available date and preferred time.</p>
-                <div className="field">
-                  <div className="field-label">Event Date</div>
-                  <input type="date" className="field-input" value={form.event_date} onChange={(e) => set("event_date", e.target.value)} data-testid="booking-date" />
-                </div>
+                <p className="text-muted fs-13 mb-20">Tap an available (green) date on the calendar. Red dates are already booked.</p>
+                <AvailabilityCalendar
+                  artistUserId={id}
+                  selected={form.event_date}
+                  onPick={(d) => set("event_date", d)}
+                />
                 {form.event_date && (
-                  <div className="field">
+                  <div className="text-center mt-12 fs-13" style={{ color: "var(--gold-light)" }}>
+                    Selected: <strong>{form.event_date}</strong>
+                  </div>
+                )}
+                {form.event_date && (
+                  <div className="field mt-20">
                     <div className="field-label">Performance Start Time</div>
                     <div className="grid grid-4 gap-10">
                       {TIME_SLOTS.map((t) => (

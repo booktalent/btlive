@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
+import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import api, { fmtINRFull, mediaUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -181,7 +182,7 @@ export default function ArtistProfile() {
         <div className="profile-main-grid">
           <div>
             <div className="tab-bar" data-testid="profile-tabs">
-              {["about", "media", "packages", "reviews"].map((t) => (
+              {["about", "media", "packages", "availability", "reviews"].map((t) => (
                 <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)} data-testid={`tab-${t}`}>
                   {t.charAt(0).toUpperCase() + t.slice(1)}
                 </button>
@@ -264,6 +265,15 @@ export default function ArtistProfile() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {tab === "availability" && (
+              <div data-testid="tab-availability-content">
+                <div style={{ marginBottom: 12, color: "var(--white-muted)", fontSize: 13 }}>
+                  🗓️ Pick a date to check {profile.stage_name.split(" ")[0]}'s live availability. Dates in red are already booked or blocked.
+                </div>
+                <AvailabilityCalendar artistUserId={profile.user_id} onPick={() => {}} />
               </div>
             )}
 

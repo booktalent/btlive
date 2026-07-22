@@ -1154,6 +1154,24 @@ async def my_availability(user: dict = Depends(get_current_user)):
     return [clean(d) for d in docs]
 
 
+@api.get("/artists/{user_id}/availability")
+async def artist_availability(user_id: str, from_date: Optional[str] = None, to_date: Optional[str] = None):
+    """
+    Public read of an artist's blocked/booked dates for the given date range.
+    Used by the profile calendar + booking date-picker so customers can only
+    pick dates the artist is actually free.
+    Returns: { blocked_dates: ["YYYY-MM-DD", ...] }
+    """
+    q: dict = {"user_id": user_id, "status": {"$in": ["blocked", "booked"]}}
+    if from_date and to_date:
+        q["date"] = {"$gte": from_date, "$lte": to_date}
+    elif from_date:
+        q["date"] = {"$gte": from_date}
+    docs = await db.availability.find(q).to_list(1000)
+    blocked = sorted({d.get("date") for d in docs if d.get("date")})
+    return {"blocked_dates": blocked, "count": len(blocked)}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BOOKINGS
 # ─────────────────────────────────────────────────────────────────────────────

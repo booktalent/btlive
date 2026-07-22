@@ -1338,3 +1338,102 @@ textarea:-webkit-autofill {
   .hero-adv-btn { width: 100%; }
 }
 
+
+/* ────────────────────────────────────────────────────────────────────────
+   Availability Calendar (artist profile + booking flow)
+   ──────────────────────────────────────────────────────────────────────── */
+.avail-cal { padding: 18px; }
+.avail-cal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.avail-cal-title {
+  font-family: var(--font-serif, serif);
+  font-size: 18px; font-weight: 700;
+  color: var(--gold-light);
+}
+.avail-cal-nav {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  font-size: 20px; line-height: 1;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.avail-cal-nav:hover { border-color: var(--gold); background: rgba(212,175,55,0.08); }
+
+.avail-cal-legend {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 11px; color: var(--white-muted);
+}
+.avail-cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.avail-cal-legend .dot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+}
+.dot-free { background: rgba(16, 185, 129, 0.7); }
+.dot-blocked { background: rgba(239, 68, 68, 0.75); }
+.dot-selected { background: var(--gold); }
+
+.avail-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.avail-cal-h {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--white-muted);
+  text-align: center; padding: 6px 0;
+  text-transform: uppercase;
+}
+.avail-cal-cell {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(255,255,255,0.03);
+  color: var(--white);
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  display: grid; place-items: center;
+}
+.avail-cal-cell.empty { background: transparent; cursor: default; pointer-events: none; }
+.avail-cal-cell.free {
+  border-color: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.08);
+  color: #a7f3d0;
+}
+.avail-cal-cell.free:hover {
+  border-color: var(--gold);
+  transform: scale(1.06);
+}
+.avail-cal-cell.blocked {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+.avail-cal-cell.past {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.avail-cal-cell.selected {
+  background: linear-gradient(180deg, var(--gold), #b45309) !important;
+  color: #000 !important;
+  border-color: var(--gold) !important;
+  font-weight: 700;
+  transform: scale(1.02);
+}
+.avail-cal-loading {
+  text-align: center; padding: 8px;
+  color: var(--white-muted); font-size: 11px;
+}
+
+@media (max-width: 500px) {
+  .avail-cal { padding: 12px; }
+  .avail-cal-cell { font-size: 12px; }
+}
+
