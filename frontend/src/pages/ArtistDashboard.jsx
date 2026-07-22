@@ -138,7 +138,7 @@ export default function ArtistDashboard() {
             <Kpi icon="👁️" cls="kpi-icon-blue" num={data.analytics.profile_views || 0} label="Profile Views" />
           </div>
 
-          {tab === "overview" && <Overview data={data} doAction={doAction} />}
+          {tab === "overview" && <Overview data={data} doAction={doAction} refresh={refresh} />}
           {tab === "profile" && <ProfileEditor user={user} refreshMe={refreshMe} toast={toast} />}
           {tab === "packages" && <Packages data={data} refresh={refresh} toast={toast} />}
           {tab === "addons" && <Addons toast={toast} />}
@@ -194,7 +194,92 @@ const Kpi = ({ icon, cls, num, label }) => (
   </div>
 );
 
-function RevenueSparkline({ series = [] }) {
+function DateEditPopover({ open, date, current, onClose, onSave }) {
+  const [mode, setMode] = React.useState(current?.isBlocked ? "blocked" : current?.isPremium ? "premium" : "available");
+  const [mult, setMult] = React.useState(current?.premium?.multiplier || 1.5);
+  const [label, setLabel] = React.useState(current?.premium?.label || "Weekend");
+  React.useEffect(() => {
+    setMode(current?.isBlocked ? "blocked" : current?.isPremium ? "premium" : "available");
+    setMult(current?.premium?.multiplier || 1.5);
+    setLabel(current?.premium?.label || "Weekend");
+  }, [date, current]);
+  if (!open) return null;
+  return (
+    <div className="date-edit-backdrop" onClick={onClose} data-testid="date-edit-modal">
+      <div className="card card-pad date-edit" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-serif fs-16 fw-700 mb-4">Edit {date}</h3>
+        <p className="text-muted fs-11 mb-16">Set this date as available, blocked, or premium-priced.</p>
+        <div className="date-edit-modes">
+          {[
+            { id: "available", label: "🟢 Available", desc: "Bookable at base price" },
+            { id: "premium",  label: "💎 Premium",   desc: "Weekend / festival rate" },
+            { id: "blocked",  label: "🔴 Blocked",   desc: "Not bookable this date" },
+          ].map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              className={`date-edit-mode ${mode === m.id ? "active" : ""}`}
+              onClick={() => setMode(m.id)}
+              data-testid={`date-edit-mode-${m.id}`}
+            >
+              <div className="fw-600 fs-13">{m.label}</div>
+              <div className="text-muted fs-11">{m.desc}</div>
+            </button>
+          ))}
+        </div>
+
+        {mode === "premium" && (
+          <div className="date-edit-premium mt-16">
+            <div className="field">
+              <div className="field-label">Multiplier</div>
+              <div className="date-edit-mult-row">
+                {[1.25, 1.5, 1.75, 2, 2.5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`mult-chip ${Number(mult) === n ? "active" : ""}`}
+                    onClick={() => setMult(n)}
+                    data-testid={`mult-${n}`}
+                  >
+                    {n}×
+                  </button>
+                ))}
+                <input
+                  type="number" min="1" max="10" step="0.1"
+                  value={mult}
+                  onChange={(e) => setMult(parseFloat(e.target.value) || 1)}
+                  className="field-input mult-custom"
+                />
+              </div>
+            </div>
+            <div className="field">
+              <div className="field-label">Label</div>
+              <input
+                type="text" className="field-input" value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="Weekend, Diwali, New Year Eve..."
+                data-testid="premium-label"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-between mt-20 gap-8">
+          <button className="btn btn-ghost" onClick={onClose} data-testid="date-edit-cancel">Cancel</button>
+          <button
+            className="btn btn-gold"
+            onClick={() => onSave({ mode, multiplier: mult, label })}
+            data-testid="date-edit-save"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RevenueSparkline({ series = [], onMonthClick = null }) {
   // Tiny inline SVG sparkline — no chart lib needed.
   if (!series.length) return <div className="spark-empty">No revenue data yet</div>;
   const max = Math.max(1, ...series.map((p) => p.amount));
@@ -216,14 +301,36 @@ function RevenueSparkline({ series = [] }) {
       </defs>
       <polygon points={area} fill="url(#sparkGradient)" />
       <polyline points={pts} fill="none" stroke="#d4af37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {series.map((p, i) => {
+        const x = pad + (i * (w - pad * 2)) / Math.max(1, series.length - 1);
+        const y = h - pad - ((p.amount - min) / Math.max(1, max - min)) * (h - pad * 2);
+        return (
+          <circle
+            key={p.key}
+            cx={x} cy={y} r={onMonthClick ? 5 : 3}
+            fill="#d4af37"
+            stroke="#0a0a12" strokeWidth="2"
+            style={onMonthClick ? { cursor: "pointer" } : undefined}
+            onClick={onMonthClick ? () => onMonthClick(p) : undefined}
+            data-testid={`spark-pt-${p.key}`}
+          >
+            <title>{p.label}: {p.amount.toLocaleString("en-IN")}</title>
+          </circle>
+        );
+      })}
     </svg>
   );
 }
 
-function Overview({ data, doAction }) {
+function Overview({ data, doAction, refresh }) {
   const pending = data.bookings.filter(b => b.status === "pending_artist");
   const confirmed = data.bookings.filter(b => ["confirmed", "started", "completed", "reviewed"].includes(b.status));
-  // Build a 6-month revenue series from bookings' amount_paid grouped by month
+  const [editing, setEditing] = React.useState(null); // {date, current}
+  const [drilldown, setDrilldown] = React.useState(null); // month key
+  const [calBump, setCalBump] = React.useState(0); // increment to force calendar re-fetch
+  const { user } = useAuth();
+
+  // Build a 6-month revenue series from confirmed bookings' event_date month bucket
   const revenueSeries = React.useMemo(() => {
     const buckets = {};
     const now = new Date();
@@ -241,22 +348,47 @@ function Overview({ data, doAction }) {
   const monthRevenue = revenueSeries[revenueSeries.length - 1]?.amount || 0;
   const prevMonthRevenue = revenueSeries[revenueSeries.length - 2]?.amount || 0;
   const growth = prevMonthRevenue > 0 ? Math.round(((monthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100) : 0;
+  const drilldownBookings = drilldown ? confirmed.filter(b => (b.event_date || "").startsWith(drilldown)) : [];
 
-  const { user } = useAuth();
+  const saveDate = async ({ mode, multiplier, label }) => {
+    if (!editing) return;
+    try {
+      if (mode === "available") {
+        await api.delete(`/availability/${editing.date}`);
+      } else if (mode === "blocked") {
+        await api.post("/availability", { date: editing.date, status: "blocked" });
+      } else {
+        await api.post("/availability", {
+          date: editing.date, status: "premium",
+          premium_multiplier: Number(multiplier),
+          premium_label: label || "Premium",
+        });
+      }
+    } catch (e) { /* toast handled by parent */ }
+    setEditing(null);
+    setCalBump((n) => n + 1);
+    if (refresh) refresh();
+  };
 
   return (
     <div data-testid="overview-tab">
-      {/* Smart Artist Management Panel — top row: Calendar + Revenue + Pending Requests */}
       <div className="smart-panel-grid mb-24">
         <div className="card card-pad smart-panel-cell" data-testid="smart-calendar">
           <div className="smart-panel-head">
             <span className="smart-panel-icon">📅</span>
             <div>
               <div className="smart-panel-title">Booking Calendar</div>
-              <div className="smart-panel-sub">Tap a date to block or set premium pricing</div>
+              <div className="smart-panel-sub">Tap any date to block it or set a premium (weekend / festival) rate</div>
             </div>
           </div>
-          {user?.id && <AvailabilityCalendar artistUserId={user.id} onPick={() => {}} />}
+          {user?.id && (
+            <AvailabilityCalendar
+              key={calBump}
+              artistUserId={user.id}
+              editable
+              onEdit={(date, current) => setEditing({ date, current })}
+            />
+          )}
         </div>
 
         <div className="smart-panel-cell-col">
@@ -265,7 +397,7 @@ function Overview({ data, doAction }) {
               <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}>💰</span>
               <div>
                 <div className="smart-panel-title">Revenue (6 mo)</div>
-                <div className="smart-panel-sub">Confirmed bookings, gross</div>
+                <div className="smart-panel-sub">Tap a dot to see the bookings behind that month</div>
               </div>
             </div>
             <div className="smart-revenue-num">
@@ -276,7 +408,7 @@ function Overview({ data, doAction }) {
                 </span>
               )}
             </div>
-            <RevenueSparkline series={revenueSeries} />
+            <RevenueSparkline series={revenueSeries} onMonthClick={(p) => setDrilldown(p.key)} />
             <div className="smart-revenue-legend">
               {revenueSeries.map((p) => <span key={p.key}>{p.label}</span>)}
             </div>
@@ -312,7 +444,41 @@ function Overview({ data, doAction }) {
         </div>
       </div>
 
-      {/* Existing bookings table + reviews stay below */}
+      <DateEditPopover
+        open={!!editing}
+        date={editing?.date}
+        current={editing?.current}
+        onClose={() => setEditing(null)}
+        onSave={saveDate}
+      />
+
+      {drilldown && (
+        <div className="date-edit-backdrop" onClick={() => setDrilldown(null)} data-testid="revenue-drilldown">
+          <div className="card card-pad date-edit" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <h3 className="font-serif fs-18 fw-700 mb-4">Bookings in {revenueSeries.find(p => p.key === drilldown)?.label} {drilldown.slice(0,4)}</h3>
+            <p className="text-muted fs-12 mb-16">{drilldownBookings.length} confirmed booking(s) · Total {fmtINRFull(drilldownBookings.reduce((s, b) => s + Number(b.pricing?.artist_fee || b.amount_paid || 0), 0))}</p>
+            {drilldownBookings.length === 0 ? (
+              <div className="empty" style={{ padding: 18 }}><div className="empty-icon">📭</div><div className="empty-title">No bookings in this month yet</div></div>
+            ) : (
+              <div className="drilldown-list" style={{ maxHeight: 380, overflowY: "auto" }}>
+                {drilldownBookings.map((b) => (
+                  <div key={b.id} className="smart-pending-row" data-testid={`drilldown-row-${b.id}`}>
+                    <div className="smart-pending-info">
+                      <div className="fw-600 fs-13">{b.customer_name || "Customer"} · {b.ref}</div>
+                      <div className="text-muted fs-11">{b.event_type} · {b.event_date} · {b.status}</div>
+                    </div>
+                    <div className="text-gold fw-600">{fmtINRFull(b.pricing?.artist_fee || b.amount_paid || 0)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end mt-16">
+              <button className="btn btn-ghost" onClick={() => setDrilldown(null)} data-testid="drilldown-close">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="card mb-16">
         <div className="card-head"><div className="card-title">📬 All Booking Requests</div></div>
         <BookingsTable bookings={pending} role="artist" onAction={doAction} />

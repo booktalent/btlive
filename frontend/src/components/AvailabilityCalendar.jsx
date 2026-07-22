@@ -8,7 +8,7 @@ import api from "../lib/api";
  * - Free future dates are clickable; onPick(dateStr) fires with "YYYY-MM-DD".
  * - Prev/next month navigation with a 3-month look-ahead lazy fetch.
  */
-export default function AvailabilityCalendar({ artistUserId, onPick, selected = null, basePrice = null }) {
+export default function AvailabilityCalendar({ artistUserId, onPick, selected = null, basePrice = null, editable = false, onEdit = null }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -102,10 +102,13 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
               key={dateStr}
               type="button"
               className={cls.join(" ")}
-              disabled={disabled}
-              onClick={() => !disabled && onPick && onPick(dateStr)}
+              disabled={disabled && !editable}
+              onClick={() => {
+                if (editable && onEdit) return onEdit(dateStr, { isBlocked, isPremium, premium: premium[dateStr] });
+                if (!disabled && onPick) onPick(dateStr);
+              }}
               data-testid={`cal-day-${dateStr}`}
-              title={title}
+              title={editable ? "Click to edit this date" : title}
             >
               {d.getDate()}
               {isPremium && !isBlocked && !past && (

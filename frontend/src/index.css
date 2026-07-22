@@ -1534,3 +1534,105 @@ textarea:-webkit-autofill {
   .smart-panel-grid { grid-template-columns: 1fr; }
 }
 
+
+/* ────────────────────────────────────────────────────────────────────────
+   Date-edit + Revenue drilldown modal
+   ──────────────────────────────────────────────────────────────────────── */
+.date-edit-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 9998;
+  display: grid; place-items: center;
+  padding: 24px;
+  animation: fadeIn 200ms ease;
+}
+.date-edit {
+  width: 100%;
+  max-width: 460px;
+  background: rgba(15, 15, 24, 0.98);
+  border: 1px solid rgba(212,175,55,0.25);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+}
+.date-edit-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.date-edit-mode {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--glass-border);
+  text-align: left;
+  cursor: pointer;
+  color: #fff;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.date-edit-mode:hover { border-color: rgba(212,175,55,0.4); }
+.date-edit-mode.active {
+  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(124,58,237,0.14), rgba(212,175,55,0.14));
+}
+.date-edit-mult-row {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+}
+.mult-chip {
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+.mult-chip:hover { border-color: var(--gold-light); }
+.mult-chip.active {
+  background: var(--gold);
+  color: #000;
+  border-color: var(--gold);
+}
+.mult-custom { max-width: 80px !important; font-size: 12px !important; }
+
+
+/* ────────────────────────────────────────────────────────────────────────
+   Enterprise Command Center — mini roster table + GST widget
+   ──────────────────────────────────────────────────────────────────────── */
+.cmd-roster-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.cmd-roster-table th {
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--white-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--glass-border);
+}
+.cmd-roster-table td {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: #fff;
+}
+.cmd-roster-table tbody tr:last-child td { border-bottom: none; }
+.cmd-roster-table .text-right { text-align: right; }
+
+.cmd-gst-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--glass-border);
+  font-size: 12px;
+}
+.cmd-gst-detail > div {
+  display: flex; justify-content: space-between;
+  color: var(--white-muted);
+}
+.cmd-gst-detail strong { color: #fff; font-weight: 600; }
+

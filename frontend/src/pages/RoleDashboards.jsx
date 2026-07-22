@@ -89,13 +89,123 @@ export function AgencyDashboard() {
         <div style={{ padding: 32 }}>
           {tab === "overview" && stats && (
             <>
-              <h1 className="font-serif fs-28 fw-700 mb-24" data-testid="agency-title">Agency Overview</h1>
-              <div className="kpi-grid">
+              <h1 className="font-serif fs-28 fw-700 mb-4" data-testid="agency-title">Enterprise Command Center</h1>
+              <p className="text-muted fs-13 mb-24">Live pulse of your roster, bookings, and GST across the quarter.</p>
+
+              <div className="kpi-grid mb-24">
                 <div className="kpi" data-testid="kpi-roster"><div className="kpi-num text-gold">{stats.roster}</div><div className="kpi-label">Active Artists</div></div>
                 <div className="kpi" data-testid="kpi-pending"><div className="kpi-num">{stats.pending_invites}</div><div className="kpi-label">Pending Invites</div></div>
                 <div className="kpi" data-testid="kpi-bookings"><div className="kpi-num">{stats.bookings}</div><div className="kpi-label">Bookings</div></div>
                 <div className="kpi" data-testid="kpi-gmv"><div className="kpi-num text-gold">{fmtINRFull(stats.gmv)}</div><div className="kpi-label">Roster GMV</div></div>
                 <div className="kpi" data-testid="kpi-comm"><div className="kpi-num text-gold">{fmtINRFull(stats.commission_earned)}</div><div className="kpi-label">Commission Earned</div></div>
+              </div>
+
+              <div className="smart-panel-grid mb-24">
+                {/* Left: Roster performance table */}
+                <div className="card card-pad" data-testid="cmd-roster">
+                  <div className="smart-panel-head">
+                    <span className="smart-panel-icon">🎤</span>
+                    <div>
+                      <div className="smart-panel-title">Roster Performance</div>
+                      <div className="smart-panel-sub">Bookings and revenue per artist this quarter</div>
+                    </div>
+                  </div>
+                  {roster.length === 0 ? (
+                    <div className="empty" style={{ padding: 22 }}><div className="empty-icon">🎨</div><div className="empty-title">No artists on your roster yet</div></div>
+                  ) : (
+                    <table className="table cmd-roster-table">
+                      <thead><tr><th>Artist</th><th>City</th><th>Rating</th><th className="text-right">Bookings</th></tr></thead>
+                      <tbody>
+                        {roster.slice(0, 6).map((r) => (
+                          <tr key={r.id}>
+                            <td className="fw-600">{r.artist?.stage_name || r.artist_email}</td>
+                            <td className="text-muted">{r.artist?.city || "—"}</td>
+                            <td className="text-gold">★ {(r.artist?.rating_avg || 0).toFixed(1)}</td>
+                            <td className="text-right fw-600">{r.artist?.total_bookings || 0}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {roster.length > 6 && (
+                    <div className="text-center mt-12">
+                      <button className="btn btn-ghost btn-sm" onClick={() => setTab("roster")}>View all {roster.length} →</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: stacked bulk queue + GST widget */}
+                <div className="smart-panel-cell-col">
+                  <div className="card card-pad" data-testid="cmd-bulk-queue">
+                    <div className="smart-panel-head">
+                      <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>📋</span>
+                      <div>
+                        <div className="smart-panel-title">Bulk Booking Queue</div>
+                        <div className="smart-panel-sub">Bookings awaiting artist confirmation across your roster</div>
+                      </div>
+                    </div>
+                    {(() => {
+                      const pend = (bookings || []).filter((b) => b.status === "pending_artist");
+                      if (!pend.length) {
+                        return <div className="empty" style={{ padding: 18 }}><div className="empty-icon">✨</div><div className="empty-title">Queue is clear</div></div>;
+                      }
+                      return (
+                        <div className="smart-pending-list">
+                          {pend.slice(0, 4).map((b) => (
+                            <div key={b.id} className="smart-pending-row" data-testid={`bulk-pending-${b.id}`}>
+                              <div className="smart-pending-info">
+                                <div className="fw-600 fs-13">{b.artist_name || b.artist_id}</div>
+                                <div className="text-muted fs-11">{b.customer_name} · {b.event_date}</div>
+                              </div>
+                              <div className="text-gold fs-13 fw-600">{fmtINRFull(b.pricing?.artist_fee || b.amount_paid || 0)}</div>
+                            </div>
+                          ))}
+                          {pend.length > 4 && (
+                            <div className="text-center mt-8">
+                              <button className="btn btn-ghost btn-sm" onClick={() => setTab("bookings")}>See all {pend.length} pending →</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Quarterly GST widget */}
+                  <div className="card card-pad" data-testid="cmd-gst">
+                    <div className="smart-panel-head">
+                      <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #a78bfa, #6d28d9)" }}>🇮🇳</span>
+                      <div>
+                        <div className="smart-panel-title">Quarterly GST</div>
+                        <div className="smart-panel-sub">18% on Platform Service Fee collected this quarter</div>
+                      </div>
+                    </div>
+                    {(() => {
+                      const now = new Date();
+                      const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+                      const qStart = new Date(now.getFullYear(), qStartMonth, 1);
+                      const qBookings = (bookings || []).filter((b) => {
+                        const d = new Date(b.event_date || b.created_at || 0);
+                        return d >= qStart && ["confirmed", "started", "completed", "reviewed"].includes(b.status);
+                      });
+                      const platformFee = qBookings.reduce((s, b) => s + Number(b.pricing?.platform_fee || 0), 0);
+                      const gst = qBookings.reduce((s, b) => s + Number(b.pricing?.gst || 0), 0);
+                      const qLabel = `Q${Math.floor(qStartMonth / 3) + 1} ${now.getFullYear()}`;
+                      return (
+                        <>
+                          <div className="smart-revenue-num" style={{ fontSize: 26 }}>
+                            {fmtINRFull(gst)}
+                            <span className="smart-revenue-delta up" style={{ background: "rgba(167,139,250,0.15)", color: "#a78bfa" }}>{qLabel}</span>
+                          </div>
+                          <div className="cmd-gst-detail">
+                            <div><span>Platform Fee (5%)</span><strong>{fmtINRFull(platformFee)}</strong></div>
+                            <div><span>GST (18% of fee)</span><strong className="text-gold">{fmtINRFull(gst)}</strong></div>
+                            <div><span>Confirmed bookings</span><strong>{qBookings.length}</strong></div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
               </div>
             </>
           )}
