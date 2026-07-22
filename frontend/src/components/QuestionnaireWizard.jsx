@@ -17,39 +17,68 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
-  // Fetch both layers + existing answers on mount
+  // Live category — starts from prop, follows the answer if the user picks one
+  const liveCategory = answers.category || category;
+
+  // Fetch Layer 1 + existing answers on mount
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     Promise.all([
       api.get("/questionnaire/universal"),
-      category ? api.get(`/questionnaire/category/${encodeURIComponent(category)}`) : Promise.resolve({ data: [] }),
       initialAnswers ? Promise.resolve({ data: initialAnswers }) : api.get("/questionnaire/answers/mine").catch(() => ({ data: {} })),
-    ]).then(([u, c, mine]) => {
+    ]).then(([u, mine]) => {
       if (cancelled) return;
       setLayer1(u.data || []);
-      setLayer2(c.data || []);
       setAnswers({ ...(mine.data || {}), ...(initialAnswers || {}) });
       setLoading(false);
     }).catch((e) => {
       if (!cancelled) { setErr(e); setLoading(false); }
     });
     return () => { cancelled = true; };
-  }, [category, initialAnswers]);
+  }, [initialAnswers]);
+
+  // Re-fetch Layer 2 whenever the live category changes (either from prop or from
+  // the user picking a new one in Layer 1). This is the "category sync" behavior.
+  useEffect(() => {
+    if (!liveCategory) { setLayer2([]); return; }
+    let cancelled = false;
+    api.get(`/questionnaire/category/${encodeURIComponent(liveCategory)}`)
+      .then((r) => { if (!cancelled) setLayer2(r.data || []); })
+      .catch(() => { if (!cancelled) setLayer2([]); });
+    return () => { cancelled = true; };
+  }, [liveCategory]);
+
+  // Skip-logic helper: hide a question if `show_if` is set and doesn't match.
+  // Supports: { question_id: value }, { question_id: [v1, v2] }, or the shortcut
+  // { category: "DJ / Music Producer" } for category-specific gating.
+  const shouldShow = (q) => {
+    const cond = q.show_if;
+    if (!cond || typeof cond !== "object") return true;
+    for (const [key, expected] of Object.entries(cond)) {
+      const actual = key === "category" ? liveCategory : answers[key];
+      if (Array.isArray(expected)) {
+        if (!expected.includes(actual)) return false;
+      } else if (actual !== expected) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   // Group Layer 1 questions by section, keep original order per section
   const sections = useMemo(() => {
     const byS = new Map();
     for (const q of layer1) {
+      if (!shouldShow(q)) continue;
       const s = q.section || "Other";
       if (!byS.has(s)) byS.set(s, []);
       byS.get(s).push(q);
     }
-    // Layer 2 becomes its own final section (if present) titled with the category name
     const arr = Array.from(byS.entries()).map(([section, qs]) => ({ section, questions: qs }));
-    if (layer2.length > 0) arr.push({ section: category || "Category specifics", questions: layer2 });
+    const visibleLayer2 = layer2.filter(shouldShow);
+    if (visibleLayer2.length > 0) arr.push({ section: liveCategory || "Category specifics", questions: visibleLayer2 });
     return arr;
-  }, [layer1, layer2, category]);
+  }, [layer1, layer2, liveCategory, answers]);
 
   const totalSteps = sections.length;
   const current = sections[stepIdx];

@@ -1871,3 +1871,59 @@ textarea:-webkit-autofill {
   animation: fadeIn 200ms ease;
 }
 
+
+/* ────────────────────────────────────────────────────────────────────────
+   Suggested Artists panel (BookingFlow step 2)
+   ──────────────────────────────────────────────────────────────────────── */
+.suggested-panel { border: 1px dashed rgba(34, 211, 238, 0.35); }
+.suggested-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.suggested-card {
+  display: flex; flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--glass-border);
+  text-decoration: none;
+  color: #fff;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+.suggested-card:hover {
+  border-color: var(--gold);
+  transform: translateY(-2px);
+}
+.suggested-thumb {
+  aspect-ratio: 4/3;
+  background: linear-gradient(135deg, #7c3aed, #d4af37);
+  display: grid; place-items: center;
+}
+.suggested-body { padding: 10px; }
+.suggested-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 6px;
+}
+
+/* Booking incomplete-profile soft warning */
+.booking-incomplete-warn {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 10px;
+}
+.booking-incomplete-icon { font-size: 22px; flex-shrink: 0; }
+.booking-incomplete-title { font-weight: 700; font-size: 13px; color: #fbbf24; }
+.booking-incomplete-sub { font-size: 12px; color: var(--white-muted); margin-top: 4px; line-height: 1.4; }
+
+/* Extra polish for the calendar inside a card — better shadow + rounded */
+.card .avail-cal {
+  padding: 0;
+  border: none;
+}
+.card > .avail-cal + * { margin-top: 12px; }
+

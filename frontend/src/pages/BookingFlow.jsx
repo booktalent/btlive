@@ -262,7 +262,27 @@ export default function BookingFlow() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24 }}>
           <div>
             {step === 1 && (
-              <div className="card card-pad" data-testid="step-1">
+              <>
+                {artist && (() => {
+                  const answers = artist.answers || {};
+                  const filled = Object.values(answers).filter((v) => v !== "" && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)).length;
+                  if (filled >= 8) return null;
+                  return (
+                    <div className="booking-incomplete-warn" data-testid="booking-incomplete-warn">
+                      <span className="booking-incomplete-icon">⚠️</span>
+                      <div>
+                        <div className="booking-incomplete-title">
+                          {artist.stage_name}'s profile is still being completed
+                        </div>
+                        <div className="booking-incomplete-sub">
+                          Some details (equipment, travel radius, technical rider) may not be filled in yet.
+                          You can still book — we'll confirm the finer points once the artist accepts.
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="card card-pad" data-testid="step-1">
                 <h2 className="font-serif fs-20 fw-700 mb-8">Choose your Package</h2>
                 <p className="text-muted fs-13 mb-20">Select the package that fits your event.</p>
                 {packages.map((p) => (
@@ -346,9 +366,11 @@ export default function BookingFlow() {
                   <button className="btn btn-gold" disabled={!form.package_id} onClick={() => setStep(2)} data-testid="step1-next">Continue to Schedule →</button>
                 </div>
               </div>
+              </>
             )}
 
             {step === 2 && (
+              <>
               <div className="card card-pad" data-testid="step-2">
                 <h2 className="font-serif fs-20 fw-700 mb-8">Pick your Date & Time</h2>
                 <p className="text-muted fs-13 mb-20">Tap an available (green) date on the calendar. Red dates are already booked.</p>
@@ -385,6 +407,10 @@ export default function BookingFlow() {
                   <button className="btn btn-gold" disabled={!form.event_date || !form.event_time} onClick={() => setStep(3)} data-testid="step2-next">Continue →</button>
                 </div>
               </div>
+              {form.event_date && (
+                <SuggestedArtistsPanel artistId={id} date={form.event_date} />
+              )}
+              </>
             )}
 
             {step === 3 && (
@@ -753,3 +779,64 @@ export default function BookingFlow() {
     </div>
   );
 }
+
+// ─── Suggested Artists panel — cross-sell during date-pick step ─────────
+function SuggestedArtistsPanel({ artistId, date }) {
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+  React.useEffect(() => {
+    if (!artistId || !date) return;
+    setLoading(true);
+    api.get(`/artists/${artistId}/suggested?date_str=${date}&limit=4`)
+      .then((r) => setItems(r.data?.suggested || []))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }, [artistId, date]);
+
+  if (loading) {
+    return <div className="card card-pad mt-16 text-center text-muted fs-13" data-testid="suggested-loading">Finding complementary artists…</div>;
+  }
+  if (items.length === 0) return null;
+  return (
+    <div className="card card-pad mt-16 suggested-panel" data-testid="suggested-artists">
+      <div className="smart-panel-head">
+        <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #22d3ee, #7c3aed)" }}>✨</span>
+        <div>
+          <div className="smart-panel-title">Book another artist for this event?</div>
+          <div className="smart-panel-sub">Complementary artists free on {date} — many customers pair a Singer with an Anchor or DJ</div>
+        </div>
+      </div>
+      <div className="suggested-grid">
+        {items.map((a) => (
+          <a
+            key={a.user_id}
+            href={`/artist/${a.slug || a.user_id}`}
+            className="suggested-card"
+            data-testid={`suggested-${a.user_id}`}
+          >
+            <div
+              className="suggested-thumb"
+              style={a.profile_image ? {
+                background: `linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.7)), url(${/^https?:\/\//.test(a.profile_image) ? a.profile_image : `${api.defaults.baseURL}/media/${a.profile_image}`}) center/cover`,
+              } : {}}
+            >
+              {!a.profile_image && <span style={{ fontSize: 40 }}>🎤</span>}
+            </div>
+            <div className="suggested-body">
+              <div className="fw-700 fs-13">{a.stage_name}</div>
+              <div className="text-muted fs-11">{a.category}</div>
+              <div className="suggested-foot">
+                <span className="text-gold fs-12">★ {(a.rating_avg || 0).toFixed(1)}</span>
+                {a.starting_price && <span className="text-gold fw-600 fs-12">{fmtINRFull(a.starting_price)}</span>}
+              </div>
+            </div>
+          </a>
+        ))}
+      </div>
+      <div className="text-muted fs-11 mt-8" style={{ textAlign: "center" }}>
+        Tip: complete this booking first, then tap any suggested artist to start a second booking. One event, two artists — separate contracts, one great show.
+      </div>
+    </div>
+  );
+}
+

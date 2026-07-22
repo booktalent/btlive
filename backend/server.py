@@ -1193,6 +1193,55 @@ async def artist_availability(user_id: str, from_date: Optional[str] = None, to_
     return {"blocked_dates": blocked, "premium_dates": premium, "count": len(blocked) + len(premium)}
 
 
+@api.get("/artists/{user_id}/suggested")
+async def artist_suggested(user_id: str, date_str: Optional[str] = None, limit: int = 4):
+    """
+    Complementary artists for cross-selling during the booking flow.
+    Rule of thumb: same city, DIFFERENT category, sorted by rating.
+    If `date` is passed, filter out artists who are busy/blocked on that day.
+    """
+    src = await db.artist_profiles.find_one({"user_id": user_id})
+    if not src:
+        raise HTTPException(404, "Artist not found")
+    q: dict = {
+        "user_id": {"$ne": user_id},
+        "city": src.get("city"),
+        "category": {"$ne": src.get("category")},
+        "is_active": {"$ne": False},
+    }
+    cands = await db.artist_profiles.find(q).sort([("rating_avg", -1), ("review_count", -1)]).to_list(limit * 3)
+
+    if date_str and cands:
+        cand_ids = [c["user_id"] for c in cands]
+        busy = set()
+        async for a in db.availability.find({
+            "user_id": {"$in": cand_ids}, "date": date_str,
+            "status": {"$in": ["blocked", "booked"]},
+        }):
+            busy.add(a["user_id"])
+        async for b in db.bookings.find({
+            "artist_id": {"$in": cand_ids}, "event_date": date_str,
+            "status": {"$in": ["pending_artist", "confirmed", "started"]},
+        }):
+            busy.add(b["artist_id"])
+        cands = [c for c in cands if c["user_id"] not in busy]
+
+    out = []
+    for c in cands[:limit]:
+        out.append({
+            "user_id": c["user_id"],
+            "stage_name": c.get("stage_name"),
+            "category": c.get("category"),
+            "city": c.get("city"),
+            "starting_price": c.get("starting_price"),
+            "rating_avg": c.get("rating_avg", 0),
+            "review_count": c.get("review_count", 0),
+            "slug": c.get("slug"),
+            "profile_image": c.get("profile_image"),
+        })
+    return {"suggested": out}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # BOOKINGS
 # ─────────────────────────────────────────────────────────────────────────────

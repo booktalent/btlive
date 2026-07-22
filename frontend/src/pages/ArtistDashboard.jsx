@@ -133,12 +133,19 @@ export default function ArtistDashboard() {
             </div>
           </div>
 
-          <div className="kpi-grid">
-            <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(data.analytics.earnings || 0)} label="Total Earnings" />
-            <Kpi icon="📋" cls="kpi-icon-purple" num={data.analytics.total_bookings || 0} label="Total Bookings" />
-            <Kpi icon="⏳" cls="kpi-icon-amber" num={data.analytics.pending_requests || 0} label="Pending Requests" />
-            <Kpi icon="👁️" cls="kpi-icon-blue" num={data.analytics.profile_views || 0} label="Profile Views" />
-          </div>
+          {(() => {
+            const liveEarnings = (data.bookings || [])
+              .filter((b) => ["confirmed", "started", "completed", "reviewed"].includes(b.status))
+              .reduce((s, b) => s + Number(b.pricing?.artist_fee || b.amount_paid || 0), 0);
+            return (
+              <div className="kpi-grid">
+                <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(liveEarnings)} label="Total Earnings" />
+                <Kpi icon="📋" cls="kpi-icon-purple" num={data.analytics.total_bookings || 0} label="Total Bookings" />
+                <Kpi icon="⏳" cls="kpi-icon-amber" num={data.analytics.pending_requests || 0} label="Pending Requests" />
+                <Kpi icon="👁️" cls="kpi-icon-blue" num={data.analytics.profile_views || 0} label="Profile Views" />
+              </div>
+            );
+          })()}
 
           {tab === "overview" && <Overview data={data} doAction={doAction} refresh={refresh} setTab={setTab} />}
           {tab === "profile" && <ProfileEditor user={user} refreshMe={refreshMe} toast={toast} />}

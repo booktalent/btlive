@@ -153,6 +153,17 @@ export default function AdminQuestionEditor() {
                         data-testid={`qb-options-${q.id}`}
                       />
                     )}
+                    <input
+                      className="field-input" style={{ marginTop: 6, fontSize: 12 }}
+                      placeholder='Show only if (e.g. category: "DJ / Music Producer") — JSON, optional'
+                      value={q.show_if ? JSON.stringify(q.show_if) : ""}
+                      onChange={(e) => {
+                        const v = e.target.value.trim();
+                        if (!v) return patch(idx, "show_if", null);
+                        try { patch(idx, "show_if", JSON.parse(v)); } catch { /* ignore until valid */ }
+                      }}
+                      data-testid={`qb-showif-${q.id}`}
+                    />
                   </div>
                 </div>
               ))}

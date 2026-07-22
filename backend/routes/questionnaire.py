@@ -22,6 +22,11 @@ UNIVERSAL_QUESTIONS = [
     {"section": "Identity", "id": "stage_name", "label": "Stage / Performer name", "type": "text", "required": True, "order": 10},
     {"section": "Identity", "id": "legal_name", "label": "Legal name (for contracts)", "type": "text", "required": True, "order": 20},
     {"section": "Identity", "id": "primary_language", "label": "Primary language of performance", "type": "select", "options": ["Hindi", "English", "Punjabi", "Marathi", "Tamil", "Telugu", "Bengali", "Kannada", "Malayalam", "Other"], "required": True, "order": 30},
+    {"section": "Identity", "id": "category", "label": "Primary category / artist type", "type": "select",
+     "options": ["Bollywood Vocalist", "Classical Vocalist", "DJ / Music Producer", "Stand-up Comedian",
+                 "Anchor / Emcee", "Dancer / Troupe", "Live Band", "Magician", "Folk Artist"],
+     "required": True, "order": 35,
+     "description": "Adjusts the category-specific questions in the last step."},
     {"section": "Identity", "id": "secondary_languages", "label": "Other languages you perform in", "type": "multiselect", "options": ["Hindi", "English", "Punjabi", "Marathi", "Tamil", "Telugu", "Bengali", "Kannada", "Malayalam", "Gujarati", "Rajasthani"], "order": 40},
 
     # ── Layer 1 · Section: Contact ──
