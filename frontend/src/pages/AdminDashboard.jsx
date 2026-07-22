@@ -11,6 +11,7 @@ import {
 } from "./admin/AdminEnterprise";
 import AdminConcierge from "./admin/AdminConcierge";
 import AdminOutstationReport from "./admin/AdminOutstationReport";
+import AdminQuestionEditor from "./admin/AdminQuestionEditor";
 
 const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
@@ -23,6 +24,7 @@ const SIDEBAR = [
   { id: "users", label: "👥 Users" },
   { id: "disputes", label: "⚖️ Disputes" },
   { id: "master", label: "🗂️ Master Data" },
+  { id: "questionnaire", label: "📝 Questionnaire" },
   { id: "boost", label: "🚀 Boost Manager" },
   { id: "outstation-report", label: "📍 Outstation Report" },
   { id: "templates", label: "📧 Templates" },

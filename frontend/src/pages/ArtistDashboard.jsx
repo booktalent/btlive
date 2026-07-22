@@ -7,6 +7,7 @@ import { useToast } from "../lib/toast";
 import { BookingsTable } from "./CustomerDashboard";
 import OnboardingWizard from "../components/OnboardingWizard";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
+import QuestionnaireWizard from "../components/QuestionnaireWizard";
 
 /**
  * Media thumbnail with a graceful React-state fallback when the thumb URL 404s
@@ -32,6 +33,7 @@ function MediaThumb({ id, title }) {
 const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
   { id: "profile", label: "👤 Profile" },
+  { id: "questionnaire", label: "📝 Questionnaire" },
   { id: "packages", label: "📦 Packages" },
   { id: "addons", label: "🎁 Add-ons" },
   { id: "media", label: "🎬 Media" },
@@ -140,6 +142,12 @@ export default function ArtistDashboard() {
 
           {tab === "overview" && <Overview data={data} doAction={doAction} refresh={refresh} />}
           {tab === "profile" && <ProfileEditor user={user} refreshMe={refreshMe} toast={toast} />}
+          {tab === "questionnaire" && (
+            <QuestionnaireWizard
+              category={data.profile?.category}
+              onComplete={() => { toast("Questionnaire saved 🎉"); refresh(); }}
+            />
+          )}
           {tab === "packages" && <Packages data={data} refresh={refresh} toast={toast} />}
           {tab === "addons" && <Addons toast={toast} />}
           {tab === "media" && <MediaManager data={data} refresh={refresh} toast={toast} />}

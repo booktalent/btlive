@@ -20,6 +20,20 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
   const [bulkSelection, setBulkSelection] = useState(new Set());
   const [lastPicked, setLastPicked] = useState(null);
   const bulkMode = editable && !!onBulkEdit;
+  // Long-press timer for touch — hold ~500ms to start bulk selection
+  const pressTimer = React.useRef(null);
+  const startLongPress = (dateStr) => {
+    if (!editable) return;
+    pressTimer.current = setTimeout(() => {
+      setBulkSelection(new Set([dateStr]));
+      setLastPicked(dateStr);
+      // Haptic feedback on supported devices
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, 450);
+  };
+  const cancelLongPress = () => {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+  };
 
   const monthLabel = month.toLocaleString("en-IN", { month: "long", year: "numeric" });
   const today = useMemo(() => {
@@ -137,12 +151,15 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
                 if (!disabled && onPick) onPick(dateStr);
               }}
               onDoubleClick={() => {
-                // Double-click starts bulk mode with this date as anchor
                 if (editable && bulkMode) {
                   setBulkSelection(new Set([dateStr]));
                   setLastPicked(dateStr);
                 }
               }}
+              onTouchStart={() => startLongPress(dateStr)}
+              onTouchEnd={cancelLongPress}
+              onTouchMove={cancelLongPress}
+              onContextMenu={(e) => e.preventDefault()}
               data-testid={`cal-day-${dateStr}`}
               title={editable ? (bulkSelection.size > 0 ? "Click to toggle · Shift+click to extend range" : "Click to edit · Double-click to start bulk selection") : title}
             >
@@ -167,7 +184,7 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
         </div>
       )}
       {bulkMode && bulkSelection.size === 0 && (
-        <div className="bulk-hint" data-testid="bulk-hint">💡 Tip: double-click a date to start bulk selection · Shift+click to extend range</div>
+        <div className="bulk-hint" data-testid="bulk-hint">💡 Long-press (mobile) or double-click (desktop) any date to start bulk selection · Shift+click to extend range</div>
       )}
     </div>
   );

@@ -1342,36 +1342,36 @@ textarea:-webkit-autofill {
 /* ────────────────────────────────────────────────────────────────────────
    Availability Calendar (artist profile + booking flow)
    ──────────────────────────────────────────────────────────────────────── */
-.avail-cal { padding: 18px; }
+.avail-cal { padding: 14px; }
 .avail-cal-head {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .avail-cal-title {
   font-family: var(--font-serif, serif);
-  font-size: 18px; font-weight: 700;
+  font-size: 15px; font-weight: 700;
   color: var(--gold-light);
 }
 .avail-cal-nav {
-  width: 32px; height: 32px;
-  border-radius: 8px;
+  width: 28px; height: 28px;
+  border-radius: 7px;
   border: 1px solid var(--glass-border);
   background: rgba(255,255,255,0.04);
   color: #fff;
-  font-size: 20px; line-height: 1;
+  font-size: 16px; line-height: 1;
   cursor: pointer;
   transition: border-color 150ms ease, background 150ms ease;
 }
 .avail-cal-nav:hover { border-color: var(--gold); background: rgba(212,175,55,0.08); }
 
 .avail-cal-legend {
-  display: flex; gap: 14px; flex-wrap: wrap;
-  margin-bottom: 12px;
-  font-size: 11px; color: var(--white-muted);
+  display: flex; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 10px; color: var(--white-muted);
 }
-.avail-cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.avail-cal-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .avail-cal-legend .dot {
-  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
 }
 .dot-free { background: rgba(16, 185, 129, 0.7); }
 .dot-blocked { background: rgba(239, 68, 68, 0.75); }
@@ -1380,25 +1380,30 @@ textarea:-webkit-autofill {
 
 .avail-cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
 }
 .avail-cal-h {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.3px;
   color: var(--white-muted);
-  text-align: center; padding: 6px 0;
+  text-align: center; padding: 4px 0;
   text-transform: uppercase;
 }
 .avail-cal-cell {
   aspect-ratio: 1;
-  border-radius: 8px;
+  min-width: 0;
+  max-width: 44px;
+  justify-self: center;
+  width: 100%;
+  border-radius: 7px;
   border: 1px solid transparent;
   background: rgba(255,255,255,0.03);
   color: var(--white);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
   display: grid; place-items: center;
+  padding: 0;
 }
 .avail-cal-cell.empty { background: transparent; cursor: default; pointer-events: none; }
 .avail-cal-cell.free {
@@ -1453,8 +1458,12 @@ textarea:-webkit-autofill {
 }
 
 @media (max-width: 500px) {
-  .avail-cal { padding: 12px; }
-  .avail-cal-cell { font-size: 12px; }
+  .avail-cal { padding: 10px; }
+  .avail-cal-title { font-size: 13px; }
+  .avail-cal-cell { font-size: 11px; max-width: 38px; border-radius: 6px; }
+  .avail-cal-h { font-size: 8px; padding: 3px 0; }
+  .avail-cal-legend { gap: 6px; font-size: 9px; margin-bottom: 6px; }
+  .avail-cal-nav { width: 26px; height: 26px; font-size: 14px; }
 }
 
 
