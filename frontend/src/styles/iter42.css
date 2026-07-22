@@ -90,48 +90,60 @@
 
 .spotlight-card {
   position: absolute;
-  width: 240px; height: 300px;
+  width: 260px; height: 380px;
   border-radius: 20px;
   overflow: hidden;
   display: flex; flex-direction: column; justify-content: flex-end;
   text-decoration: none;
   color: #fff;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(212, 175, 55, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: transform .35s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(212, 175, 55, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  transition: transform .35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow .35s ease;
   will-change: transform;
   background: linear-gradient(160deg, rgba(60, 40, 120, 0.9), rgba(30, 20, 60, 0.9));
 }
 .spotlight-card:hover { transform: translateY(-6px) scale(1.02); z-index: 5; }
 
-/* Layered positions — mimicking the reference mock */
+/* Layered positions — matches the reference: 3 fanned portrait cards with
+   glowing coloured outlines (purple/gold/purple) */
 .hero-right .spotlight-card-1 {
-  top: 20px; left: 8%;
-  background: linear-gradient(160deg, #6d28d9, #4c1d95) !important;
-  transform: rotate(-3deg);
+  top: 10px; left: 4%;
+  transform: rotate(-6deg);
+  border-color: rgba(124, 58, 237, 0.55);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6),
+              0 0 0 1px rgba(124, 58, 237, 0.35),
+              0 0 45px rgba(124, 58, 237, 0.35);
 }
-.hero-right .spotlight-card-1:hover { transform: rotate(-3deg) translateY(-6px) scale(1.02); }
+.hero-right .spotlight-card-1:hover { transform: rotate(-6deg) translateY(-6px) scale(1.02); }
 
 .hero-right .spotlight-card-2 {
-  top: 90px; left: 42%;
-  background: linear-gradient(160deg, #b45309, #7c2d12) !important;
-  transform: rotate(2deg);
+  top: 60px; left: 45%;
+  transform: rotate(4deg);
+  z-index: 3;
+  border-color: rgba(236, 72, 153, 0.55);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6),
+              0 0 0 1px rgba(236, 72, 153, 0.4),
+              0 0 55px rgba(236, 72, 153, 0.4);
 }
-.hero-right .spotlight-card-2:hover { transform: rotate(2deg) translateY(-6px) scale(1.02); }
+.hero-right .spotlight-card-2:hover { transform: rotate(4deg) translateY(-6px) scale(1.02); }
 
 .hero-right .spotlight-card-3 {
-  top: 170px; left: 22%;
-  width: 220px; height: 260px;
-  background: linear-gradient(160deg, #e11d48, #831843) !important;
-  transform: rotate(-1deg);
+  top: 130px; left: 24%;
+  width: 250px; height: 360px;
+  transform: rotate(-2deg);
   z-index: 2;
+  border-color: rgba(251, 191, 36, 0.55);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6),
+              0 0 0 1px rgba(251, 191, 36, 0.4),
+              0 0 55px rgba(251, 191, 36, 0.4);
 }
-.hero-right .spotlight-card-3:hover { transform: rotate(-1deg) translateY(-6px) scale(1.02); }
+.hero-right .spotlight-card-3:hover { transform: rotate(-2deg) translateY(-6px) scale(1.02); }
 
 @media (max-width: 1000px) {
-  .spotlight-card-1 { top: 0;   left: 4%;  transform: rotate(-4deg); }
-  .spotlight-card-2 { top: 80px; left: 42%; transform: rotate(3deg); }
-  .spotlight-card-3 { top: 140px; left: 20%; transform: rotate(-1deg); }
+  .spotlight-card { width: 220px; height: 320px; }
+  .spotlight-card-1 { top: 0;   left: 2%;  transform: rotate(-6deg); }
+  .spotlight-card-2 { top: 60px; left: 42%; transform: rotate(4deg); }
+  .spotlight-card-3 { top: 120px; left: 20%; transform: rotate(-2deg); width: 210px; height: 300px; }
 }
 
 .spotlight-emoji {
@@ -142,8 +154,8 @@
 
 .spotlight-body {
   position: relative; z-index: 2;
-  padding: 16px 18px;
-  background: linear-gradient(0deg, rgba(0,0,0,0.85), rgba(0,0,0,0));
+  padding: 16px 18px 18px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.65) 55%, rgba(0,0,0,0) 100%);
 }
 .spotlight-badge {
   display: inline-block;
@@ -157,10 +169,11 @@
 }
 .spotlight-name {
   font-family: var(--font-serif, "Playfair Display", serif);
-  font-size: 20px; font-weight: 700; line-height: 1.1;
-  margin-bottom: 2px;
+  font-size: 22px; font-weight: 700; line-height: 1.1;
+  margin-bottom: 3px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.7);
 }
-.spotlight-cat { font-size: 12.5px; color: rgba(255,255,255,0.75); margin-bottom: 8px; }
+.spotlight-cat { font-size: 12.5px; color: rgba(255,255,255,0.8); margin-bottom: 10px; }
 .spotlight-foot {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 12px;

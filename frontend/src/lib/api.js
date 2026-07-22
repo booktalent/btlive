@@ -40,8 +40,18 @@ export const formatApiError = (e) => {
   return JSON.stringify(d);
 };
 
-export const mediaUrl = (id) => (id ? `${API}/media/${id}` : null);
-export const thumbUrl = (id) => (id ? `${API}/media/${id}/thumb` : null);
+export const mediaUrl = (id) => {
+  if (!id) return null;
+  // Allow external URLs (Unsplash, CDN, etc.) to pass through unchanged so the
+  // same `profile_image` field can hold either a media ID or a full URL.
+  if (typeof id === "string" && /^https?:\/\//i.test(id)) return id;
+  return `${API}/media/${id}`;
+};
+export const thumbUrl = (id) => {
+  if (!id) return null;
+  if (typeof id === "string" && /^https?:\/\//i.test(id)) return id;
+  return `${API}/media/${id}/thumb`;
+};
 
 /**
  * Pick a random gallery thumb for an artist card.

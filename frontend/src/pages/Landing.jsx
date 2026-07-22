@@ -176,16 +176,6 @@ export default function Landing() {
               List as Artist
             </Link>
           </div>
-          <form className="hero-search hero-search-inline" onSubmit={search} data-testid="hero-search-form">
-            <span className="hero-search-icon">🔍</span>
-            <input
-              placeholder='"Punjabi singer for wedding in Mumbai under ₹80k"'
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              data-testid="hero-search-input"
-            />
-            <button type="submit" className="btn btn-purple" data-testid="hero-search-btn">Search</button>
-          </form>
           <div className="hero-adv-search" data-testid="hero-adv-search">
             <div className="hero-adv-field">
               <label htmlFor="hero-adv-date">Event Date</label>
