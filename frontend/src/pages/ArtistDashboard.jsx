@@ -140,7 +140,7 @@ export default function ArtistDashboard() {
             <Kpi icon="👁️" cls="kpi-icon-blue" num={data.analytics.profile_views || 0} label="Profile Views" />
           </div>
 
-          {tab === "overview" && <Overview data={data} doAction={doAction} refresh={refresh} />}
+          {tab === "overview" && <Overview data={data} doAction={doAction} refresh={refresh} setTab={setTab} />}
           {tab === "profile" && <ProfileEditor user={user} refreshMe={refreshMe} toast={toast} />}
           {tab === "questionnaire" && (
             <QuestionnaireWizard
@@ -330,7 +330,7 @@ function RevenueSparkline({ series = [], onMonthClick = null }) {
   );
 }
 
-function Overview({ data, doAction, refresh }) {
+function Overview({ data, doAction, refresh, setTab }) {
   const pending = data.bookings.filter(b => b.status === "pending_artist");
   const confirmed = data.bookings.filter(b => ["confirmed", "started", "completed", "reviewed"].includes(b.status));
   const [editing, setEditing] = React.useState(null); // {date, current}
@@ -380,6 +380,34 @@ function Overview({ data, doAction, refresh }) {
 
   return (
     <div data-testid="overview-tab">
+      {(() => {
+        const answers = data.profile?.answers || {};
+        const filled = Object.values(answers).filter((v) => v !== "" && v !== null && v !== undefined && !(Array.isArray(v) && v.length === 0)).length;
+        if (filled >= 8) return null; // Already made real progress
+        return (
+          <div className="questionnaire-banner" data-testid="questionnaire-banner">
+            <div className="questionnaire-banner-icon">📝</div>
+            <div className="questionnaire-banner-body">
+              <div className="questionnaire-banner-title">
+                {filled === 0 ? "Complete your artist profile" : `You're ${filled} of 30+ questions in`}
+              </div>
+              <div className="questionnaire-banner-sub">
+                {filled === 0
+                  ? "Answer a few questions so customers can find you faster and book you with confidence."
+                  : "Finish the guided onboarding to unlock full visibility on the marketplace."}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-gold"
+              onClick={() => setTab && setTab("questionnaire")}
+              data-testid="questionnaire-banner-cta"
+            >
+              {filled === 0 ? "Start" : "Continue"} →
+            </button>
+          </div>
+        );
+      })()}
       <div className="smart-panel-grid mb-24">
         <div className="card card-pad smart-panel-cell" data-testid="smart-calendar">
           <div className="smart-panel-head">
@@ -395,6 +423,33 @@ function Overview({ data, doAction, refresh }) {
               artistUserId={user.id}
               editable
               onEdit={(date, current) => setEditing({ date, current })}
+              onWeekendPreset={async () => {
+                const inp = window.prompt("Weekend multiplier for next 3 months?", "1.5");
+                if (!inp) return;
+                const mult = parseFloat(inp) || 1.5;
+                const dates = [];
+                const cur = new Date();
+                const end = new Date();
+                end.setMonth(end.getMonth() + 3);
+                while (cur <= end) {
+                  const dow = cur.getDay();
+                  if (dow === 0 || dow === 6) {
+                    dates.push(cur.toISOString().split("T")[0]);
+                  }
+                  cur.setDate(cur.getDate() + 1);
+                }
+                if (!window.confirm(`Apply ${mult}× premium to ${dates.length} weekend dates?`)) return;
+                try {
+                  for (const d of dates) {
+                    await api.post("/availability", {
+                      date: d, status: "premium",
+                      premium_multiplier: mult, premium_label: "Weekend",
+                    });
+                  }
+                  setCalBump((n) => n + 1);
+                  if (refresh) refresh();
+                } catch (_) {}
+              }}
               onBulkEdit={async (dates, mode) => {
                 let multiplier = 1.5, label = "Weekend";
                 if (mode === "premium") {

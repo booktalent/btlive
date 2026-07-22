@@ -111,6 +111,7 @@ export default function AdminDashboard() {
           {tab === "users" && <AdminUsers toast={toast} />}
           {tab === "disputes" && <AdminDisputes toast={toast} />}
           {tab === "master" && <AdminMaster toast={toast} />}
+          {tab === "questionnaire" && <AdminQuestionEditor />}
           {tab === "boost" && <AdminBoost toast={toast} />}
           {tab === "templates" && <AdminTemplates toast={toast} />}
           {tab === "faqs" && <AdminFAQs toast={toast} />}

@@ -8,7 +8,7 @@ import api from "../lib/api";
  * - Free future dates are clickable; onPick(dateStr) fires with "YYYY-MM-DD".
  * - Prev/next month navigation with a 3-month look-ahead lazy fetch.
  */
-export default function AvailabilityCalendar({ artistUserId, onPick, selected = null, basePrice = null, editable = false, onEdit = null, onBulkEdit = null }) {
+export default function AvailabilityCalendar({ artistUserId, onPick, selected = null, basePrice = null, editable = false, onEdit = null, onBulkEdit = null, onWeekendPreset = null }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -83,6 +83,38 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
         <div className="avail-cal-title">{monthLabel}</div>
         <button type="button" onClick={() => step(1)} className="avail-cal-nav" aria-label="Next month" data-testid="cal-next">›</button>
       </div>
+      {bulkMode && (
+        <div className="avail-cal-toolbar">
+          <button
+            type="button"
+            className={`avail-cal-toggle ${bulkSelection.size > 0 ? "active" : ""}`}
+            onClick={() => {
+              if (bulkSelection.size > 0) setBulkSelection(new Set());
+              else if (lastPicked) setBulkSelection(new Set([lastPicked]));
+              else {
+                // Start with today so mobile users get instant feedback
+                const t = today.toISOString().split("T")[0];
+                setBulkSelection(new Set([t]));
+                setLastPicked(t);
+              }
+            }}
+            data-testid="cal-select-mode"
+          >
+            {bulkSelection.size > 0 ? `✕ Exit select (${bulkSelection.size})` : "☑ Select mode"}
+          </button>
+          {onWeekendPreset && (
+            <button
+              type="button"
+              className="btn btn-gold btn-xs"
+              onClick={onWeekendPreset}
+              data-testid="cal-weekend-preset"
+              title="Apply premium rate to every Sat & Sun for the next 3 months"
+            >
+              💎 Weekend preset (3 mo)
+            </button>
+          )}
+        </div>
+      )}
       <div className="avail-cal-legend">
         <span><i className="dot dot-free" /> Free</span>
         <span><i className="dot dot-premium" /> Premium</span>
