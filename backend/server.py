@@ -8,6 +8,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import asyncio
 import uuid
 import logging
 import base64
@@ -1627,6 +1628,60 @@ async def _mark_platform_fee_refundable(booking: dict, note: str):
     })
 
 
+# ─── 24-Hour Artist Confirmation window — auto-expiry worker ─────────────
+async def _auto_expire_bookings_once():
+    """
+    Runs on a schedule. Any booking that has been in `pending_artist` for
+    longer than `confirmation_deadline_hours` (default 24) is auto-cancelled
+    and the Platform Service Fee flagged for refund. Notifies customer + artist.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    stale = db.bookings.find({
+        "status": {"$in": ["pending_artist", "pending_payment"]},
+        "expires_at": {"$lte": now_iso},
+    })
+    async for doc in stale:
+        try:
+            await db.bookings.update_one(
+                {"id": doc["id"], "status": {"$in": ["pending_artist", "pending_payment"]}},
+                {"$set": {"status": "auto_expired", "expired_at": utcnow()},
+                 "$push": {"history": {"at": utcnow(), "action": "auto_expired", "by": "system",
+                                        "reason": "Artist did not confirm within 24 hours"}}},
+            )
+            if doc.get("amount_paid", 0) > 0:
+                await _mark_platform_fee_refundable(doc, f"Auto-expiry refund for {doc.get('ref', doc['id'])}")
+            # Customer + artist notifications (in-app + email via dispatcher)
+            try:
+                artist_u = await db.users.find_one({"id": doc.get("artist_id")}) or {}
+                await notify_dispatch(db, user_id=doc["customer_id"], event="booking.auto_expired",
+                    channels=["in_app", "email"],
+                    ctx={"title": "Booking request expired",
+                         "body": f"Your booking request {doc.get('ref', '')} expired because the artist did not confirm within 24 hours. Your Platform Service Fee will be refunded within 5-7 business days.",
+                         "ref": doc.get("ref", "")},
+                    email=doc.get("customer_email"))
+                await notify_dispatch(db, user_id=doc["artist_id"], event="booking.auto_expired",
+                    channels=["in_app", "email"],
+                    ctx={"title": "Booking request expired",
+                         "body": f"Booking {doc.get('ref', '')} expired because you did not respond within 24 hours."},
+                    email=artist_u.get("email"))
+            except Exception as _e:
+                log.warning("Auto-expire notify failed: %s", _e)
+        except Exception as e:
+            log.error("Auto-expire booking %s failed: %s", doc.get("id"), e)
+
+
+async def _auto_expire_loop():
+    """Background loop that ticks the auto-expiry check every N minutes."""
+    interval_min = int(os.environ.get("BOOKING_EXPIRY_CHECK_MINUTES", "15"))
+    log.info("Auto-expiry loop starting (every %d min)", interval_min)
+    while True:
+        try:
+            await _auto_expire_bookings_once()
+        except Exception as e:
+            log.error("Auto-expiry tick failed: %s", e)
+        await asyncio.sleep(interval_min * 60)
+
+
 async def _record_completion(booking: dict):
     """
     Marketplace model: BookTalent does NOT collect the Artist Performance Fee.
@@ -1777,11 +1832,17 @@ async def payment_verify(body: PaymentVerifyBody, user: dict = Depends(get_curre
             {"$set": {"status": "completed", "verified_at": utcnow()}},
         )
 
-    # Update booking
+    # Update booking + start the 24-hour Artist Confirmation window
+    from datetime import timedelta as _td
+    _confirm_hours = int(os.environ.get("BOOKING_CONFIRM_WINDOW_HOURS", "24"))
+    expires_at = (datetime.now(timezone.utc) + _td(hours=_confirm_hours)).isoformat()
     new_amount_paid = booking.get("amount_paid", 0) + pay["amount"]
     await db.bookings.update_one(
         {"id": body.booking_id},
-        {"$set": {"payment_status": "token_paid", "amount_paid": new_amount_paid, "status": "pending_artist"},
+        {"$set": {"payment_status": "token_paid", "amount_paid": new_amount_paid,
+                  "status": "pending_artist",
+                  "expires_at": expires_at,
+                  "confirmation_deadline_hours": _confirm_hours},
          "$push": {"history": {"at": utcnow(), "action": "paid_token", "by": user["id"], "amount": pay["amount"], "gateway": pay.get("gateway")}}},
     )
     # BookTalent (lead-generation model): the customer's payment is only the
@@ -2048,6 +2109,95 @@ async def admin_bookings(status: Optional[str] = None, _: dict = Depends(admin_o
     q: dict = {} if not status else {"status": status}
     docs = await db.bookings.find(q).sort("created_at", -1).to_list(500)
     return [clean(d) for d in docs]
+
+
+# ── Admin 24-Hr Confirmation window overrides ────────────────────────────
+class _BookingOverride(BaseModel):
+    hours: Optional[int] = None
+    reason: Optional[str] = None
+
+
+@api.post("/admin/bookings/{bid}/extend")
+async def admin_booking_extend(bid: str, body: _BookingOverride, admin: dict = Depends(admin_only)):
+    """Extend the 24-hour Artist Confirmation window by `hours`."""
+    doc = await db.bookings.find_one({"id": bid})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    if doc["status"] not in ("pending_artist", "pending_payment"):
+        raise HTTPException(400, "Booking is not pending confirmation")
+    hours = max(1, int(body.hours or 24))
+    current_expiry = doc.get("expires_at")
+    try:
+        base = datetime.fromisoformat(current_expiry) if current_expiry else datetime.now(timezone.utc)
+    except Exception:
+        base = datetime.now(timezone.utc)
+    new_expiry = (base + timedelta(hours=hours)).isoformat()
+    await db.bookings.update_one({"id": bid}, {
+        "$set": {"expires_at": new_expiry},
+        "$push": {"history": {"at": utcnow(), "action": "admin_extend", "by": admin["id"],
+                               "hours": hours, "reason": body.reason or ""}},
+    })
+    return {"ok": True, "expires_at": new_expiry, "extended_by_hours": hours}
+
+
+@api.post("/admin/bookings/{bid}/force-accept")
+async def admin_booking_force_accept(bid: str, body: _BookingOverride, admin: dict = Depends(admin_only)):
+    """Admin forces booking into Confirmed state on artist's behalf."""
+    doc = await db.bookings.find_one({"id": bid})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    if doc["status"] not in ("pending_artist", "pending_payment"):
+        raise HTTPException(400, "Booking is not pending confirmation")
+    await db.bookings.update_one({"id": bid}, {
+        "$set": {"status": "confirmed", "confirmed_at": utcnow(), "confirmed_by_admin": True},
+        "$push": {"history": {"at": utcnow(), "action": "admin_force_accept", "by": admin["id"],
+                               "reason": body.reason or ""}},
+    })
+    await _create_contract(doc)
+    await db.availability.update_one(
+        {"user_id": doc["artist_id"], "date": doc["event_date"]},
+        {"$set": {"id": new_id(), "user_id": doc["artist_id"], "date": doc["event_date"],
+                  "status": "booked", "booking_id": doc["id"]}},
+        upsert=True,
+    )
+    return {"ok": True, "status": "confirmed"}
+
+
+@api.post("/admin/bookings/{bid}/force-reject")
+async def admin_booking_force_reject(bid: str, body: _BookingOverride, admin: dict = Depends(admin_only)):
+    """Admin forces booking into Rejected state; Platform Service Fee flagged for refund."""
+    doc = await db.bookings.find_one({"id": bid})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    if doc["status"] not in ("pending_artist", "pending_payment", "confirmed"):
+        raise HTTPException(400, "Booking cannot be force-rejected in its current state")
+    await db.bookings.update_one({"id": bid}, {
+        "$set": {"status": "rejected", "rejected_at": utcnow(), "rejected_by_admin": True},
+        "$push": {"history": {"at": utcnow(), "action": "admin_force_reject", "by": admin["id"],
+                               "reason": body.reason or ""}},
+    })
+    if doc.get("amount_paid", 0) > 0:
+        await _mark_platform_fee_refundable(doc, body.reason or f"Admin force-reject for {doc.get('ref', bid)}")
+    return {"ok": True, "status": "rejected"}
+
+
+@api.post("/admin/bookings/{bid}/manual-refund")
+async def admin_booking_manual_refund(bid: str, body: _BookingOverride, admin: dict = Depends(admin_only)):
+    """
+    Admin manually flags a booking's payment for refund. Actual money-back is
+    processed via the Razorpay refund API (or manual bank transfer in mock mode).
+    """
+    doc = await db.bookings.find_one({"id": bid})
+    if not doc:
+        raise HTTPException(404, "Not found")
+    if doc.get("amount_paid", 0) <= 0:
+        raise HTTPException(400, "No amount was collected for this booking")
+    await _mark_platform_fee_refundable(doc, body.reason or f"Manual refund by admin for {doc.get('ref', bid)}")
+    await db.bookings.update_one({"id": bid}, {
+        "$push": {"history": {"at": utcnow(), "action": "admin_manual_refund", "by": admin["id"],
+                               "reason": body.reason or ""}},
+    })
+    return {"ok": True, "refund_pending": True}
 
 
 @api.get("/admin/users")
@@ -2445,6 +2595,7 @@ async def startup():
     await db.bookings.create_index("id", unique=True)
     await db.bookings.create_index("artist_id")
     await db.bookings.create_index("customer_id")
+    await db.bookings.create_index([("status", 1), ("expires_at", 1)])
     await db.coupons.create_index("code", unique=True)
     await db.media.create_index("user_id")
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
@@ -2470,6 +2621,8 @@ async def startup():
         await _seed_demo()
         await db.meta.insert_one({"_id": "seed_v3", "seeded_at": utcnow()})
     log.info("BookTalent API ready")
+    # Start the 24-hr Artist Confirmation auto-expiry background loop.
+    asyncio.create_task(_auto_expire_loop())
 
 
 async def _seed_demo():

@@ -87,11 +87,10 @@ export default function CustomerDashboard() {
             <Link to="/search" className="btn btn-gold btn-sm" data-testid="cust-find-artists">+ Book Artist</Link>
           </div>
 
-          <div className="kpi-grid">
+          <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
             <Kpi icon="🎟️" cls="kpi-icon-purple" num={analytics.total_bookings || 0} label="Total Bookings" />
             <Kpi icon="✅" cls="kpi-icon-green" num={analytics.completed || 0} label="Completed" />
             <Kpi icon="📅" cls="kpi-icon-amber" num={analytics.upcoming || 0} label="Upcoming" />
-            <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(analytics.total_spent || 0)} label="Total Spent" />
           </div>
 
           {tab === "overview" && (
@@ -132,15 +131,33 @@ const Kpi = ({ icon, cls, num, label, change }) => (
 
 const STATUS_MAP = {
   pending_payment: ["sp-pending", "Pending payment"],
-  pending_artist: ["sp-pending", "Awaiting artist"],
+  pending_artist: ["sp-pending", "Waiting for Artist Confirmation"],
   confirmed: ["sp-confirmed", "Confirmed"],
   started: ["sp-confirmed", "In progress"],
   completed_by_artist: ["sp-pending", "Pending approval"],
   completed: ["sp-completed", "Completed"],
   reviewed: ["sp-completed", "Reviewed"],
   rejected: ["sp-rejected", "Rejected"],
+  auto_expired: ["sp-rejected", "Booking request expired"],
   cancelled: ["sp-rejected", "Cancelled"],
 };
+
+/** Compact "23h 45m left" chip for pending_artist bookings using expires_at. */
+function ExpiryCountdown({ expiresAt, urgent = false }) {
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  if (!expiresAt) return null;
+  const diff = new Date(expiresAt).getTime() - now;
+  if (diff <= 0) return <span className="expiry-chip expiry-chip-danger" data-testid="expiry-elapsed">Expiring…</span>;
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const label = h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+  const cls = diff < 3600000 * 4 ? "expiry-chip-danger" : (diff < 3600000 * 12 ? "expiry-chip-warn" : "");
+  return <span className={`expiry-chip ${cls} ${urgent ? "urgent" : ""}`} data-testid="expiry-chip">⏱ {label}</span>;
+}
 
 export function BookingsTable({ bookings, role, onAction, onReview }) {
   const [chatBooking, setChatBooking] = useState(null);
@@ -206,7 +223,14 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                 </td>
                 <td className="fs-12">{b.event_date}<br/><span className="text-muted">{b.event_time}</span></td>
                 <td className="text-gold font-serif fs-18 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>
-                <td><span className={`status-pill ${pillCls}`}>{label}</span></td>
+                <td>
+                  <span className={`status-pill ${pillCls}`}>{label}</span>
+                  {b.status === "pending_artist" && b.expires_at && (
+                    <div className="mt-4">
+                      <ExpiryCountdown expiresAt={b.expires_at} urgent={role === "artist"} />
+                    </div>
+                  )}
+                </td>
                 <td>
                   <div className="flex gap-8" style={{ flexWrap: "wrap" }}>
                     {role === "artist" && b.status === "pending_artist" && (

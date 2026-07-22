@@ -773,3 +773,54 @@ Files touched: `chat_routes.py`, `iter9_routes.py` (`chat_upload`), `ChatBox.jsx
   - Wraps around at both ends
 - Files touched: `frontend/src/pages/ArtistProfile.jsx`, `frontend/src/index.css`, `blogs` + `system_settings` collections seeded.
 
+
+## 2026-02-22 — Phase 1a: 24-Hour Booking Confirmation + Quick Wins
+### Business model (locked)
+BookTalent stays a **Lead-Generation Marketplace** (no wallet / no escrow).
+The 24-Hr flow uses **hybrid pricing**: customer pays only
+`Platform Service Fee (5% of artist fee) + 18% GST on that fee` upfront via
+Razorpay auth-capture. Artist Performance Fee is settled directly
+Customer ↔ Artist off-platform. On artist rejection or 24-hour auto-timeout,
+only that 5% + GST is refunded via Razorpay.
+
+### Backend
+- `payments/verify`: on success, sets `expires_at = now + BOOKING_CONFIRM_WINDOW_HOURS (default 24)` on the booking, along with `confirmation_deadline_hours` for audit
+- `_auto_expire_bookings_once()`: transitions `pending_artist` / `pending_payment` bookings whose `expires_at` is in the past to `auto_expired`, calls `_mark_platform_fee_refundable`, and fires `booking.auto_expired` notifications (in-app + email) to customer + artist per the exact doc phrasing.
+- `_auto_expire_loop()`: startup asyncio task, ticks every `BOOKING_EXPIRY_CHECK_MINUTES` (default 15)
+- New index: `bookings (status, expires_at)` for O(1) expiry scans
+- New admin overrides (all `admin_only`):
+  - `POST /api/admin/bookings/{bid}/extend` — bump `expires_at` by N hours (default 24)
+  - `POST /api/admin/bookings/{bid}/force-accept` — admin flips to `confirmed`, contract + availability created
+  - `POST /api/admin/bookings/{bid}/force-reject` — admin flips to `rejected`, refund flagged
+  - `POST /api/admin/bookings/{bid}/manual-refund` — flag refund without changing status
+
+### Frontend
+- Customer dashboard: **removed "Total Spent" KPI** (privacy — per user request); grid now 3 cols
+- Bookings table status column shows:
+  - Renamed `pending_artist` → **"Waiting for Artist Confirmation"** (exact doc phrasing)
+  - Renamed `auto_expired` → **"Booking request expired"**
+  - Rating: `<ExpiryCountdown>` chip with 30-sec ticking; colours: default gold → amber below 12h → red below 4h → red-danger when elapsed. Urgent pulse animation for artists.
+- Auth pages: **`<PasswordField>` with 👁 / 🙈 eye toggle** on signin, signup password, signup confirm
+- Homepage hero: **new `.hero-adv-search` bar** with Event Date · City · Artist Type · "Find Artists →" button, all wired to `/search?date=&city=&category=` query params
+- Onboarding Wizard: category dropdown now has **"Other (specify below)"** option that reveals a free-text input for custom categories
+
+### Docs / notifications (per doc phrasing)
+- Customer copy on auto-expiry: *"Your booking request {ref} expired because the artist did not confirm within 24 hours. Your Platform Service Fee will be refunded within 5-7 business days."*
+- Artist copy on auto-expiry: *"Booking {ref} expired because you did not respond within 24 hours."*
+- Notifications delivered via `notify_dispatch(channels=["in_app", "email"])` (SMS/WhatsApp deferred to Phase 1b per user)
+
+### Verified live (screenshots)
+- Extended booking BT-260718-EBB8C4 via admin extend → 200 OK → `expires_at` visible + countdown chip renders "⏱ 23h 57m left"
+- Login flow works, `type="password"` → `type="text"` on eye click
+- Customer dashboard shows 3 KPIs (no Total Spent)
+- Homepage advanced search fully renders
+
+### Deferred to Phase 1b (next session)
+- Artist availability calendar on profile & booking (customer picks only free dates)
+- Hide customer invoice from artist (artist sees package + booking details only)
+- Add-ons in booking cart
+- Separate contracts per artist for multi-artist bookings
+- Dynamic Onboarding Questionnaire (Layer 1 + Layer 2 metadata-driven)
+- Smart Add-on Recommendation Engine
+- Dashboard visual redesign to match PPT reference (Smart Artist Management Panel + Enterprise Command Center)
+

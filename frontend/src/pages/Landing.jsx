@@ -60,6 +60,9 @@ export default function Landing() {
   const [spotIdx, setSpotIdx] = useState(0);
   const [myCity, setMyCity] = useState("");
   const [catStats, setCatStats] = useState({});
+  // Iter 46 — homepage advanced search (date + city + category)
+  const [advDate, setAdvDate] = useState("");
+  const [advCategory, setAdvCategory] = useState("");
 
   useEffect(() => {
     // Sprint 5 — dynamic homepage rails
@@ -125,6 +128,8 @@ export default function Landing() {
       p.set("city", city);
       localStorage.setItem("bt_city", city);
     }
+    if (advDate) p.set("date", advDate);
+    if (advCategory) p.set("category", advCategory);
     window.location.href = `/search?${p.toString()}`;
   };
 
@@ -181,6 +186,53 @@ export default function Landing() {
             />
             <button type="submit" className="btn btn-purple" data-testid="hero-search-btn">Search</button>
           </form>
+          <div className="hero-adv-search" data-testid="hero-adv-search">
+            <div className="hero-adv-field">
+              <label htmlFor="hero-adv-date">Event Date</label>
+              <input
+                id="hero-adv-date"
+                type="date"
+                value={advDate}
+                onChange={(e) => setAdvDate(e.target.value)}
+                min={new Date().toISOString().split("T")[0]}
+                data-testid="hero-adv-date"
+              />
+            </div>
+            <div className="hero-adv-field">
+              <label htmlFor="hero-adv-city">City</label>
+              <select
+                id="hero-adv-city"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                data-testid="hero-adv-city"
+              >
+                <option value="">Any city</option>
+                {cities.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="hero-adv-field">
+              <label htmlFor="hero-adv-category">Artist Type</label>
+              <select
+                id="hero-adv-category"
+                value={advCategory}
+                onChange={(e) => setAdvCategory(e.target.value)}
+                data-testid="hero-adv-category"
+              >
+                <option value="">Any category</option>
+                {CATEGORIES.filter((c) => c.slug !== "all").map((c) => (
+                  <option key={c.slug} value={c.slug}>{c.icon} {c.name}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              className="btn btn-gold hero-adv-btn"
+              onClick={search}
+              data-testid="hero-adv-search-btn"
+            >
+              Find Artists →
+            </button>
+          </div>
           <div className="hero-stats">
             <div>
               <div className="hero-stat-num">5,200+</div>

@@ -1218,3 +1218,123 @@ textarea:-webkit-autofill {
   line-height: 1;
 }
 
+
+/* ────────────────────────────────────────────────────────────────────────
+   Password field with eye-toggle
+   ──────────────────────────────────────────────────────────────────────── */
+.pwd-wrap { position: relative; }
+.pwd-input { padding-right: 44px !important; }
+.pwd-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  color: var(--gold-light);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 6px;
+  line-height: 1;
+  opacity: 0.75;
+  transition: opacity 150ms ease;
+}
+.pwd-toggle:hover { opacity: 1; }
+
+/* ────────────────────────────────────────────────────────────────────────
+   24-Hr Booking countdown chip
+   ──────────────────────────────────────────────────────────────────────── */
+.expiry-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(212, 175, 55, 0.12);
+  color: var(--gold-light);
+  border: 1px solid rgba(212, 175, 55, 0.28);
+  white-space: nowrap;
+}
+.expiry-chip-warn {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+.expiry-chip-danger {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.expiry-chip.urgent {
+  animation: expiryPulse 2s ease-in-out infinite;
+}
+@keyframes expiryPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+
+/* ────────────────────────────────────────────────────────────────────────
+   Homepage advanced search (Date · City · Category · Find button)
+   ──────────────────────────────────────────────────────────────────────── */
+.hero-adv-search {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  background: rgba(9, 9, 18, 0.55);
+  border: 1px solid rgba(212, 175, 55, 0.22);
+  border-radius: 14px;
+  backdrop-filter: blur(12px);
+}
+.hero-adv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.hero-adv-field label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--white-muted);
+}
+.hero-adv-field input,
+.hero-adv-field select {
+  height: 40px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  color: var(--white);
+  font-size: 13px;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+.hero-adv-field input:focus,
+.hero-adv-field select:focus {
+  outline: none;
+  border-color: var(--gold);
+  background: rgba(255, 255, 255, 0.06);
+}
+.hero-adv-field input::-webkit-calendar-picker-indicator {
+  filter: invert(0.75) sepia(1) hue-rotate(15deg) saturate(3);
+  cursor: pointer;
+}
+.hero-adv-btn {
+  align-self: end;
+  height: 40px;
+  padding: 0 22px;
+  white-space: nowrap;
+}
+@media (max-width: 767px) {
+  .hero-adv-search {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+  .hero-adv-btn { width: 100%; }
+}
+

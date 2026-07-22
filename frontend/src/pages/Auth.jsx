@@ -11,6 +11,35 @@ const ROLES = [
   { value: "corporate", icon: "💼", name: "Corporate", desc: "Bulk bookings for company events" },
 ];
 
+/** Password field with a "show/hide" eye toggle. */
+function PasswordField({ value, onChange, placeholder, required, testid, autoComplete }) {
+  const [show, setShow] = React.useState(false);
+  return (
+    <div className="pwd-wrap">
+      <input
+        className="field-input pwd-input"
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required={required}
+        autoComplete={autoComplete || "current-password"}
+        data-testid={testid}
+      />
+      <button
+        type="button"
+        className="pwd-toggle"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? "Hide password" : "Show password"}
+        data-testid={`${testid}-toggle`}
+        tabIndex={-1}
+      >
+        {show ? "🙈" : "👁"}
+      </button>
+    </div>
+  );
+}
+
 export default function Auth({ mode = "signin" }) {
   const [params] = useSearchParams();
   const initialRole = params.get("role") || "customer";
@@ -156,7 +185,14 @@ export default function Auth({ mode = "signin" }) {
             </div>
             <div className="field">
               <div className="field-label">Password</div>
-              <input className="field-input" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder="••••••••" required data-testid="signin-password" />
+              <PasswordField
+                value={form.password}
+                onChange={(e) => set("password", e.target.value)}
+                placeholder="••••••••"
+                required
+                testid="signin-password"
+                autoComplete="current-password"
+              />
             </div>
             <button type="submit" className="btn btn-gold btn-block" disabled={busy} data-testid="signin-submit">
               {busy ? "Signing in…" : "Sign In →"}
@@ -243,11 +279,23 @@ export default function Auth({ mode = "signin" }) {
                 )}
                 <div className="field">
                   <div className="field-label">Create Password</div>
-                  <input className="field-input" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder="Min 6 chars" data-testid="signup-password" />
+                  <PasswordField
+                    value={form.password}
+                    onChange={(e) => set("password", e.target.value)}
+                    placeholder="Min 6 chars"
+                    testid="signup-password"
+                    autoComplete="new-password"
+                  />
                 </div>
                 <div className="field">
                   <div className="field-label">Confirm Password</div>
-                  <input className="field-input" type="password" value={form.confirm} onChange={(e) => set("confirm", e.target.value)} data-testid="signup-confirm" />
+                  <PasswordField
+                    value={form.confirm}
+                    onChange={(e) => set("confirm", e.target.value)}
+                    placeholder="••••••••"
+                    testid="signup-confirm"
+                    autoComplete="new-password"
+                  />
                 </div>
                 <div className="flex gap-12">
                   <button className="btn btn-ghost" onClick={() => setStep(1)} data-testid="signup-back-1">← Back</button>

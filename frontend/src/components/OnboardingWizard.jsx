@@ -180,13 +180,33 @@ export default function OnboardingWizard({ user, onComplete }) {
               <div className="field-row">
                 <div className="field">
                   <div className="field-label">Category *</div>
-                  <select className="field-input" value={basics.category} onChange={(e) => setBasics({ ...basics, category: e.target.value })} data-testid="wiz-category">
+                  <select
+                    className="field-input"
+                    value={basics.category === "__other__" ? "__other__" : (["Bollywood Vocalist","Classical Vocalist","DJ / Music Producer","Stand-up Comedian","Anchor / Emcee","Dancer / Troupe","Live Band","Magician","Folk Artist"].includes(basics.category) ? basics.category : (basics.category ? "__other__" : ""))}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__other__") setBasics({ ...basics, category: "__other__" });
+                      else setBasics({ ...basics, category: v });
+                    }}
+                    data-testid="wiz-category"
+                  >
                     <option value="">Select…</option>
                     <option>Bollywood Vocalist</option><option>Classical Vocalist</option>
                     <option>DJ / Music Producer</option><option>Stand-up Comedian</option>
                     <option>Anchor / Emcee</option><option>Dancer / Troupe</option>
                     <option>Live Band</option><option>Magician</option><option>Folk Artist</option>
+                    <option value="__other__">Other (specify below)</option>
                   </select>
+                  {(basics.category === "__other__" || (basics.category && !["Bollywood Vocalist","Classical Vocalist","DJ / Music Producer","Stand-up Comedian","Anchor / Emcee","Dancer / Troupe","Live Band","Magician","Folk Artist"].includes(basics.category))) && (
+                    <input
+                      className="field-input mt-8"
+                      placeholder="Enter your category (e.g. Beatboxer)"
+                      value={basics.category === "__other__" ? "" : basics.category}
+                      onChange={(e) => setBasics({ ...basics, category: e.target.value })}
+                      data-testid="wiz-category-other"
+                      autoFocus
+                    />
+                  )}
                 </div>
                 <div className="field">
                   <div className="field-label">Primary City *</div>
