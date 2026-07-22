@@ -303,99 +303,11 @@ class TestBookingAlternatives:
                 assert k in alt, f"alt missing {k}: {alt}"
 
 
-# ─────────────────────────── COUNTER FLOW ───────────────────────────
-@pytest.fixture(scope="session")
-def countered_booking(fresh_customer, seeded_artist, priya_package):
-    body = {
-        "artist_id": seeded_artist["user"]["id"],
-        "package_id": priya_package.get("id") or priya_package.get("_id"),
-        "addons": [],
-        "event_date": f"2041-{(int(time.time()) % 12) + 1:02d}-{(int(time.time()) % 27) + 1:02d}",
-        "event_time": "19:00",
-        "event_type": "Wedding",
-        "venue": "TEST_counter",
-        "city": "Mumbai",
-        "guests": "100",
-        "customer_email": fresh_customer["user"]["email"],
-    }
-    r = requests.post(f"{API}/bookings", json=body, headers=_h(fresh_customer["token"]), timeout=20)
-    assert r.status_code == 200, r.text
-    return r.json()
-
-
-@pytest.mark.skip(reason="Counter-offer feature removed — BookTalent enforces fixed pricing (lead-gen model).")
-class TestCounterFlow:
-    def test_artist_counter_action_updates_pricing(self, countered_booking, seeded_artist, fresh_customer):
-        bid = countered_booking["id"]
-        new_price = 55555.0
-        r = requests.post(f"{API}/bookings/{bid}/action",
-                          json={"action": "counter", "counter_price": new_price},
-                          headers=_h(seeded_artist["token"]), timeout=15)
-        assert r.status_code == 200, r.text
-
-        # verify counter_price + pricing applied
-        rb = requests.get(f"{API}/bookings/{bid}", headers=_h(fresh_customer["token"]), timeout=15)
-        bk = rb.json()["booking"]
-        assert bk.get("counter_price") == new_price
-        assert bk.get("counter_offered_at")
-        assert bk["pricing"]["package_fee"] == new_price
-
-        # customer should have a notification
-        rn = requests.get(f"{API}/notifications", headers=_h(fresh_customer["token"]), timeout=15)
-        assert rn.status_code == 200
-        assert any(n.get("type") == "counter_offer" for n in rn.json()), "counter_offer notification missing"
-
-    def test_customer_accepts_counter(self, countered_booking, fresh_customer, seeded_artist):
-        bid = countered_booking["id"]
-        r = requests.post(f"{API}/bookings/{bid}/counter",
-                          json={"accept": True},
-                          headers=_h(fresh_customer["token"]), timeout=15)
-        assert r.status_code == 200, r.text
-
-        rb = requests.get(f"{API}/bookings/{bid}", headers=_h(fresh_customer["token"]), timeout=15)
-        bk = rb.json()["booking"]
-        assert bk.get("counter_accepted_at")
-
-        # artist should get notified
-        rn = requests.get(f"{API}/notifications", headers=_h(seeded_artist["token"]), timeout=15)
-        assert any(n.get("type") == "counter_accepted" for n in rn.json())
-
-    def test_customer_rejects_counter_reverts_price(self, fresh_customer, seeded_artist, priya_package):
-        # Create another booking and counter it, then reject
-        original_price = float(priya_package["price"])
-        body = {
-            "artist_id": seeded_artist["user"]["id"],
-            "package_id": priya_package.get("id") or priya_package.get("_id"),
-            "addons": [],
-            "event_date": f"2042-{(int(time.time()) % 12) + 1:02d}-{(int(time.time()) % 27) + 1:02d}",
-            "event_time": "19:00",
-            "event_type": "Corporate",
-            "venue": "TEST_revert",
-            "city": "Mumbai",
-            "guests": "60",
-            "customer_email": fresh_customer["user"]["email"],
-        }
-        r = requests.post(f"{API}/bookings", json=body, headers=_h(fresh_customer["token"]), timeout=20)
-        assert r.status_code == 200, r.text
-        bid = r.json()["id"]
-
-        # artist counters
-        r2 = requests.post(f"{API}/bookings/{bid}/action",
-                           json={"action": "counter", "counter_price": 99999.0},
-                           headers=_h(seeded_artist["token"]), timeout=15)
-        assert r2.status_code == 200
-
-        # customer rejects
-        r3 = requests.post(f"{API}/bookings/{bid}/counter",
-                           json={"accept": False},
-                           headers=_h(fresh_customer["token"]), timeout=15)
-        assert r3.status_code == 200
-
-        rb = requests.get(f"{API}/bookings/{bid}", headers=_h(fresh_customer["token"]), timeout=15)
-        bk = rb.json()["booking"]
-        assert bk.get("counter_price") in (None, 0), f"counter_price should be cleared, got {bk.get('counter_price')}"
-        assert bk["pricing"]["package_fee"] == original_price, \
-            f"package_fee should revert to {original_price}, got {bk['pricing']['package_fee']}"
+# ─────────────────────────── COUNTER FLOW (REMOVED) ───────────────────────────
+# Counter-offer feature was removed in iter43 — BookTalent enforces fixed
+# pricing (lead-gen model). The fixture + TestCounterFlow class that used to
+# live here have been deleted. See test_iter43_counter_removed.py for the
+# replacement regression tests that assert the feature is gone.
 
 
 # ─────────────────────────── SIGNED CONTRACT UPLOAD ───────────────────────────

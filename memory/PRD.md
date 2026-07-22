@@ -824,3 +824,38 @@ only that 5% + GST is refunded via Razorpay.
 - Smart Add-on Recommendation Engine
 - Dashboard visual redesign to match PPT reference (Smart Artist Management Panel + Enterprise Command Center)
 
+
+---
+
+## Iter 43 — Counter-Offer Removal + Artist Payment-Detail Hiding (Feb 2026)
+
+### Business rule enforced
+BookTalent is a strict **fixed-pricing lead-generation** marketplace. Artists can only **Accept** or **Reject** a booking request — negotiation of price via counter-offers is not allowed. The platform collects only 5% Platform Service Fee + 18% GST on that fee; the artist's performance fee is settled directly Customer ↔ Artist off-platform. Artists must never see the platform-side collection amounts (Amount Paid, Platform Fee, GST) — those are confidential to the customer.
+
+### Backend
+- Stripped `"counter"` from `BookingStatusUpdate.action` Literal (server.py L371)
+- Removed `counter_price: Optional[float]` field from `BookingStatusUpdate`
+- Removed the entire `elif body.action == "counter" …` branch from the booking-action handler
+- Deleted the `POST /api/bookings/{bid}/counter` endpoint + `CounterDecisionBody` Pydantic model
+- Legacy `TestCounterFlow` class + `countered_booking` fixture deleted from `tests/test_iter4.py`
+
+### Frontend
+- `ArtistDashboard.jsx` — Total Earnings, revenue drilldown & booking-row amount cells now use `pricing.artist_fee || pricing.package_fee + pricing.addons_total` (never `amount_paid`, which is the platform-side sum)
+- `RoleDashboards.jsx` Agency Bulk Booking Queue row amount uses the same safe fallback
+- No `CounterModal` reference anywhere in the React tree; no "Counter Offer" button in any dashboard
+
+### Verified
+- `/app/test_reports/iteration_43.json` — 12/12 backend pytest pass, frontend 100%
+- `POST /api/bookings/{bid}/action` with `action=counter` → 422 Unprocessable Entity
+- `POST /api/bookings/{bid}/counter` → 405 Method Not Allowed
+- Artist Dashboard mounts clean (no CounterModal ref, no console errors); Total Earnings computed from `artist_fee` only
+
+### Follow-up backlog (recorded, not yet built)
+- **P0** Multiple Artist Booking for Same Event — cart flow: after booking one artist, surface complementary available artists for the same date/city; unified single-checkout; separate contracts / packages / statuses per artist. Event ID linked across artists.
+- **P1** AI Event Planner + Smart Add-on Recommendation Engine (scoring service, cart fork logic, admin rule matrix)
+- **P1** Full migration to Dynamic Questionnaire (deprecate legacy onboarding fields permanently)
+- **P2** Save filter combos as a "watch"
+- **P2** FFmpeg chunked video compression
+- **P2** Refactor `server.py` (~3000 lines) and `iter7_routes.py` into `routes/bookings.py`, `routes/payments.py`, etc.
+- **P2** Extract `artistFee(b)` helper — same fallback expression is copy-pasted 4× in ArtistDashboard.jsx
+
