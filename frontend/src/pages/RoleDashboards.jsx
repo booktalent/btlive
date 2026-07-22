@@ -172,7 +172,7 @@ export function AgencyDashboard() {
                                 <div className="fw-600 fs-13">{b.artist_name || b.artist_id}</div>
                                 <div className="text-muted fs-11">{b.customer_name} · {b.event_date}</div>
                               </div>
-                              <div className="text-gold fs-13 fw-600">{fmtINRFull(b.pricing?.artist_fee || b.amount_paid || 0)}</div>
+                              <div className="text-gold fs-13 fw-600">{fmtINRFull(b.pricing?.artist_fee || (b.pricing?.package_fee || 0) + (b.pricing?.addons_total || 0) || 0)}</div>
                             </div>
                           ))}
                           {pend.length > 4 && (

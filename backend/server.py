@@ -369,8 +369,9 @@ class BookingCreate(BaseModel):
 
 
 class BookingStatusUpdate(BaseModel):
-    action: Literal["accept", "reject", "counter", "start", "complete", "approve_completion", "cancel"]
-    counter_price: Optional[float] = None
+    # Counter-offer flow removed — BookTalent enforces a fixed-pricing
+    # lead-generation model. Artists can only accept or reject.
+    action: Literal["accept", "reject", "start", "complete", "approve_completion", "cancel"]
     reason: Optional[str] = None
 
 
@@ -1535,21 +1536,6 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
         # not through any internal wallet.
         if doc.get("amount_paid", 0) > 0:
             await _mark_platform_fee_refundable(doc, f"Refund for rejected booking {doc['ref']}")
-    elif body.action == "counter" and is_artist and body.counter_price:
-        history_entry["counter_price"] = body.counter_price
-        new_pricing = calc_booking_pricing(float(body.counter_price), doc["pricing"]["addons_total"], doc["pricing"]["coupon_discount"])
-        await db.bookings.update_one(
-            {"id": bid},
-            {"$set": {"pricing": new_pricing, "counter_offered_at": utcnow(), "counter_price": body.counter_price}},
-        )
-        # notify customer
-        await db.notifications.insert_one({
-            "id": new_id(), "user_id": doc["customer_id"], "type": "counter_offer",
-            "title": "Counter offer received",
-            "body": f"Artist proposed ₹{body.counter_price} for booking {doc['ref']}",
-            "read": False, "created_at": utcnow(), "link": f"/dashboard/bookings/{bid}",
-        })
-        await db.bookings.update_one({"id": bid}, {"$set": {"pricing": new_pricing}})
     elif body.action == "start" and is_artist and doc["status"] == "confirmed":
         new_status = "started"
     elif body.action == "complete" and is_artist and doc["status"] in ("confirmed", "started"):
@@ -2536,38 +2522,7 @@ async def download_invoice_pdf(bid: str, user: dict = Depends(get_current_user))
     )
 
 
-# Counter-offer accept / reject by customer
-class CounterDecisionBody(BaseModel):
-    accept: bool
-
-
-@api.post("/bookings/{bid}/counter")
-async def counter_decision(bid: str, body: CounterDecisionBody, user: dict = Depends(get_current_user)):
-    doc = await db.bookings.find_one({"id": bid})
-    if not doc or doc["customer_id"] != user["id"]:
-        raise HTTPException(404, "Booking not found")
-    if not doc.get("counter_price"):
-        raise HTTPException(400, "No active counter-offer")
-    if body.accept:
-        await db.bookings.update_one(
-            {"id": bid},
-            {"$set": {"counter_accepted_at": utcnow()},
-             "$push": {"history": {"at": utcnow(), "action": "counter_accepted", "by": user["id"]}}},
-        )
-        await db.notifications.insert_one({
-            "id": new_id(), "user_id": doc["artist_id"], "type": "counter_accepted",
-            "title": "Counter offer accepted",
-            "body": f"Customer accepted ₹{doc['counter_price']} for {doc['ref']}",
-            "read": False, "created_at": utcnow(),
-        })
-    else:
-        # revert pricing to original
-        pkg = await db.packages.find_one({"id": doc["package_id"]})
-        if pkg:
-            addon_total = sum(ADDON_PRICES.get(a, 0) for a in doc.get("addons", []))
-            new_pricing = calc_booking_pricing(float(pkg["price"]), addon_total, doc["pricing"]["coupon_discount"])
-            await db.bookings.update_one({"id": bid}, {"$set": {"pricing": new_pricing, "counter_price": None}})
-    return {"ok": True}
+# Counter-offer endpoint removed — BookTalent enforces fixed pricing.
 
 
 # Upload signed contract (artist or customer)

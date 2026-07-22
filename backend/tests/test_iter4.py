@@ -323,6 +323,7 @@ def countered_booking(fresh_customer, seeded_artist, priya_package):
     return r.json()
 
 
+@pytest.mark.skip(reason="Counter-offer feature removed — BookTalent enforces fixed pricing (lead-gen model).")
 class TestCounterFlow:
     def test_artist_counter_action_updates_pricing(self, countered_booking, seeded_artist, fresh_customer):
         bid = countered_booking["id"]

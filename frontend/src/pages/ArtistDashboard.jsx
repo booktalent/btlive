@@ -54,7 +54,6 @@ export default function ArtistDashboard() {
   const [tab, setTab] = useState("overview");
   const [data, setData] = useState({ bookings: [], packages: [], media: [], analytics: {}, reviews: [] });
   const [showWizard, setShowWizard] = useState(false);
-  const [counterModal, setCounterModal] = useState(null);
 
   // Auto-show wizard if onboarding required (test-unblocking scaffold)
   useEffect(() => {
@@ -63,16 +62,6 @@ export default function ArtistDashboard() {
       if (r.data?.required && !r.data?.completed) setShowWizard(true);
     }).catch(() => {});
   }, [user]);
-
-  const submitCounter = async (price) => {
-    if (!counterModal) return;
-    try {
-      await api.post(`/bookings/${counterModal.id}/action`, { action: "counter", counter_price: Number(price) });
-      toast("Counter offer sent");
-      setCounterModal(null);
-      refresh();
-    } catch (e) { toast(formatApiError(e), "error"); }
-  };
 
   useEffect(() => {
     if (!user) { nav("/login"); return; }
@@ -93,11 +82,6 @@ export default function ArtistDashboard() {
   };
 
   const doAction = async (bid, action) => {
-    if (action === "counter") {
-      const b = data.bookings.find((x) => x.id === bid);
-      if (b) setCounterModal(b);
-      return;
-    }
     try {
       await api.post(`/bookings/${bid}/action`, { action });
       toast("Booking updated");
@@ -136,7 +120,7 @@ export default function ArtistDashboard() {
           {(() => {
             const liveEarnings = (data.bookings || [])
               .filter((b) => ["confirmed", "started", "completed", "reviewed"].includes(b.status))
-              .reduce((s, b) => s + Number(b.pricing?.artist_fee || b.amount_paid || 0), 0);
+              .reduce((s, b) => s + Number(b.pricing?.artist_fee || (b.pricing?.package_fee || 0) + (b.pricing?.addons_total || 0) || 0), 0);
             return (
               <div className="kpi-grid">
                 <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(liveEarnings)} label="Total Earnings" />
@@ -169,34 +153,6 @@ export default function ArtistDashboard() {
         </div>
       </main>
       {showWizard && <OnboardingWizard user={user} onComplete={() => { setShowWizard(false); refresh(); refreshMe(); }} />}
-      {counterModal && <CounterModal booking={counterModal} onSubmit={submitCounter} onClose={() => setCounterModal(null)} />}
-    </div>
-  );
-}
-
-function CounterModal({ booking, onSubmit, onClose }) {
-  const [price, setPrice] = useState(booking?.pricing?.package_fee || "");
-  return (
-    <div className="modal-bg" onClick={onClose} data-testid="counter-modal">
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-title">Counter Offer</div>
-        <div className="modal-sub">{booking.event_type} · {booking.event_date}</div>
-        <div className="card card-pad mb-16">
-          <div className="text-muted fs-12">Customer offered (package fee)</div>
-          <div className="font-serif fs-18 fw-700">{fmtINRFull(booking?.pricing?.package_fee || 0)}</div>
-        </div>
-        <div className="field">
-          <div className="field-label">Your Counter Price (₹)</div>
-          <input type="number" className="field-input" value={price} onChange={(e) => setPrice(e.target.value)} data-testid="counter-price-input" />
-          <div className="field-hint">Customer will be notified to accept or decline.</div>
-        </div>
-        <div className="flex gap-12">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-gold" style={{ flex: 1 }} onClick={() => onSubmit(booking.id, price)} disabled={!price} data-testid="counter-submit">
-            Send Counter Offer
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -356,7 +312,7 @@ function Overview({ data, doAction, refresh, setTab }) {
     }
     confirmed.forEach((b) => {
       const key = (b.event_date || "").slice(0, 7);
-      if (buckets[key]) buckets[key].amount += Number(b.pricing?.artist_fee || b.amount_paid || 0);
+      if (buckets[key]) buckets[key].amount += Number(b.pricing?.artist_fee || (b.pricing?.package_fee || 0) + (b.pricing?.addons_total || 0) || 0);
     });
     return Object.values(buckets);
   }, [confirmed]);
@@ -549,7 +505,7 @@ function Overview({ data, doAction, refresh, setTab }) {
         <div className="date-edit-backdrop" onClick={() => setDrilldown(null)} data-testid="revenue-drilldown">
           <div className="card card-pad date-edit" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <h3 className="font-serif fs-18 fw-700 mb-4">Bookings in {revenueSeries.find(p => p.key === drilldown)?.label} {drilldown.slice(0,4)}</h3>
-            <p className="text-muted fs-12 mb-16">{drilldownBookings.length} confirmed booking(s) · Total {fmtINRFull(drilldownBookings.reduce((s, b) => s + Number(b.pricing?.artist_fee || b.amount_paid || 0), 0))}</p>
+            <p className="text-muted fs-12 mb-16">{drilldownBookings.length} confirmed booking(s) · Total {fmtINRFull(drilldownBookings.reduce((s, b) => s + Number(b.pricing?.artist_fee || (b.pricing?.package_fee || 0) + (b.pricing?.addons_total || 0) || 0), 0))}</p>
             {drilldownBookings.length === 0 ? (
               <div className="empty" style={{ padding: 18 }}><div className="empty-icon">📭</div><div className="empty-title">No bookings in this month yet</div></div>
             ) : (
@@ -560,7 +516,7 @@ function Overview({ data, doAction, refresh, setTab }) {
                       <div className="fw-600 fs-13">{b.customer_name || "Customer"} · {b.ref}</div>
                       <div className="text-muted fs-11">{b.event_type} · {b.event_date} · {b.status}</div>
                     </div>
-                    <div className="text-gold fw-600">{fmtINRFull(b.pricing?.artist_fee || b.amount_paid || 0)}</div>
+                    <div className="text-gold fw-600">{fmtINRFull(b.pricing?.artist_fee || (b.pricing?.package_fee || 0) + (b.pricing?.addons_total || 0) || 0)}</div>
                   </div>
                 ))}
               </div>

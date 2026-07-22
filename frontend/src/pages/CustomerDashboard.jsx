@@ -200,7 +200,7 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
             <th>Ref</th>
             <th>Event</th>
             <th>Date</th>
-            <th>Amount</th>
+            {role !== "artist" && <th>Amount</th>}
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -222,7 +222,9 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                   )}
                 </td>
                 <td className="fs-12">{b.event_date}<br/><span className="text-muted">{b.event_time}</span></td>
-                <td className="text-gold font-serif fs-18 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>
+                {role !== "artist" && (
+                  <td className="text-gold font-serif fs-18 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>
+                )}
                 <td>
                   <span className={`status-pill ${pillCls}`}>{label}</span>
                   {b.status === "pending_artist" && b.expires_at && (
@@ -236,7 +238,6 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                     {role === "artist" && b.status === "pending_artist" && (
                       <>
                         <button className="btn btn-green btn-xs" onClick={() => onAction(b.id, "accept")} data-testid={`accept-${b.id}`}>Accept</button>
-                        <button className="btn btn-purple btn-xs" onClick={() => onAction(b.id, "counter")} data-testid={`counter-${b.id}`}>Counter</button>
                         <button className="btn btn-red btn-xs" onClick={() => onAction(b.id, "reject")} data-testid={`reject-${b.id}`}>Reject</button>
                       </>
                     )}
