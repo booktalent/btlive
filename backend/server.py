@@ -332,7 +332,11 @@ class MediaUploadBody(BaseModel):
 
 class AvailabilityBody(BaseModel):
     date: str  # YYYY-MM-DD
-    status: Literal["available", "blocked", "booked"]
+    status: Literal["available", "blocked", "booked", "premium"]
+    # For status == "premium" — a multiplier applied to the artist's base package
+    # price on this date (e.g. 1.5 for weekend rate, 2.0 for festival dates).
+    premium_multiplier: Optional[float] = None
+    premium_label: Optional[str] = None  # e.g. "Weekend", "Diwali", "New Year"
 
 
 class AddonSelection(BaseModel):
@@ -1140,11 +1144,23 @@ async def delete_package(pid: str, user: dict = Depends(get_current_user)):
 # ─────────────────────────────────────────────────────────────────────────────
 @api.post("/availability")
 async def set_availability(body: AvailabilityBody, user: dict = Depends(get_current_user)):
+    update_doc = {
+        "id": new_id(), "user_id": user["id"], "date": body.date, "status": body.status,
+    }
+    if body.status == "premium":
+        update_doc["premium_multiplier"] = float(body.premium_multiplier or 1.5)
+        update_doc["premium_label"] = body.premium_label or "Premium date"
     await db.availability.update_one(
         {"user_id": user["id"], "date": body.date},
-        {"$set": {"id": new_id(), "user_id": user["id"], "date": body.date, "status": body.status}},
+        {"$set": update_doc},
         upsert=True,
     )
+    return {"ok": True}
+
+
+@api.delete("/availability/{date_str}")
+async def clear_availability(date_str: str, user: dict = Depends(get_current_user)):
+    await db.availability.delete_one({"user_id": user["id"], "date": date_str})
     return {"ok": True}
 
 
@@ -1157,19 +1173,23 @@ async def my_availability(user: dict = Depends(get_current_user)):
 @api.get("/artists/{user_id}/availability")
 async def artist_availability(user_id: str, from_date: Optional[str] = None, to_date: Optional[str] = None):
     """
-    Public read of an artist's blocked/booked dates for the given date range.
-    Used by the profile calendar + booking date-picker so customers can only
-    pick dates the artist is actually free.
-    Returns: { blocked_dates: ["YYYY-MM-DD", ...] }
+    Public read of an artist's blocked/booked/premium dates for the given range.
+    Used by the profile calendar + booking date-picker so customers see live
+    availability and any weekend/festival premium pricing.
     """
-    q: dict = {"user_id": user_id, "status": {"$in": ["blocked", "booked"]}}
+    q: dict = {"user_id": user_id, "status": {"$in": ["blocked", "booked", "premium"]}}
     if from_date and to_date:
         q["date"] = {"$gte": from_date, "$lte": to_date}
     elif from_date:
         q["date"] = {"$gte": from_date}
     docs = await db.availability.find(q).to_list(1000)
-    blocked = sorted({d.get("date") for d in docs if d.get("date")})
-    return {"blocked_dates": blocked, "count": len(blocked)}
+    blocked = sorted({d.get("date") for d in docs if d.get("status") in ("blocked", "booked") and d.get("date")})
+    premium = [
+        {"date": d["date"], "multiplier": d.get("premium_multiplier", 1.5), "label": d.get("premium_label", "Premium")}
+        for d in docs if d.get("status") == "premium" and d.get("date")
+    ]
+    premium.sort(key=lambda x: x["date"])
+    return {"blocked_dates": blocked, "premium_dates": premium, "count": len(blocked) + len(premium)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

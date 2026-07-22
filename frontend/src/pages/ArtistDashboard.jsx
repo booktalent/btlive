@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import { BookingsTable } from "./CustomerDashboard";
 import OnboardingWizard from "../components/OnboardingWizard";
+import AvailabilityCalendar from "../components/AvailabilityCalendar";
 
 /**
  * Media thumbnail with a graceful React-state fallback when the thumb URL 404s
@@ -193,12 +194,127 @@ const Kpi = ({ icon, cls, num, label }) => (
   </div>
 );
 
+function RevenueSparkline({ series = [] }) {
+  // Tiny inline SVG sparkline — no chart lib needed.
+  if (!series.length) return <div className="spark-empty">No revenue data yet</div>;
+  const max = Math.max(1, ...series.map((p) => p.amount));
+  const min = Math.min(...series.map((p) => p.amount));
+  const w = 320, h = 90, pad = 6;
+  const pts = series.map((p, i) => {
+    const x = pad + (i * (w - pad * 2)) / Math.max(1, series.length - 1);
+    const y = h - pad - ((p.amount - min) / Math.max(1, max - min)) * (h - pad * 2);
+    return `${x},${y}`;
+  }).join(" ");
+  const area = `${pad},${h - pad} ${pts} ${w - pad},${h - pad}`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="spark-svg" aria-label="Revenue trend">
+      <defs>
+        <linearGradient id="sparkGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgba(212,175,55,0.55)" />
+          <stop offset="100%" stopColor="rgba(212,175,55,0.02)" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill="url(#sparkGradient)" />
+      <polyline points={pts} fill="none" stroke="#d4af37" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function Overview({ data, doAction }) {
   const pending = data.bookings.filter(b => b.status === "pending_artist");
+  const confirmed = data.bookings.filter(b => ["confirmed", "started", "completed", "reviewed"].includes(b.status));
+  // Build a 6-month revenue series from bookings' amount_paid grouped by month
+  const revenueSeries = React.useMemo(() => {
+    const buckets = {};
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = d.toISOString().slice(0, 7);
+      buckets[key] = { key, amount: 0, label: d.toLocaleString("en-IN", { month: "short" }) };
+    }
+    confirmed.forEach((b) => {
+      const key = (b.event_date || "").slice(0, 7);
+      if (buckets[key]) buckets[key].amount += Number(b.pricing?.artist_fee || b.amount_paid || 0);
+    });
+    return Object.values(buckets);
+  }, [confirmed]);
+  const monthRevenue = revenueSeries[revenueSeries.length - 1]?.amount || 0;
+  const prevMonthRevenue = revenueSeries[revenueSeries.length - 2]?.amount || 0;
+  const growth = prevMonthRevenue > 0 ? Math.round(((monthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100) : 0;
+
+  const { user } = useAuth();
+
   return (
     <div data-testid="overview-tab">
+      {/* Smart Artist Management Panel — top row: Calendar + Revenue + Pending Requests */}
+      <div className="smart-panel-grid mb-24">
+        <div className="card card-pad smart-panel-cell" data-testid="smart-calendar">
+          <div className="smart-panel-head">
+            <span className="smart-panel-icon">📅</span>
+            <div>
+              <div className="smart-panel-title">Booking Calendar</div>
+              <div className="smart-panel-sub">Tap a date to block or set premium pricing</div>
+            </div>
+          </div>
+          {user?.id && <AvailabilityCalendar artistUserId={user.id} onPick={() => {}} />}
+        </div>
+
+        <div className="smart-panel-cell-col">
+          <div className="card card-pad" data-testid="smart-revenue">
+            <div className="smart-panel-head">
+              <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #10b981, #059669)" }}>💰</span>
+              <div>
+                <div className="smart-panel-title">Revenue (6 mo)</div>
+                <div className="smart-panel-sub">Confirmed bookings, gross</div>
+              </div>
+            </div>
+            <div className="smart-revenue-num">
+              +{fmtINRFull(monthRevenue)}
+              {growth !== 0 && (
+                <span className={`smart-revenue-delta ${growth > 0 ? "up" : "down"}`}>
+                  {growth > 0 ? "▲" : "▼"} {Math.abs(growth)}%
+                </span>
+              )}
+            </div>
+            <RevenueSparkline series={revenueSeries} />
+            <div className="smart-revenue-legend">
+              {revenueSeries.map((p) => <span key={p.key}>{p.label}</span>)}
+            </div>
+          </div>
+
+          <div className="card card-pad" data-testid="smart-pending">
+            <div className="smart-panel-head">
+              <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>🔔</span>
+              <div>
+                <div className="smart-panel-title">Pending Requests</div>
+                <div className="smart-panel-sub">Respond within 24 hours to lock in the booking</div>
+              </div>
+            </div>
+            {pending.length === 0 ? (
+              <div className="empty" style={{ padding: 18 }}><div className="empty-icon">✨</div><div className="empty-title">No pending requests</div></div>
+            ) : (
+              <div className="smart-pending-list">
+                {pending.slice(0, 4).map((b) => (
+                  <div key={b.id} className="smart-pending-row" data-testid={`smart-pending-${b.id}`}>
+                    <div className="smart-pending-info">
+                      <div className="fw-600 fs-13">{b.customer_name || "Customer"}</div>
+                      <div className="text-muted fs-11">{b.event_type} · {b.event_date}</div>
+                    </div>
+                    <div className="smart-pending-actions">
+                      <button className="btn btn-green btn-xs" onClick={() => doAction(b.id, "accept")} data-testid={`smart-accept-${b.id}`}>Accept</button>
+                      <button className="btn btn-red btn-xs" onClick={() => doAction(b.id, "reject")} data-testid={`smart-reject-${b.id}`}>Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Existing bookings table + reviews stay below */}
       <div className="card mb-16">
-        <div className="card-head"><div className="card-title">📬 Booking Requests</div></div>
+        <div className="card-head"><div className="card-title">📬 All Booking Requests</div></div>
         <BookingsTable bookings={pending} role="artist" onAction={doAction} />
       </div>
       <div className="card">
