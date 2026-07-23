@@ -56,7 +56,11 @@ export default function EventPlannerPage() {
 
   const exploreCategory = (cat) => {
     const p = new URLSearchParams();
-    p.set("category", cat);
+    // The LLM emits labels like "Singer / Vocalist" or "Anchor / MC";
+    // strip the "/ …" suffix + lowercase so it matches the Discover page's
+    // category chips (which use lowercased single-word category slugs).
+    const cleaned = (cat || "").split("/")[0].trim();
+    if (cleaned) p.set("category", cleaned);
     if (form.city) p.set("city", form.city);
     if (form.event_date) p.set("date", form.event_date);
     nav(`/discover?${p.toString()}`);

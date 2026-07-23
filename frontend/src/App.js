@@ -62,6 +62,7 @@ function App() {
                 <Route path="/login" element={<Auth mode="signin" />} />
                 <Route path="/signup" element={<Auth mode="signup" />} />
                 <Route path="/search" element={<Search />} />
+                <Route path="/discover" element={<Search />} />
 
                 {/* SEO-friendly public pages */}
                 <Route path="/artist/:id" element={<ArtistProfile />} />
