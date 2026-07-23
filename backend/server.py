@@ -2205,6 +2205,44 @@ async def _auto_expire_loop():
             await _auto_expire_bookings_once()
         except Exception as e:
             log.error("Auto-expiry tick failed: %s", e)
+        # Iter 52.9 — Piggy-back subscription-expiry sweep on the same loop
+        # so we don't spin up another cron. Flips active → expired past ETA,
+        # downgrades premium_badge, and fires 7-day/1-day warning notices.
+        try:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            soon_iso = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+            async for s in db.artist_subscriptions.find({"status": "active", "expires_at": {"$lt": now_iso}}):
+                await db.artist_subscriptions.update_one(
+                    {"_id": s["_id"]},
+                    {"$set": {"status": "expired", "expired_at": now_iso}},
+                )
+                await db.artist_profiles.update_one(
+                    {"user_id": s["artist_id"]},
+                    {"$set": {"premium_badge": False, "plan_code": "free", "plan_rank": 0}},
+                )
+                await db.notifications.insert_one({
+                    "id": new_id(), "user_id": s["artist_id"], "type": "subscription",
+                    "title": "Subscription expired",
+                    "body": "Your subscription has expired. Renew to keep premium benefits.",
+                    "read": False, "created_at": now_iso,
+                })
+            async for s in db.artist_subscriptions.find({"status": "active", "expires_at": {"$lte": soon_iso, "$gte": now_iso}}):
+                try:
+                    dt_exp = datetime.fromisoformat(s["expires_at"].replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                days = int((dt_exp - datetime.now(timezone.utc)).total_seconds() // 86400)
+                marker = f"expiry_warn_{days}d_sent"
+                if days in (7, 1) and not s.get(marker):
+                    await db.artist_subscriptions.update_one({"_id": s["_id"]}, {"$set": {marker: True}})
+                    await db.notifications.insert_one({
+                        "id": new_id(), "user_id": s["artist_id"], "type": "subscription",
+                        "title": f"Subscription expires in {days} day{'s' if days != 1 else ''}",
+                        "body": "Renew now to avoid losing premium benefits.",
+                        "read": False, "created_at": now_iso,
+                    })
+        except Exception as e:
+            log.error("Subscription expiry sweep failed: %s", e)
         await asyncio.sleep(interval_min * 60)
 
 

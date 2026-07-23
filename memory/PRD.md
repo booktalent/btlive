@@ -1,6 +1,13 @@
 # BookTalent — Product Requirements Document
 
 
+## 🧾 Iter 52.9 — Admin Subscription Management (2026-02-19)
+- **7 new endpoints**: `GET/POST/PATCH/DELETE /api/admin/subscriptions`, `GET /admin/subscriptions/summary`, `GET /admin/subscriptions/{sid}`, `POST /admin/subscriptions/sweep-expired`. Filters by status/plan/role + name/email/phone/company search. Manual grants create `admin_grant` records with an audit note. Extend/reduce validity by ±N days OR set explicit expiry. Cancel cascades to `artist_profiles.premium_badge`.
+- **Auto-expiry cron piggy-backed** on the existing 15-min booking-expiry loop — flips `active → expired` past ETA, downgrades `premium_badge`, and sends 7-day + 1-day expiry warning notifications (idempotent via `expiry_warn_7d_sent` marker).
+- **UI**: new `AdminSubscriptions.jsx` — 4 KPI tiles (Active / Expiring 7d / Expired / Active MRR), filter bar (search + status + plan + role), paginated table with days-left badge, Manage modal (change plan/status/extend/txn/auto-renew), Grant Subscription modal (user typeahead + custom duration + note), 🧹 Sweep Expired one-click button. Wired into Admin sidebar between Coupons and Users.
+
+
+
 ## 🚀 Iter 52 — Persistent Cart + Agency Dashboard V2 (2026-02-19)
 - **Booking Cart (Amazon-style, persistent)**: New `/cart` route + header CartIcon with live badge. Cart survives login/logout/refresh/browser-close via server-side `carts` collection keyed by user_id OR anon cookie (30-day TTL). Anon cart auto-merges into user cart on login. Click "Book Now" while logged-out → artist saved → `/login?next=/cart` → auto-restore → checkout. Grand total math = Subtotal + 5% Platform Fee + 18% GST on fee.
 - **Agency Dashboard V2 (SaaS/ERP shell)**: Brand-new `/agency/*` with collapsible left sidebar, 6-card KPI strip, and 11 modules — Overview · Artists (Online Roster + Offline CRM) · Bookings (Platform + Offline kanban) · Clients CRM (notes + follow-ups + event history) · Events (multi-artist assign, checklist, quotation, payment tracking) · Calendar (month grid, unified feed) · Finance (invoices with line-items + tax auto-calc, expenses, summary) · Staff (role-based permissions: manager/coordinator/accountant/booking_executive) · Reports (revenue + artist performance bar charts) · Documents · Notifications feed. Legacy `/agency-legacy` retained for regression.

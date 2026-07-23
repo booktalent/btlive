@@ -12,6 +12,7 @@ import {
 import AdminConcierge from "./admin/AdminConcierge";
 import AdminOutstationReport from "./admin/AdminOutstationReport";
 import AdminQuestionEditor from "./admin/AdminQuestionEditor";
+import AdminSubscriptions from "./admin/AdminSubscriptions";
 
 const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
@@ -21,6 +22,7 @@ const SIDEBAR = [
   { id: "kyc", label: "🪪 KYC Queue" },
   { id: "refunds", label: "↩️ Refunds" },
   { id: "coupons", label: "🎫 Coupons" },
+  { id: "subscriptions", label: "💳 Subscriptions" },
   { id: "users", label: "👥 Users" },
   { id: "disputes", label: "⚖️ Disputes" },
   { id: "master", label: "🗂️ Master Data" },
@@ -108,6 +110,7 @@ export default function AdminDashboard() {
           {tab === "kyc" && <AdminKYC toast={toast} />}
           {tab === "refunds" && <AdminRefunds toast={toast} />}
           {tab === "coupons" && <AdminCoupons toast={toast} />}
+          {tab === "subscriptions" && <AdminSubscriptions toast={toast} />}
           {tab === "users" && <AdminUsers toast={toast} />}
           {tab === "disputes" && <AdminDisputes toast={toast} />}
           {tab === "master" && <AdminMaster toast={toast} />}
