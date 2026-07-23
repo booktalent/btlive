@@ -107,13 +107,13 @@ export default function Documents() {
           <label>Link to Client (optional)
             <select value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} data-testid="ag-doc-client">
               <option value="">— none —</option>
-              {clients.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` · ${c.company}` : ""}</option>)}
+              {clients.map((c) => <option key={c.id} value={c.id}>{`${c.name}${c.company ? ` · ${c.company}` : ""}`}</option>)}
             </select>
           </label>
           <label>Link to Event (optional)
             <select value={form.event_id} onChange={(e) => setForm({ ...form, event_id: e.target.value })} data-testid="ag-doc-event">
               <option value="">— none —</option>
-              {events.map((e) => <option key={e.id} value={e.id}>{e.title} · {e.event_date}</option>)}
+              {events.map((e) => <option key={e.id} value={e.id}>{`${e.title} · ${e.event_date}`}</option>)}
             </select>
           </label>
           <label style={{ gridColumn: "1 / -1" }}>Notes (optional)

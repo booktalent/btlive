@@ -1,6 +1,13 @@
 # BookTalent — Product Requirements Document
 
 
+## 🧑‍🎤 Iter 54 — Agency Portal: Add Artist & Documents Vault (2026-02-23)
+- **Auto-provision new artists**: `POST /api/agency/invite` now creates a full artist account (with `pending_activation=true`, random secure password, companion `artist_profiles` row) when the invited email is not on BookTalent yet. Roster row goes straight to `status='active'` and payload flags `auto_provisioned=true`. Existing artists still get the invite→pending flow. Optional fields on the invite: `first_name`, `last_name`, `phone`, `category`, `city`, `stage_name`.
+- **Documents Vault**: New `POST/GET/DELETE /api/agency/documents` + `GET /agency/documents/{id}/download`. Supports client_id / event_id tagging, kind filter (contract/agreement/invoice/id/rider/other), inline base64 storage (10 MB hard cap server-side, 8 MB UI cap). List endpoint projects out `data_url` for lightweight loading; download endpoint returns the full data URL for browser save.
+- **Agency Overview overhaul**: Six prominent Quick Action cards (Add Artist / Add Client / Create Event / New Invoice / Upload Document / Invite Staff) replace the tiny text links. First-time users see a golden onboarding banner nudging them to add their first artist.
+- **Testing**: testing_agent_v3_fork iteration_54.json → **13/13 backend pytest green** + full UI verification. Only finding was a dev-mode-only React hydration warning on `<option>` (fixed via template-literal wrapping).
+
+
 ## 🔒 Iter 53 — Artist Payment Gating (2026-02-23)
 - **Business-rule enforcement**: Artists must never see platform-side money lines. Backend `GET /api/bookings/mine` + `/api/bookings/{id}` now strip `pricing.platform_fee / gst / total / token_amount / balance_due / coupon_discount` from artist-role payloads via a new `_redact_pricing_for_artist()` helper. Artists retain only `pricing.package_fee`, `pricing.addons_total`, `pricing.artist_fee` (their own earnings).
 - **Contact-info gate**: When `amount_paid == 0`, artist view redacts `customer_phone`, `customer_email` on both list & detail endpoints AND `customer.phone/email` on the joined `customer` object. `_contact_locked=true` + `contact_unlocked=false` marker returned so UI can render lock state.

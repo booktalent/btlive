@@ -648,13 +648,19 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
         data_url = body.get("data_url") or ""
         if not title:
             raise HTTPException(400, "Title is required")
-        if not data_url.startswith("data:"):
-            raise HTTPException(400, "File payload must be a data URL")
+        if not data_url.startswith("data:") or "," not in data_url:
+            raise HTTPException(400, "File payload must be a valid data URL")
         # Extract mime + size (approx) for the listing card.
         header, _, b64 = data_url.partition(",")
+        if not b64.strip():
+            raise HTTPException(400, "File payload is empty")
         mime = header.split(":", 1)[1].split(";", 1)[0] if ":" in header else "application/octet-stream"
         # base64 → bytes ratio ~ 4/3, subtract padding.
         size_bytes = int(len(b64.strip()) * 3 / 4) - (b64.count("=") if b64 else 0)
+        # Iter 54 — Hard 10 MB server-side cap so a hostile client can't bypass
+        # the 8 MB UI limit and bloat the mongo collection.
+        if size_bytes > 10 * 1024 * 1024:
+            raise HTTPException(413, "File too large (max 10 MB)")
         doc = {
             "id": uuid.uuid4().hex,
             "agency_id": aid,
