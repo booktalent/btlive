@@ -1068,3 +1068,33 @@ Singer (7), DJ (7), Band (5), Dancer (5), Stand-up Comedian (4), Anchor / Emcee 
 - FFmpeg chunked video compression for `intro_video` + `performance_videos` uploads
 - Save a Watch — filter combos ping customers when a matching artist opens up
 
+
+---
+
+## Iter 50 — Video Compression + Save-a-Watch + BookingFlow split (Feb 2026)
+
+### 1. Video Compression (FFmpeg pipeline)
+- **New**: `/app/backend/video_compression.py` — async `compress_video_bytes(raw)` returns `(new_bytes, stats)`. Re-encodes video/* uploads to 720p H.264 CRF 28 with `+faststart`. Skips files under 2 MB. Drops any encode that doesn't shrink >5%. ffmpeg installed via `apt-get install ffmpeg` (v5.1.9) at `/usr/bin/ffmpeg`.
+- **Wired**: `server.py` media_upload branch on `mime.startswith("video/")` calls `compress_video_bytes` and stamps `video_compressed`, `video_original_bytes`, `video_compressed_bytes`, `video_compression_ratio` onto the media doc.
+- **Robustness**: `ffmpeg-missing`, `ffmpeg-rc-N`, `no-gain`, `under-threshold` all recorded as `video_compressed_reason`/`video_compressed_error`; never raises. Synthetic 1.3MB test video shrank to 55KB (4% of original).
+
+### 2. Save-a-Watch
+- **Backend**: new `/app/backend/routes/watches.py` with POST/GET/DELETE/POST `/watches/_recheck`. Watch shape `{id, user_id, city?, category?, event_date?, label?, created_at, last_pinged_at, match_count}`. `_recheck` scans `artist_profiles` for matches, inserts a `notifications` row of type `watch_match` with link `/discover?city=&category=&date=` whenever the match_count grew.
+- **Frontend**: new `[data-testid=save-watch]` button on Search page next to Save Search — logged-in users only. Empty-filter save yields a friendly 400 alert; success yields "We'll ping you when a new artist matches this search."
+
+### 3. BookingFlow sub-step split
+- **New**: `/app/frontend/src/components/booking/ReviewStep.jsx` (99 lines) — pure-render extraction of Step 4 with `travel_ack` + `outstation_ack` gating. Passes `nextDisabled` up via props.
+- **BookingFlow.jsx** trimmed 1049 → **966 lines** (-83). Combined with iter47 PaymentStep + iter46 useEventCart, the file is now ~30% smaller than pre-refactor (1146).
+
+### Verified
+- `/app/test_reports/iteration_50.json` — Backend 16/16 pytest ✅, Frontend 100% ✅, 0 bugs
+- Full Save-a-Watch CRUD + per-user isolation + notification insertion + `_recheck` idempotency all covered
+- Video compression: threshold gate, ffmpeg-missing degrade-safe, real ffmpeg encode, no-gain rollback all covered
+- ReviewStep: renders all testids, `step4-next` disabled until acks checked, back/next nav works
+
+### Follow-up backlog
+- Extract Step 1 (Package selection) + Step 3 (Details) into their own components — same pattern
+- Move POST /bookings/batch + /payments/batch/{init,verify} + create_booking into routes/bookings.py — final big server.py chunk
+- Watches cron: run `_recheck` for every user hourly (background task in server.py alongside the 24-hr expiry loop)
+- Watches email: pipe watch_match notifications through Resend when the customer has email_opt_in
+
