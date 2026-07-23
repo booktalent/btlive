@@ -296,3 +296,43 @@
   .cart-row-photo { width: 80px; height: 80px; }
   .cart-row-meta { grid-template-columns: 1fr; }
 }
+
+/* ── Iter 54 — Agency Overview Quick Actions ─────────────────────────────── */
+.ag-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+.ag-quick-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+  font: inherit;
+}
+.ag-quick-card:hover { transform: translateY(-2px); background: rgba(255,255,255,0.06); }
+.ag-quick-icon { font-size: 26px; flex-shrink: 0; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 10px; background: rgba(255,255,255,0.05); }
+.ag-quick-body { flex: 1; min-width: 0; }
+.ag-quick-title { font-family: var(--font-serif); font-size: 16px; font-weight: 700; line-height: 1.2; }
+.ag-quick-desc { font-size: 12px; color: rgba(255,255,255,0.65); margin-top: 3px; }
+.ag-quick-arrow { font-size: 20px; color: rgba(255,255,255,0.35); }
+.ag-quick-card:hover .ag-quick-arrow { color: #f6d366; }
+
+.ag-quick-gold    { border-color: rgba(246, 211, 102, 0.25); }
+.ag-quick-gold .ag-quick-icon { background: rgba(246, 211, 102, 0.12); color: #f6d366; }
+.ag-quick-violet  { border-color: rgba(178, 132, 255, 0.25); }
+.ag-quick-violet .ag-quick-icon { background: rgba(178, 132, 255, 0.12); color: #b284ff; }
+.ag-quick-emerald { border-color: rgba(110, 231, 168, 0.25); }
+.ag-quick-emerald .ag-quick-icon { background: rgba(110, 231, 168, 0.12); color: #6ee7a8; }
+.ag-quick-amber   { border-color: rgba(255, 189, 89, 0.25); }
+.ag-quick-amber .ag-quick-icon { background: rgba(255, 189, 89, 0.12); color: #ffbd59; }
+.ag-quick-cyan    { border-color: rgba(96, 205, 255, 0.25); }
+.ag-quick-cyan .ag-quick-icon { background: rgba(96, 205, 255, 0.12); color: #60cdff; }

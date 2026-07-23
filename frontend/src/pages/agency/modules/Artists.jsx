@@ -5,6 +5,11 @@ function OnlineRoster() {
   const [roster, setRoster] = useState([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteCommission, setInviteCommission] = useState(15);
+  const [seedName, setSeedName] = useState("");
+  const [seedPhone, setSeedPhone] = useState("");
+  const [seedCategory, setSeedCategory] = useState("");
+  const [seedCity, setSeedCity] = useState("");
+  const [showSeed, setShowSeed] = useState(false);
   const [msg, setMsg] = useState(null);
 
   const load = () => api.get("/agency/roster").then((r) => setRoster(r.data || [])).catch(() => setRoster([]));
@@ -13,8 +18,23 @@ function OnlineRoster() {
   const invite = async () => {
     if (!inviteEmail) return;
     try {
-      await api.post("/agency/invite", { artist_email: inviteEmail, commission_pct: Number(inviteCommission) });
-      setMsg({ ok: true, text: "Invite sent." }); setInviteEmail("");
+      const payload = { artist_email: inviteEmail, commission_pct: Number(inviteCommission) };
+      if (showSeed) {
+        const [first, ...rest] = (seedName || "").trim().split(/\s+/);
+        if (first) payload.first_name = first;
+        if (rest.length) payload.last_name = rest.join(" ");
+        if (seedPhone) payload.phone = seedPhone;
+        if (seedCategory) payload.category = seedCategory;
+        if (seedCity) payload.city = seedCity;
+        if (seedName) payload.stage_name = seedName;
+      }
+      const r = await api.post("/agency/invite", payload);
+      if (r.data?.auto_provisioned) {
+        setMsg({ ok: true, text: `New artist account created for ${inviteEmail}. They can claim it via "Forgot password" on login.` });
+      } else {
+        setMsg({ ok: true, text: `Invite sent to ${inviteEmail}. Awaiting their acceptance.` });
+      }
+      setInviteEmail(""); setSeedName(""); setSeedPhone(""); setSeedCategory(""); setSeedCity(""); setShowSeed(false);
       load();
     } catch (e) { setMsg({ ok: false, text: e?.response?.data?.detail || "Failed to invite" }); }
   };
@@ -30,7 +50,10 @@ function OnlineRoster() {
   return (
     <div>
       <div className="ag-card" style={{ marginBottom: 16 }}>
-        <h4 style={{ margin: "0 0 12px", fontSize: 14 }}>Invite BookTalent Artist to Roster</h4>
+        <h4 style={{ margin: "0 0 6px", fontSize: 14 }}>Add Artist to Roster</h4>
+        <div className="text-muted fs-12" style={{ marginBottom: 12 }}>
+          If the artist already has a BookTalent account, they'll get an invite to accept. If not, we'll auto-create a pending account and they can claim it via "Forgot password".
+        </div>
         <div className="ag-form-grid">
           <label>Artist email
             <input type="email" placeholder="artist@example.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} data-testid="ag-invite-email" />
@@ -40,14 +63,42 @@ function OnlineRoster() {
           </label>
           <label style={{ justifyContent: "flex-end" }}>
             <span>&nbsp;</span>
-            <button className="btn btn-gold btn-sm" onClick={invite} data-testid="ag-invite-send">Send Invite</button>
+            <button className="btn btn-gold btn-sm" onClick={invite} data-testid="ag-invite-send">Send Invite / Add Artist</button>
           </label>
         </div>
+
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          style={{ marginTop: 12 }}
+          onClick={() => setShowSeed((v) => !v)}
+          data-testid="ag-invite-seed-toggle"
+        >
+          {showSeed ? "− Hide extra profile fields" : "+ Add profile details (for brand-new artists)"}
+        </button>
+
+        {showSeed && (
+          <div className="ag-form-grid" style={{ marginTop: 12 }}>
+            <label>Full name / Stage name
+              <input value={seedName} onChange={(e) => setSeedName(e.target.value)} placeholder="Priya Sharma" data-testid="ag-invite-seed-name" />
+            </label>
+            <label>Phone
+              <input value={seedPhone} onChange={(e) => setSeedPhone(e.target.value)} placeholder="+91 98765 43210" data-testid="ag-invite-seed-phone" />
+            </label>
+            <label>Category
+              <input value={seedCategory} onChange={(e) => setSeedCategory(e.target.value)} placeholder="Bollywood Vocalist" data-testid="ag-invite-seed-category" />
+            </label>
+            <label>City
+              <input value={seedCity} onChange={(e) => setSeedCity(e.target.value)} placeholder="Mumbai" data-testid="ag-invite-seed-city" />
+            </label>
+          </div>
+        )}
+
         {msg && <div className="fs-12 mt-8" style={{ color: msg.ok ? "#6ee7a8" : "#ff8888" }}>{msg.text}</div>}
       </div>
 
       {roster.length === 0 ? (
-        <div className="ag-empty"><h3>No online artists yet</h3><div>Invite BookTalent artists above to build your roster.</div></div>
+        <div className="ag-empty"><h3>No online artists yet</h3><div>Add your first artist using the form above. Their profile will show up here once they're active.</div></div>
       ) : (
         <table className="ag-table" data-testid="ag-online-roster">
           <thead><tr><th>Artist</th><th>Category</th><th>Commission %</th><th>Status</th><th></th></tr></thead>
@@ -55,10 +106,11 @@ function OnlineRoster() {
             {roster.map((r) => (
               <tr key={r.id} data-testid={`ag-roster-row-${r.artist_id}`}>
                 <td>
-                  <b>{r.stage_name || r.artist_name}</b>
-                  <div className="text-muted fs-11">{r.email}</div>
+                  <b>{r.artist?.stage_name || r.artist_email}</b>
+                  <div className="text-muted fs-11">{r.artist_email}</div>
+                  {r.auto_provisioned && <span className="ag-badge violet" style={{ marginTop: 4 }}>Auto-provisioned</span>}
                 </td>
-                <td>{r.category || "—"}</td>
+                <td>{r.artist?.category || "—"}</td>
                 <td>
                   <input
                     type="number" min="0" max="50" defaultValue={r.commission_pct || 15}
@@ -66,7 +118,7 @@ function OnlineRoster() {
                     style={{ width: 70, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#fff", borderRadius: 6, padding: "6px 8px" }}
                   />
                 </td>
-                <td><span className={`ag-badge ${r.status === "accepted" ? "ok" : r.status === "pending" ? "warn" : ""}`}>{r.status || "active"}</span></td>
+                <td><span className={`ag-badge ${r.status === "active" || r.status === "accepted" ? "ok" : r.status === "pending" ? "warn" : ""}`}>{r.status || "active"}</span></td>
                 <td><button className="btn btn-ghost btn-sm" onClick={() => remove(r.artist_id)}>Remove</button></td>
               </tr>
             ))}

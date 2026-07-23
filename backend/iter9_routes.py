@@ -44,6 +44,15 @@ def clean(d):
 class AgencyArtistInvite(BaseModel):
     artist_email: str
     commission_pct: float = 10.0
+    # Iter 54 — When the invited email doesn't have a BookTalent account yet,
+    # the agency can optionally seed the artist's basic profile. The system
+    # auto-provisions a pending artist account and emails an activation link.
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    category: Optional[str] = None
+    city: Optional[str] = None
+    stage_name: Optional[str] = None
 
 
 class AgencyRespond(BaseModel):
@@ -142,9 +151,74 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
     async def agency_invite(body: AgencyArtistInvite, user: dict = Depends(get_current_user)):
         if user["role"] != "agency":
             raise HTTPException(403, "Only agencies can invite artists")
-        artist_user = await db.users.find_one({"email": body.artist_email.lower()})
+        email = body.artist_email.lower().strip()
+        if not email or "@" not in email:
+            raise HTTPException(400, "Valid artist email is required")
+        artist_user = await db.users.find_one({"email": email})
+        auto_provisioned = False
+
         if not artist_user:
-            raise HTTPException(404, "Artist with that email not found")
+            # Iter 54 — Auto-provision a stub artist account so agencies can
+            # onboard brand-new artists who don't have a BookTalent account yet.
+            # We create the user with `pending_activation=true` and a random
+            # unusable password. The artist claims the account via the standard
+            # /forgot-password flow (email link) or by signing up with the same
+            # email (which will hit the existing 'email already registered'
+            # error — future iter will add a claim-account endpoint).
+            import secrets as _secrets
+            from server import hash_password  # local import — avoids cycle at boot
+
+            uid = new_id()
+            first = (body.first_name or "").strip()
+            last = (body.last_name or "").strip()
+            if not first and not last:
+                # Fall back: derive a placeholder name from the local part.
+                first = email.split("@", 1)[0].replace(".", " ").title()
+                last = ""
+            random_pw = _secrets.token_urlsafe(24)
+            artist_user = {
+                "id": uid,
+                "email": email,
+                "password_hash": hash_password(random_pw),
+                "first_name": first,
+                "last_name": last,
+                "phone": (body.phone or "").strip() or None,
+                "role": "artist",
+                "kyc_status": "unverified",
+                "verified": False,
+                "email_verified": False,
+                "pending_activation": True,
+                "provisioned_by_agency_id": user["id"],
+                "provisioned_by_agency_name": user.get("company_name") or user.get("first_name", "Agency"),
+                "created_at": utcnow(),
+                "updated_at": utcnow(),
+            }
+            await db.users.insert_one(artist_user)
+            # Companion artist_profile so the roster row can join on it.
+            stage_name = (body.stage_name or f"{first} {last}").strip() or first or "Artist"
+            await db.artist_profiles.insert_one({
+                "id": new_id(),
+                "user_id": uid,
+                "stage_name": stage_name,
+                "category": (body.category or "").strip() or "Vocalist",
+                "subcategories": [],
+                "city": (body.city or "").strip() or "",
+                "state": "",
+                "country": "India",
+                "bio": "",
+                "tagline": f"Represented by {artist_user['provisioned_by_agency_name']}",
+                "languages": [],
+                "genres": [],
+                "event_types": [],
+                "rating_avg": 0,
+                "review_count": 0,
+                "profile_completion": 15,
+                "suspended": False,
+                "pending_activation": True,
+                "created_at": utcnow(),
+            })
+            auto_provisioned = True
+
         if artist_user.get("role") != "artist":
             raise HTTPException(400, "User is not an artist")
         existing = await db.agency_roster.find_one({"agency_id": user["id"], "artist_id": artist_user["id"]})
@@ -152,6 +226,11 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             raise HTTPException(400, "Artist already in your roster")
         if existing and existing.get("status") == "pending":
             raise HTTPException(400, "Invite already pending")
+
+        # Auto-provisioned artists are added to the roster as active
+        # immediately — the agency created the account so consent is implicit.
+        # Existing BookTalent artists still see a pending invite they must accept.
+        status = "active" if auto_provisioned else "pending"
         doc = {
             "id": new_id(),
             "agency_id": user["id"],
@@ -159,19 +238,36 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             "artist_id": artist_user["id"],
             "artist_email": artist_user["email"],
             "commission_pct": body.commission_pct,
-            "status": "pending",
+            "status": status,
+            "auto_provisioned": auto_provisioned,
             "created_at": utcnow(),
         }
+        if auto_provisioned:
+            doc["decided_at"] = utcnow()
         await db.agency_roster.insert_one(doc)
-        # Notify the artist (in-app)
+
+        # Notify the artist (in-app) — the notification is created regardless of
+        # whether the account was just auto-provisioned; it will surface when
+        # the artist logs in for the first time.
+        if auto_provisioned:
+            title = f"You've been added to {doc['agency_name']} on BookTalent"
+            body_text = (
+                f"{doc['agency_name']} created a BookTalent account for you at {body.commission_pct}% "
+                "commission. Use the 'Forgot password' link on the login page to set your password."
+            )
+        else:
+            title = f"Agency invite from {doc['agency_name']}"
+            body_text = f"You've been invited to join {doc['agency_name']} at {body.commission_pct}% commission."
         await db.notifications.insert_one({
             "id": new_id(), "user_id": artist_user["id"], "type": "agency.invite",
-            "title": f"Agency invite from {doc['agency_name']}",
-            "body": f"You've been invited to join {doc['agency_name']} at {body.commission_pct}% commission.",
+            "title": title,
+            "body": body_text,
             "link": "/dashboard?tab=agency",
             "read": False, "created_at": utcnow(),
         })
-        return clean(doc)
+        out = clean(doc)
+        out["auto_provisioned"] = auto_provisioned
+        return out
 
     @r.get("/agency/roster")
     async def agency_roster(user: dict = Depends(get_current_user)):

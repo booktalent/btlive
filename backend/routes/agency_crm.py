@@ -638,4 +638,71 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
             "recent_activity": recent,
         }
 
+    # ═══════════════════════════ DOCUMENTS (Iter 54) ═════════════════════════
+    # Shared document vault scoped to the agency. Supports client_id / event_id
+    # tagging so files show up on the related record's detail view.
+    @r.post("/documents")
+    async def create_document(body: dict, user: dict = Depends(get_current_user)):
+        aid = await _guard(user)
+        title = (body.get("title") or "").strip()
+        data_url = body.get("data_url") or ""
+        if not title:
+            raise HTTPException(400, "Title is required")
+        if not data_url.startswith("data:"):
+            raise HTTPException(400, "File payload must be a data URL")
+        # Extract mime + size (approx) for the listing card.
+        header, _, b64 = data_url.partition(",")
+        mime = header.split(":", 1)[1].split(";", 1)[0] if ":" in header else "application/octet-stream"
+        # base64 → bytes ratio ~ 4/3, subtract padding.
+        size_bytes = int(len(b64.strip()) * 3 / 4) - (b64.count("=") if b64 else 0)
+        doc = {
+            "id": uuid.uuid4().hex,
+            "agency_id": aid,
+            "title": title,
+            "kind": (body.get("kind") or "other").strip(),  # contract | agreement | invoice | id | other
+            "client_id": body.get("client_id") or None,
+            "event_id": body.get("event_id") or None,
+            "notes": (body.get("notes") or "").strip() or None,
+            "mime": mime,
+            "size_bytes": size_bytes,
+            "data_url": data_url,  # inline storage — fine for MVP, migrate to S3 later
+            "uploaded_by": user["id"],
+            "uploaded_by_name": f"{user.get('first_name','')} {user.get('last_name','')}".strip() or user.get("email"),
+            "created_at": _now_iso(),
+        }
+        await db.agency_documents.insert_one(doc)
+        # Metadata-only response — don't ship the base64 back on create.
+        return {k: v for k, v in _clean(doc).items() if k != "data_url"}
+
+    @r.get("/documents")
+    async def list_documents(
+        client_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+        kind: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        aid = await _guard(user)
+        q: dict = {"agency_id": aid}
+        if client_id: q["client_id"] = client_id
+        if event_id: q["event_id"] = event_id
+        if kind: q["kind"] = kind
+        rows = await db.agency_documents.find(q, {"data_url": 0}).sort("created_at", -1).to_list(500)
+        return [_clean(x) for x in rows]
+
+    @r.get("/documents/{did}/download")
+    async def download_document(did: str, user: dict = Depends(get_current_user)):
+        aid = await _guard(user)
+        doc = await db.agency_documents.find_one({"id": did, "agency_id": aid})
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        return {"title": doc["title"], "mime": doc.get("mime"), "data_url": doc.get("data_url")}
+
+    @r.delete("/documents/{did}")
+    async def delete_document(did: str, user: dict = Depends(get_current_user)):
+        aid = await _guard(user)
+        result = await db.agency_documents.delete_one({"id": did, "agency_id": aid})
+        if result.deleted_count == 0:
+            raise HTTPException(404, "Document not found")
+        return {"ok": True}
+
     return r
