@@ -46,7 +46,9 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
     setLoading(true);
     const from = new Date(month.getFullYear(), month.getMonth() - 1, 1);
     const to = new Date(month.getFullYear(), month.getMonth() + 2, 0);
-    const fmt = (d) => d.toISOString().split("T")[0];
+    // Same local-safe formatter as `fmtDate` below — use local getters so we
+    // don't off-by-one the range for users east of UTC.
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     api.get(`/artists/${artistUserId}/availability?from_date=${fmt(from)}&to_date=${fmt(to)}`)
       .then((r) => {
         setBlocked(new Set(r.data?.blocked_dates || []));
@@ -74,7 +76,12 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
     setMonth(new Date(month.getFullYear(), month.getMonth() + delta, 1));
   };
 
-  const fmtDate = (d) => d.toISOString().split("T")[0];
+  // Local-safe YYYY-MM-DD formatter. We CANNOT use `d.toISOString().split("T")[0]`
+  // here — that converts local midnight to UTC first, which pushes IST/AEST/JST
+  // users' picks back by one calendar day. Using the local getters keeps the
+  // date the customer sees on the grid identical to what we store & submit.
+  const fmtDate = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
   return (
     <div className="avail-cal card card-pad" data-testid="availability-calendar">
@@ -99,7 +106,7 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
               else if (lastPicked) setBulkSelection(new Set([lastPicked]));
               else {
                 // Start with today so mobile users get instant feedback
-                const t = today.toISOString().split("T")[0];
+                const t = fmtDate(today);
                 setBulkSelection(new Set([t]));
                 setLastPicked(t);
               }
@@ -158,13 +165,19 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
               onClick={(e) => {
                 if (editable && (e.shiftKey || e.ctrlKey || e.metaKey) && lastPicked) {
                   // Shift+click: extend range from lastPicked to current
+                  // Build the range using LOCAL YYYY-MM-DD (avoids the same
+                  // UTC off-by-one that broke single-date picks).
                   const from = lastPicked < dateStr ? lastPicked : dateStr;
                   const to = lastPicked < dateStr ? dateStr : lastPicked;
                   const range = new Set(bulkSelection);
-                  const cur = new Date(from);
-                  const end = new Date(to);
+                  // Parse "YYYY-MM-DD" via explicit local-time components to
+                  // dodge Date's "bare-string = UTC" quirk on Safari.
+                  const [fy, fm, fd] = from.split("-").map(Number);
+                  const [ty, tm, td] = to.split("-").map(Number);
+                  const cur = new Date(fy, fm - 1, fd);
+                  const end = new Date(ty, tm - 1, td);
                   while (cur <= end) {
-                    range.add(cur.toISOString().split("T")[0]);
+                    range.add(fmtDate(cur));
                     cur.setDate(cur.getDate() + 1);
                   }
                   setBulkSelection(range);
