@@ -972,3 +972,30 @@ Result: `BookingFlow.jsx` 1146 → **1086 lines** (-60).
 - Refactor `server.py` (~3300 lines) into `routes/bookings.py`, `routes/events.py`, `routes/payments.py`
 - FFmpeg chunked video compression for artist media uploads
 
+
+---
+
+## Iter 47 — Add-All-To-Cart + Landing Hero + PaymentStep split (Feb 2026)
+
+### 1. Add All To Cart (planner)
+- **Backend**: `POST /api/event-planner/best-fit` — resolves LLM category labels (e.g. "Singer / Vocalist") into concrete artist recommendations by matching any '/'-separated part against `artist_profiles.category` (case-insensitive substring). City filter with automatic national fallback. Skips artists already busy on the requested date. Never returns the same artist_id twice. Response shape: `[{category, user_id, stage_name, profile_image, starting_price, package_id, city, emoji, matched}, …]`.
+- **Frontend**: `[data-testid=planner-add-all]` button on `/planner` result → calls best-fit → picks first matched as primary, seeds the rest into `localStorage['bt_event_cart_<primaryId>']` with `{items, saved_at, from_planner:true}` → navigates to `/book/<primaryId>?pkg=&date=&city=&event_type=` → `useEventCart` restores the cart on mount → "Welcome back — N artists" toast fires.
+
+### 2. Landing Hero AI Planner Strip
+- `[data-testid=hero-planner-strip]` between the sub-copy and primary CTAs on the Landing page. Gold-violet gradient, subtle shimmer on hover, arrow slides right. Direct link to `/planner`.
+
+### 3. Skinnier BookingFlow — Payment Step
+- New `/app/frontend/src/components/booking/PaymentStep.jsx` (103 lines) — pure-render Step 5 with method chips, card form (test mode), gateway banner and Pay button that computes single vs multi label from `isMultiEvent + cartPricing`.
+- `BookingFlow.jsx` 1086 → **1049 lines** (-37).
+
+### Verified
+- `/app/test_reports/iteration_47.json` — Backend 9/9 pytest ✅, Frontend end-to-end (unauth → login redirect, authed → cart hydration, Welcome-back toast, PaymentStep in single AND multi flows) ✅
+- `/app/backend/tests/test_iter47_best_fit.py` — resolver dedupe + date-busy skip + city fallback + malformed-payload guards
+
+### Follow-up backlog
+- Planner: badge "must-have" categories where zero artists are available for the chosen date/city as an urgency signal
+- Split BookingFlow.jsx further: `<PackageStep />`, `<ScheduleStep />`, `<DetailsStep />`, `<ReviewStep />` — each ~100-150 lines
+- Refactor `server.py` (~3400 lines) into `routes/bookings.py`, `routes/events.py`, `routes/payments.py`
+- Save filter combos as a "watch"
+- FFmpeg chunked video compression
+
