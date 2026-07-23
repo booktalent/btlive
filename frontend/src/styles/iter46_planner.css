@@ -230,3 +230,97 @@
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .planner-cta-pill:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -8px rgba(245, 212, 122, 0.5); }
+
+/* ─── Iter 47 — "Add all to cart" row on planner result ────────────────── */
+.planner-add-all-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 14px;
+  background:
+    radial-gradient(600px 200px at 0% 0%, rgba(245, 212, 122, 0.14), transparent 60%),
+    rgba(245, 212, 122, 0.04);
+  border: 1px solid rgba(245, 212, 122, 0.28);
+  margin: 20px 0 24px;
+  flex-wrap: wrap;
+}
+.planner-add-all-btn {
+  white-space: nowrap;
+  min-width: 240px;
+  animation: planner-glow 3.2s ease-in-out infinite;
+}
+@keyframes planner-glow {
+  0%, 100% { box-shadow: 0 0 0 rgba(245, 212, 122, 0); }
+  50%      { box-shadow: 0 12px 34px -12px rgba(245, 212, 122, 0.6); }
+}
+
+/* ─── Iter 47 — Landing hero AI Event Planner strip ────────────────────── */
+.hero-planner-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  margin: 22px 0 20px;
+  max-width: 520px;
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(167, 139, 250, 0.18), rgba(245, 212, 122, 0.14)),
+    rgba(30, 27, 46, 0.7);
+  border: 1px solid rgba(245, 212, 122, 0.35);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+.hero-planner-strip::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 25%, rgba(255, 255, 255, 0.08) 50%, transparent 75%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+.hero-planner-strip:hover {
+  transform: translateY(-2px);
+  border-color: rgba(245, 212, 122, 0.6);
+  box-shadow: 0 20px 46px -18px rgba(245, 212, 122, 0.35);
+}
+.hero-planner-strip:hover::before {
+  transform: translateX(100%);
+}
+.hero-planner-emoji {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f5d47a, #d1a353);
+  color: #0b0a12;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  flex: 0 0 40px;
+}
+.hero-planner-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hero-planner-title {
+  font-weight: 700; font-size: 15px;
+  color: #eae7f0;
+  letter-spacing: 0.01em;
+}
+.hero-planner-sub {
+  font-size: 12px;
+  color: #cfcbe0;
+  line-height: 1.35;
+}
+.hero-planner-arrow {
+  font-size: 20px;
+  color: #f5d47a;
+  margin-left: 4px;
+  transition: transform 0.2s ease;
+}
+.hero-planner-strip:hover .hero-planner-arrow { transform: translateX(4px); }
+
+@media (max-width: 640px) {
+  .hero-planner-strip { padding: 12px 14px; }
+  .hero-planner-title { font-size: 14px; }
+  .hero-planner-sub { font-size: 11px; }
+}
+

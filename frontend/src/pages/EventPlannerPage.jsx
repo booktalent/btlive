@@ -19,6 +19,7 @@ export default function EventPlannerPage() {
   const nav = useNavigate();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const [plan, setPlan] = useState(null);
   const [form, setForm] = useState({
     event_type: "Wedding",
@@ -56,14 +57,71 @@ export default function EventPlannerPage() {
 
   const exploreCategory = (cat) => {
     const p = new URLSearchParams();
-    // The LLM emits labels like "Singer / Vocalist" or "Anchor / MC";
-    // strip the "/ …" suffix + lowercase so it matches the Discover page's
-    // category chips (which use lowercased single-word category slugs).
     const cleaned = (cat || "").split("/")[0].trim();
     if (cleaned) p.set("category", cleaned);
     if (form.city) p.set("city", form.city);
     if (form.event_date) p.set("date", form.event_date);
     nav(`/discover?${p.toString()}`);
+  };
+
+  // Iter 47 — One-tap "Add all to cart":
+  // 1. Ask /event-planner/best-fit for one artist per recommended category
+  // 2. Pick the first matched artist as PRIMARY (opens /book/{primary})
+  // 3. Store the remaining matched artists as secondaries in the primary's
+  //    localStorage cart — useEventCart will restore them on mount
+  const addAllToCart = async () => {
+    if (!plan) return;
+    setSeeding(true);
+    try {
+      const cats = plan.categories.map((c) => c.category);
+      const r = await api.post("/event-planner/best-fit", {
+        categories: cats,
+        city: form.city,
+        event_date: form.event_date || null,
+      });
+      const matched = (r.data || []).filter((x) => x.matched && x.package_id);
+      if (matched.length === 0) {
+        toast("No available artists match your line-up right now — try adjusting date or city", "error");
+        return;
+      }
+      const [primary, ...rest] = matched;
+      // Build the useEventCart shape for each secondary
+      const secondaries = rest.map((a) => ({
+        artist_id: a.user_id,
+        artist_name: a.stage_name,
+        artist_photo: a.profile_image
+          ? (/^https?:\/\//.test(a.profile_image) ? a.profile_image : `${api.defaults.baseURL}/media/${a.profile_image}`)
+          : null,
+        category: a.category,
+        city: a.city,
+        emoji: a.emoji || "🎤",
+        package_id: a.package_id,
+        package_name: "Base Package",
+        package_price: a.starting_price || 0,
+        addon_selections: [],
+        price_subtotal: a.starting_price || 0,
+      }));
+      // Seed localStorage under the primary's key so useEventCart restores it.
+      try {
+        localStorage.setItem(`bt_event_cart_${primary.user_id}`, JSON.stringify({
+          items: secondaries,
+          saved_at: Date.now(),
+          from_planner: true,
+        }));
+      } catch { /* ignore */ }
+      // Hand off to the booking flow prefilled with the event basics.
+      const qs = new URLSearchParams();
+      if (primary.package_id) qs.set("pkg", primary.package_id);
+      if (form.event_date) qs.set("date", form.event_date);
+      if (form.city) qs.set("city", form.city);
+      if (form.event_type) qs.set("event_type", form.event_type);
+      toast(`Cart seeded with ${matched.length} artist${matched.length > 1 ? "s" : ""} — one checkout to go!`, "success");
+      nav(`/book/${primary.user_id}?${qs.toString()}`);
+    } catch (e) {
+      toast(e?.response?.data?.detail || "Could not seed your cart — please try again", "error");
+    } finally {
+      setSeeding(false);
+    }
   };
 
   return (
@@ -161,6 +219,19 @@ export default function EventPlannerPage() {
                 {plan.approx_budget && (
                   <div className="planner-budget-pill">Budget: {plan.approx_budget}</div>
                 )}
+
+                <div className="planner-add-all-row">
+                  <button
+                    className="btn btn-gold btn-lg planner-add-all-btn"
+                    onClick={addAllToCart}
+                    disabled={seeding}
+                    data-testid="planner-add-all"
+                    title="Auto-fill your event cart with the best available artist for every recommended category, and jump straight to checkout"
+                  >
+                    {seeding ? "Building your cart…" : `🛒 Add all ${plan.categories.length} to my cart`}
+                  </button>
+                  <span className="text-muted fs-11">One tap → cart pre-filled → single checkout. You can still swap or remove artists in the next step.</span>
+                </div>
 
                 <div className="planner-section-title">Recommended Line-up</div>
                 <div className="planner-cats" data-testid="planner-categories">

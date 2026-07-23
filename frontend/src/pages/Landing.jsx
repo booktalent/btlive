@@ -168,6 +168,14 @@ export default function Landing() {
           <p className="hero-sub" style={{ maxWidth: 520 }}>
             Discover, compare and instantly book singers, DJs, comedians, anchors and 5000+ verified artists for weddings, corporate events, concerts and private shows.
           </p>
+          <Link to="/planner" className="hero-planner-strip" data-testid="hero-planner-strip">
+            <span className="hero-planner-emoji">✨</span>
+            <span className="hero-planner-body">
+              <span className="hero-planner-title">Try the AI Event Planner</span>
+              <span className="hero-planner-sub">Get a curated artist line-up in seconds, then add all to cart in one tap</span>
+            </span>
+            <span className="hero-planner-arrow">→</span>
+          </Link>
           <div className="hero-cta-row" data-testid="hero-cta-row">
             <Link to="/search" className="btn btn-gold btn-lg" data-testid="hero-cta-browse">
               ✦ Browse Artists

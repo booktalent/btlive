@@ -3144,6 +3144,112 @@ async def dump_download(token: str):
     )
 
 
+# ─── Iter 47 — AI Planner "Add All To Cart" best-fit resolver ────────────────
+class BestFitRequest(BaseModel):
+    categories: List[str]                  # e.g. ["Singer / Vocalist", "DJ", "Anchor / MC"]
+    city: Optional[str] = None
+    event_date: Optional[str] = None       # ISO YYYY-MM-DD — skip artists busy that day
+    budget_hint: Optional[str] = None      # ignored today, reserved for future ranking
+
+
+class BestFitArtist(BaseModel):
+    category: str
+    user_id: Optional[str] = None
+    stage_name: Optional[str] = None
+    profile_image: Optional[str] = None
+    starting_price: Optional[float] = None
+    package_id: Optional[str] = None
+    city: Optional[str] = None
+    emoji: Optional[str] = None
+    matched: bool = False                  # False when nothing available for this category
+
+
+@api.post("/event-planner/best-fit", response_model=List[BestFitArtist])
+async def event_planner_best_fit(body: BestFitRequest):
+    """Resolves LLM-generated category labels into concrete artist recommendations
+    (one per category) that the customer can drop into their cart in one tap.
+    Never 500s — every requested category comes back with at least a stub row
+    so the frontend can render a placeholder even when no artist is available."""
+    if not body.categories:
+        raise HTTPException(400, "categories list is required")
+
+    city = (body.city or "").strip()
+    busy_ids: set = set()
+    if body.event_date:
+        booked = await db.bookings.find(
+            {"event_date": body.event_date,
+             "status": {"$in": ["pending_artist", "confirmed", "started", "completed"]}},
+            {"artist_id": 1},
+        ).to_list(500)
+        busy_ids = {b["artist_id"] for b in booked}
+
+    out: List[BestFitArtist] = []
+    seen_ids: set = set()
+
+    for cat_label in body.categories:
+        # The LLM emits multi-part labels like "Singer / Vocalist", "Anchor / MC".
+        # Real artist_profiles.category values are things like "Bollywood Vocalist"
+        # or "DJ / Music Producer". Match any of the label's alt terms as a
+        # case-insensitive SUBSTRING so both directions of naming line up.
+        parts = [p.strip() for p in re.split(r"[/,]", cat_label or "") if p.strip()]
+        if not parts:
+            out.append(BestFitArtist(category=cat_label, matched=False))
+            continue
+        cat_regex = "|".join(re.escape(p) for p in parts)
+
+        q: dict = {
+            "$or": [{"listing_status": {"$exists": False}}, {"listing_status": {"$ne": "hidden"}}],
+            "category": {"$regex": cat_regex, "$options": "i"},
+        }
+        if city:
+            # Prefix match on city — accepts "Mumbai" and "Mumbai, India" alike.
+            q["city"] = {"$regex": f"^{re.escape(city)}", "$options": "i"}
+
+        profiles = await db.artist_profiles.find(q).sort(
+            [("rating_avg", -1), ("bookings_count", -1)]
+        ).to_list(20)
+
+        # City fallback — if no artist in the requested city, cast a wider net
+        # nationally so we always propose SOMEBODY per category.
+        if not profiles and city:
+            q.pop("city", None)
+            profiles = await db.artist_profiles.find(q).sort(
+                [("rating_avg", -1), ("bookings_count", -1)]
+            ).to_list(20)
+
+        pick: Optional[dict] = None
+        for prof in profiles:
+            uid = prof.get("user_id")
+            if not uid or uid in seen_ids or uid in busy_ids:
+                continue
+            pick = prof
+            break
+
+        if not pick:
+            out.append(BestFitArtist(category=cat_label, matched=False))
+            continue
+        seen_ids.add(pick["user_id"])
+
+        pkgs = await db.packages.find({"artist_id": pick["user_id"]}).sort("price", 1).to_list(10)
+        cheapest = pkgs[0] if pkgs else None
+
+        out.append(BestFitArtist(
+            category=cat_label,
+            user_id=pick["user_id"],
+            stage_name=pick.get("stage_name"),
+            profile_image=pick.get("profile_image"),
+            starting_price=float(cheapest["price"]) if cheapest else None,
+            package_id=cheapest.get("id") if cheapest else None,
+            city=pick.get("city"),
+            emoji=pick.get("emoji", "🎤"),
+            matched=True,
+        ))
+
+    return out
+
+
+
+
 app.include_router(api)
 
 

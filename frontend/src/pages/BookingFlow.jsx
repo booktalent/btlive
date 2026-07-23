@@ -4,6 +4,7 @@ import Nav from "../components/Nav";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import BookingCart from "../components/BookingCart";
 import AddArtistToCartModal from "../components/AddArtistToCartModal";
+import PaymentStep from "../components/booking/PaymentStep";
 import api, { fmtINRFull, formatApiError, mediaUrl, thumbUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
@@ -744,56 +745,18 @@ export default function BookingFlow() {
             )}
 
             {step === 5 && (
-              <div className="card card-pad" data-testid="step-5">
-                <h2 className="font-serif fs-20 fw-700 mb-8">Secure Payment</h2>
-                <p className="text-muted fs-13 mb-20">Pay your 5% booking token to confirm.</p>
-                <div className="grid grid-3 gap-10 mb-20">
-                  {[
-                    { id: "card", label: "💳 Card" },
-                    { id: "upi", label: "📲 UPI" },
-                    { id: "netbanking", label: "🏦 Bank" },
-                  ].map((m) => (
-                    <div
-                      key={m.id} onClick={() => setPaymentMethod(m.id)}
-                      className={`pkg-card text-center ${paymentMethod === m.id ? "selected" : ""}`}
-                      style={{ padding: 14, fontWeight: 600 }}
-                      data-testid={`pay-${m.id}`}
-                    >{m.label}</div>
-                  ))}
-                </div>
-
-                {paymentMethod === "card" && !paymentConfig.razorpay_enabled && (
-                  <div data-testid="card-form">
-                    <div className="field">
-                      <div className="field-label">Card Number (test)</div>
-                      <input className="field-input font-mono" defaultValue="4242 4242 4242 4242" />
-                    </div>
-                    <div className="field-row">
-                      <div className="field">
-                        <div className="field-label">Expiry</div>
-                        <input className="field-input font-mono" defaultValue="12/29" />
-                      </div>
-                      <div className="field">
-                        <div className="field-label">CVV</div>
-                        <input className="field-input font-mono" defaultValue="123" />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ background: paymentConfig.razorpay_enabled ? "rgba(59,130,246,0.1)" : "var(--green-dim)", border: `1px solid ${paymentConfig.razorpay_enabled ? "rgba(59,130,246,0.3)" : "var(--green-border)"}`, borderRadius: 10, padding: 12, fontSize: 12, color: paymentConfig.razorpay_enabled ? "var(--blue)" : "var(--green)" }} data-testid="payment-gateway-banner">
-                  {paymentConfig.razorpay_enabled
-                    ? "🔒 Razorpay LIVE — clicking Pay will open the secure Razorpay checkout."
-                    : "🔒 Test mode: Mock gateway active (Razorpay keys not configured). OTP 123456 auto-applied."}
-                </div>
-
-                <div className="flex justify-between mt-24">
-                  <button className="btn btn-ghost" onClick={() => setStep(4)} data-testid="step5-back">← Back</button>
-                  <button className="btn btn-gold btn-lg" disabled={busy} onClick={submitBooking} data-testid="pay-now-btn">
-                    {busy ? "Processing…" : `🔐 Pay ${fmtINRFull(isMultiEvent ? cartPricing.token_amount : token)} ${paymentConfig.razorpay_enabled ? "via Razorpay" : "to Confirm"}${isMultiEvent ? ` · ${cartItems.length} artists` : ""}`}
-                  </button>
-                </div>
-              </div>
+              <PaymentStep
+                paymentMethod={paymentMethod}
+                setPaymentMethod={setPaymentMethod}
+                paymentConfig={paymentConfig}
+                busy={busy}
+                token={token}
+                cartPricing={cartPricing}
+                isMultiEvent={isMultiEvent}
+                cartItems={cartItems}
+                onBack={() => setStep(4)}
+                onSubmit={submitBooking}
+              />
             )}
 
             {step === 6 && successData && (
