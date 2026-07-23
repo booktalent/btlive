@@ -999,3 +999,35 @@ Result: `BookingFlow.jsx` 1146 → **1086 lines** (-60).
 - Save filter combos as a "watch"
 - FFmpeg chunked video compression
 
+
+---
+
+## Iter 48 — Cart Preview + Urgency Badges + Server Split + Type Hints (Feb 2026)
+
+### 1. Cart Preview
+After `/api/event-planner/suggest` returns a plan, the client auto-calls `/api/event-planner/best-fit` to resolve LLM categories → concrete artists. The Add-All button label now reads **"🛒 Add all 3 to cart · ₹58k"** with a subtitle **"Priya ₹25k · DJ Vortex ₹18k · Kavya ₹15k"** so customers see *exactly* who they're buying before landing on the booking flow.
+
+### 2. Urgency Badges
+Each category where best-fit returns `matched: false` renders a pulsing red **"⚠ 0 available on this date"** pill (`[data-testid=planner-soldout-<n>]`), turning the recommendation into a scarcity signal. When ALL categories are sold out, the Add-All button disables with "No artists available for these categories".
+
+### 3. Server Split
+`/app/backend/routes/events.py` created — the two Event umbrella endpoints (`GET /events/{id}/recap`, `GET /events/{id}/summary`) moved out of `server.py`. Uses the same `make_router(db, get_current_user, clean)` factory pattern as `blogs.py` and `cms_seo.py`.
+- **server.py 3410 → 3332 (-78 lines)**
+- Batch booking + batch payment stay in server.py (tightly coupled to `create_booking` + `calc_booking_pricing` — deferred as a separate refactor).
+
+### 4. Type Hints
+- `pdf_service.py` → 80 → 100%
+- `routes/questionnaire.py` → 62 → 100% (all 8 endpoints + `make_router` typed with `Callable`, `Dict[str, Any]`, `List[str]`)
+- **Overall backend type coverage: 91% across 368 functions** (vs the 30% claimed in the code review — that number counted test files as untyped).
+
+### Verified
+- `/app/test_reports/iteration_48.json` — Backend 11/11, Frontend 100%, 0 bugs
+- Live 2-artist event `074519dd-…-b3798fbc9` still renders through the new routes/events.py handler
+- Planner preview visually verified: `Priya ₹25k · Vortex ₹40k` subtitle + 3 pulsing sold-out badges for exotic categories
+
+### Follow-up backlog
+- Extract POST /bookings/batch + /payments/batch/{init,verify} + create_booking into routes/bookings.py — big win but needs threading calc_booking_pricing + notification helpers through DI
+- Further BookingFlow.jsx split: PackageStep, ScheduleStep, DetailsStep, ReviewStep
+- FFmpeg chunked video compression
+- Save filter combos as a "watch"
+
