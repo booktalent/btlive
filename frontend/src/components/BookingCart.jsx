@@ -12,7 +12,16 @@ import { fmtINRFull } from "../lib/api";
  *   onRemove(artist_id):  removes an added artist (never called for primary)
  *   pricing: server-computed pricing summary (optional, may fall back)
  */
-export default function BookingCart({ items, onRemove, pricing, compact = false }) {
+export default function BookingCart({
+  items,
+  onRemove,
+  pricing,
+  compact = false,
+  onContinue,
+  continueDisabled = false,
+  continueLabel = "Continue →",
+  continueTestId = "booking-cart-continue",
+}) {
   if (!items?.length) return null;
 
   // Approximate totals client-side. Backend recomputes 5% + 18% GST authoritatively.
@@ -87,6 +96,17 @@ export default function BookingCart({ items, onRemove, pricing, compact = false 
         <div className="text-muted fs-11 mt-8" style={{ lineHeight: 1.5 }}>
           Only the Platform Service Fee + GST is collected here — {multi ? "each artist's" : "the artist's"} package fee is paid directly to {multi ? "them" : "the artist"} on the event day.
         </div>
+        {onContinue && (
+          <button
+            className="btn btn-gold btn-block mt-16"
+            onClick={onContinue}
+            disabled={continueDisabled}
+            data-testid={continueTestId}
+            style={{ width: "100%" }}
+          >
+            {continueLabel}
+          </button>
+        )}
       </div>
     </div>
   );

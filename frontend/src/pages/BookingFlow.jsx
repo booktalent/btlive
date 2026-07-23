@@ -552,9 +552,20 @@ export default function BookingFlow() {
                   onOpenAdd={(a) => setAddModalArtist(a)}
                 />
               )}
-              {/* Multi-artist cart preview once anyone added */}
+              {/* Multi-artist cart preview once anyone added.
+                  Mirrors the left-side Continue button so users don't have
+                  to scroll back up after adding more artists at the bottom
+                  (user request, Iter 52.5). */}
               {isMultiEvent && (
-                <BookingCart items={cartItems} pricing={cartPricing} onRemove={removeSecondaryArtist} />
+                <BookingCart
+                  items={cartItems}
+                  pricing={cartPricing}
+                  onRemove={removeSecondaryArtist}
+                  onContinue={() => setStep(3)}
+                  continueDisabled={!form.event_date || !form.event_time}
+                  continueLabel="Continue to Event Details →"
+                  continueTestId="cart-step2-next"
+                />
               )}
               </>
             )}
