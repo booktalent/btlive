@@ -1031,3 +1031,40 @@ Each category where best-fit returns `matched: false` renders a pulsing red **"�
 - FFmpeg chunked video compression
 - Save filter combos as a "watch"
 
+
+---
+
+## Iter 49 — Interactive Dynamic Artist Onboarding (Feb 2026)
+
+### What shipped
+The product team's category-wise onboarding PRD was ported 1:1 into the questionnaire seed. Every artist now flows through:
+
+**Layer 1 — 63 universal questions across 10 sections**
+1. Tell us about yourself (12) — stage/legal name, category, experience, languages, base city, profile/cover/gallery photos, intro + performance videos
+2. Performance Packages (1) — package count, then the artist adds packages on the dedicated Packages screen
+3. Travel (13) — scope, who-pays, flight class, train class, hotel class, party size, flat-fee / per-km / free-radius pricing
+4. Technical Requirements (12) — who provides sound, artist brings, customer arranges, speaker/mixer brands, stage dimensions, power
+5. Performance (8) — arrive-before, soundcheck, max continuous set, song requests, playlist share, dress code
+6. Hospitality (1) — multiselect of water, tea, meals, green room, AC
+7. Commercial (9) — min booking, advance %, extra hour, waiting/hour, late night flag → after-time + extra, peak season
+8. Event Types (1) — where the artist performs
+9. Legal (5) — GST invoice, NDA, video recording, livestream, media reuse
+10. Availability (1) — info pointer to the calendar screen
+
+**Layer 2 — 12 category questionnaires**
+Singer (7), DJ (7), Band (5), Dancer (5), Stand-up Comedian (4), Anchor / Emcee (4), Magician (4), Motivational Speaker (4), Celebrity (7, with show_if `team_travels` → `team_size`), Influencer (4), Kids Entertainer (4), Instrumentalist (6)
+
+### New question types (wizard renderers)
+`toggle` (Yes/No chip pair) · `price` (₹-prefixed number) · `time` · `date` · `file` (points to Media screen) · `info` (notice block for pointers like Availability Calendar)
+`show_if` skip-logic is honoured across all types (e.g. hide `late_night_after` unless `late_night === true`).
+
+### Verified
+- `/app/test_reports/iteration_49.json` — Backend 15/15 pytest, Frontend 100% (wizard mount, all new field types + show_if verified live, admin CRUD override still works)
+- Legacy answer keys deprecated cleanly — old ids like `travel_radius_km` / `weekly_off` are gone; old category slugs (Bollywood Vocalist, DJ / Music Producer) are hidden from the picker via empty seed rows
+
+### Follow-up backlog
+- Extract POST /bookings/batch + /payments/batch/{init,verify} into routes/bookings.py
+- BookingFlow sub-step split (PackageStep, ScheduleStep, DetailsStep, ReviewStep)
+- FFmpeg chunked video compression for `intro_video` + `performance_videos` uploads
+- Save a Watch — filter combos ping customers when a matching artist opens up
+

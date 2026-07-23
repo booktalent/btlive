@@ -823,6 +823,7 @@ async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_u
 
     original_size = len(raw)
     thumb_b64 = None
+    video_stats: dict = {}
     if mime.startswith("image/"):
         # Compress original (reduces JPEG to ~30% of original on average)
         try:
@@ -836,6 +837,14 @@ async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_u
                 thumb_b64 = base64.b64encode(tbytes).decode()
         except Exception as _e:
             log.warning("make_thumbnail failed: %s", _e)
+    elif mime.startswith("video/"):
+        # Iter 50 — FFmpeg pipeline. Re-encodes to 720p H.264 CRF 28 when the
+        # file is >2 MB, keeping perceptual quality but shedding 30-70% size.
+        try:
+            from video_compression import compress_video_bytes  # noqa: WPS433
+            raw, video_stats = await compress_video_bytes(raw=raw)
+        except Exception as _e:
+            log.warning("compress_video_bytes failed: %s", _e)
 
     final_b64 = base64.b64encode(raw).decode()
     mid = new_id()
@@ -852,6 +861,7 @@ async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_u
         "thumb": thumb_b64,  # 400x400 base64 jpeg (None for non-images)
         "order": 0,
         "created_at": utcnow(),
+        **({f"video_{k}": v for k, v in video_stats.items()} if video_stats else {}),
     }
     await db.media.insert_one(doc)
 
@@ -3286,6 +3296,13 @@ app.include_router(routes_event_planner.router, prefix="/api")
 from routes import events as routes_events  # noqa: E402
 app.include_router(
     routes_events.make_router(db=db, get_current_user=get_current_user, clean=clean),
+    prefix="/api",
+)
+
+# Iter 50 — Save-a-Watch (filter combos → notification when a new artist matches).
+from routes import watches as routes_watches  # noqa: E402
+app.include_router(
+    routes_watches.make_router(db=db, get_current_user=get_current_user, utcnow=utcnow),
     prefix="/api",
 )
 

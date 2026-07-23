@@ -210,6 +210,23 @@ export default function Search() {
           </button>
           <button className="btn btn-ghost btn-xs" onClick={reset} data-testid="filter-reset">Reset</button>
           {user && <button className="btn btn-ghost btn-xs" onClick={saveCurrent} data-testid="save-search">⭐ Save Search</button>}
+          {user && <button
+            className="btn btn-ghost btn-xs"
+            onClick={async () => {
+              try {
+                await (await import("../lib/api")).default.post("/watches", {
+                  city: city || null,
+                  category: category || null,
+                  label: [category, city].filter(Boolean).join(" · ") || null,
+                });
+                alert("🔔 We'll ping you when a new artist matches this search.");
+              } catch (e) {
+                alert(e?.response?.data?.detail || "Could not save watch — set at least a city or category first.");
+              }
+            }}
+            data-testid="save-watch"
+            title="Get notified when a new artist matches these filters"
+          >🔔 Notify Me</button>}
           {popular.slice(0, 5).map((p) => (
             <button key={p.query} className="btn btn-ghost btn-xs" onClick={() => { setQ(p.query); setTimeout(() => run(1), 50); }} data-testid={`pop-${p.query}`}>
               🔥 {p.query} ({p.count})
