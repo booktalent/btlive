@@ -223,6 +223,7 @@ function FieldRenderer({ q, value, onChange }) {
         </div>
       );
     case "boolean":
+    case "toggle":
       return (
         <div className="field q-bool">
           {label}
@@ -237,6 +238,45 @@ function FieldRenderer({ q, value, onChange }) {
         <div className="field">
           {label}
           <input type="number" step={q.step || 1} className="field-input" value={value ?? ""} onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))} data-testid={`q-${q.id}`} />
+        </div>
+      );
+    case "price":
+      return (
+        <div className="field">
+          {label}
+          <div className="q-price">
+            <span className="q-price-prefix">₹</span>
+            <input type="number" min="0" step="100" className="field-input" value={value ?? ""} onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))} data-testid={`q-${q.id}`} />
+          </div>
+        </div>
+      );
+    case "time":
+      return (
+        <div className="field">
+          {label}
+          <input type="time" className="field-input" value={value || ""} onChange={(e) => onChange(e.target.value)} data-testid={`q-${q.id}`} />
+        </div>
+      );
+    case "date":
+      return (
+        <div className="field">
+          {label}
+          <input type="date" className="field-input" value={value || ""} onChange={(e) => onChange(e.target.value)} data-testid={`q-${q.id}`} />
+        </div>
+      );
+    case "file":
+      return (
+        <div className="field">
+          {label}
+          <div className="q-file-hint">
+            Upload happens on the dedicated Media & Photos screen in your dashboard. Skip for now — we'll take you there after onboarding.
+          </div>
+        </div>
+      );
+    case "info":
+      return (
+        <div className="field q-info">
+          {label}
         </div>
       );
     case "tel":

@@ -1832,6 +1832,38 @@ textarea:-webkit-autofill {
 .q-fields { display: flex; flex-direction: column; gap: 14px; }
 .q-multi { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .q-bool { max-width: 320px; }
+
+/* Iter 49 — Questionnaire wizard new field types */
+.q-price {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.q-price-prefix {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted, #a3a1b3);
+  font-weight: 600;
+  pointer-events: none;
+}
+.q-price .field-input { padding-left: 26px; }
+.q-file-hint {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(167, 139, 250, 0.08);
+  border: 1px dashed rgba(167, 139, 250, 0.35);
+  font-size: 12px;
+  color: #cfcbe0;
+  line-height: 1.5;
+}
+.field.q-info {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(245, 212, 122, 0.06);
+  border: 1px dashed rgba(245, 212, 122, 0.28);
+}
+.field.q-info .field-label { color: #f5d47a; }
+
 .q-missing {
   margin-top: 14px;
   padding: 10px 12px;

@@ -1,140 +1,290 @@
 """
 Dynamic Artist Onboarding Questionnaire.
 
-Layer 1: universal questions asked of every artist.
+Layer 1: universal questions asked of every artist (10 sections).
 Layer 2: category-specific questions asked in addition, based on the artist's
          chosen category (Singer, DJ, Comedian, Dancer, etc.).
 
-Everything is metadata-driven so admins can add / edit questions from the
+Both layers are metadata-driven so admins can add / edit questions from the
 Admin panel without touching code. Answers live on `artist_profiles.answers`
 as a `{ question_id: answer_value }` map.
 
-This module ships the **read** side + seed. The dynamic renderer and admin
-form-builder UI arrive in a follow-up.
+Question types accepted by the wizard:
+    text | textarea | number | price | date | time | url | tel
+    select (single) | multiselect | toggle (yes/no) | file
+
+Iter 49 — seed rewritten to match the "Interactive Dynamic Artist Onboarding"
+PRD delivered by the product team. Every question below is an exact 1:1 port
+of that doc so the wizard reads back correctly during profile completion and
+package creation.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Any, Callable, Dict, List, Optional
 from pydantic import BaseModel
 
 
-UNIVERSAL_QUESTIONS = [
-    # ── Layer 1 · Section: Identity ──
-    {"section": "Identity", "id": "stage_name", "label": "Stage / Performer name", "type": "text", "required": True, "order": 10},
-    {"section": "Identity", "id": "legal_name", "label": "Legal name (for contracts)", "type": "text", "required": True, "order": 20},
-    {"section": "Identity", "id": "primary_language", "label": "Primary language of performance", "type": "select", "options": ["Hindi", "English", "Punjabi", "Marathi", "Tamil", "Telugu", "Bengali", "Kannada", "Malayalam", "Other"], "required": True, "order": 30},
-    {"section": "Identity", "id": "category", "label": "Primary category / artist type", "type": "select",
-     "options": ["Bollywood Vocalist", "Classical Vocalist", "DJ / Music Producer", "Stand-up Comedian",
-                 "Anchor / Emcee", "Dancer / Troupe", "Live Band", "Magician", "Folk Artist"],
-     "required": True, "order": 35,
-     "description": "Adjusts the category-specific questions in the last step."},
-    {"section": "Identity", "id": "secondary_languages", "label": "Other languages you perform in", "type": "multiselect", "options": ["Hindi", "English", "Punjabi", "Marathi", "Tamil", "Telugu", "Bengali", "Kannada", "Malayalam", "Gujarati", "Rajasthani"], "order": 40},
+# ───────────────────────────── UNIVERSAL (LAYER 1) ─────────────────────────
+UNIVERSAL_QUESTIONS: List[Dict[str, Any]] = [
+    # ── SECTION 1 · Tell us about yourself ──────────────────────────────
+    {"section": "Tell us about yourself", "id": "stage_name",     "label": "Stage Name", "type": "text", "order": 10},
+    {"section": "Tell us about yourself", "id": "legal_name",     "label": "Legal Name", "type": "text", "order": 20},
+    {"section": "Tell us about yourself", "id": "category",       "label": "Which category best describes you?", "type": "select",
+     "options": ["Singer", "DJ", "Band", "Dancer", "Stand-up Comedian", "Magician",
+                 "Anchor / Emcee", "Motivational Speaker", "Influencer", "Celebrity",
+                 "Instrumentalist", "Kids Entertainer", "Other"],
+     "description": "Adjusts the category-specific questions in the last step.", "order": 30},
+    {"section": "Tell us about yourself", "id": "years_experience", "label": "Years of Experience", "type": "select",
+     "options": ["Less than 1 year", "1–3 years", "3–5 years", "5–10 years", "10+ years"], "order": 40},
+    {"section": "Tell us about yourself", "id": "languages",      "label": "Which languages do you speak?", "type": "multiselect",
+     "options": ["Hindi", "English", "Punjabi", "Gujarati", "Marathi", "Bengali",
+                 "Tamil", "Telugu", "Kannada", "Malayalam", "Other"], "order": 50},
+    {"section": "Tell us about yourself", "id": "base_city",      "label": "Base City", "type": "text", "order": 60},
+    {"section": "Tell us about yourself", "id": "about",          "label": "Tell customers about yourself", "type": "textarea", "order": 70},
+    {"section": "Tell us about yourself", "id": "profile_photo",  "label": "Upload Profile Photo", "type": "file", "order": 80},
+    {"section": "Tell us about yourself", "id": "cover_photo",    "label": "Cover Photo", "type": "file", "order": 90},
+    {"section": "Tell us about yourself", "id": "gallery_images", "label": "Gallery Images", "type": "file", "multiple": True, "order": 100},
+    {"section": "Tell us about yourself", "id": "intro_video",    "label": "Introduction Video", "type": "file", "order": 110},
+    {"section": "Tell us about yourself", "id": "performance_videos", "label": "Performance Videos", "type": "file", "multiple": True, "order": 120},
 
-    # ── Layer 1 · Section: Contact ──
-    {"section": "Contact", "id": "phone_primary", "label": "Primary phone (WhatsApp)", "type": "tel", "required": True, "order": 60},
-    {"section": "Contact", "id": "manager_name", "label": "Manager or point-of-contact name", "type": "text", "order": 70},
-    {"section": "Contact", "id": "manager_phone", "label": "Manager phone", "type": "tel", "order": 80},
-    {"section": "Contact", "id": "based_city", "label": "City you are based in", "type": "text", "required": True, "order": 90},
-    {"section": "Contact", "id": "travel_radius_km", "label": "Willing to travel up to (km)", "type": "number", "required": True, "order": 100},
+    # ── SECTION 2 · Performance Packages ────────────────────────────────
+    {"section": "Performance Packages", "id": "package_count", "label": "How many packages do you want to offer?", "type": "number",
+     "description": "Artist can create unlimited packages. Each package captures its own name, price, duration, capacity, inclusions and extra-hour rate on the Packages screen.", "order": 200},
 
-    # ── Layer 1 · Section: Experience ──
-    {"section": "Experience", "id": "years_experience", "label": "Years of performing experience", "type": "number", "required": True, "order": 110},
-    {"section": "Experience", "id": "shows_per_year", "label": "Approx. shows per year", "type": "number", "order": 120},
-    {"section": "Experience", "id": "biggest_venue", "label": "Biggest venue / crowd you've performed for", "type": "text", "order": 130},
-    {"section": "Experience", "id": "notable_clients", "label": "Notable past clients / weddings / brands", "type": "textarea", "order": 140},
+    # ── SECTION 3 · Travel ─────────────────────────────────────────────
+    {"section": "Travel", "id": "travel_scope", "label": "Will you travel for performances?", "type": "select",
+     "options": ["Only within my city", "Within my state", "Anywhere in India", "International"], "order": 300},
+    {"section": "Travel", "id": "travel_who_pays", "label": "Who usually pays for travel?", "type": "select",
+     "options": ["Customer", "I include travel charges in my package", "Depends on the event"], "order": 310},
+    {"section": "Travel", "id": "travel_modes", "label": "Preferred mode of travel", "type": "multiselect",
+     "options": ["Flight", "Train", "Cab", "Personal Vehicle", "No Preference"], "order": 320},
+    {"section": "Travel", "id": "flight_class", "label": "Preferred Flight Class", "type": "select",
+     "options": ["Economy", "Premium Economy", "Business", "No Preference"], "order": 330},
+    {"section": "Travel", "id": "train_class", "label": "Preferred Train Class", "type": "select",
+     "options": ["AC Chair Car", "3AC", "2AC", "1AC", "No Preference"], "order": 340},
+    {"section": "Travel", "id": "hotel_required", "label": "Hotel Required?", "type": "select",
+     "options": ["Always", "Only for outstation events", "No"], "order": 350},
+    {"section": "Travel", "id": "hotel_category", "label": "Preferred Hotel Category", "type": "select",
+     "options": ["3 ★", "4 ★", "5 ★", "No Preference"], "order": 360},
+    {"section": "Travel", "id": "travel_party_size", "label": "How many people usually travel?", "type": "select",
+     "options": ["Only me", "2", "3", "4", "5+"], "order": 370},
+    {"section": "Travel", "id": "travel_charge_model", "label": "How should travel charges be calculated?", "type": "select",
+     "options": ["Included in package", "Customer pays actual expenses", "Flat travel fee", "Free within certain distance"], "order": 380},
+    {"section": "Travel", "id": "travel_flat_fee", "label": "Flat travel fee (₹)", "type": "price",
+     "show_if": {"travel_charge_model": "Flat travel fee"}, "order": 390},
+    {"section": "Travel", "id": "travel_free_distance_km", "label": "Free within distance (km)", "type": "number",
+     "show_if": {"travel_charge_model": "Free within certain distance"}, "order": 395},
+    {"section": "Travel", "id": "travel_per_km_fee", "label": "After that — per-km fee (₹)", "type": "price",
+     "show_if": {"travel_charge_model": "Free within certain distance"}, "order": 397},
+    {"section": "Travel", "id": "travel_notes", "label": "Anything customers should know?", "type": "textarea", "order": 399},
 
-    # ── Layer 1 · Section: Availability & Travel ──
-    {"section": "Availability", "id": "weekly_off", "label": "Weekly off days (if any)", "type": "multiselect", "options": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"], "order": 150},
-    {"section": "Availability", "id": "advance_notice_days", "label": "Minimum advance notice required (days)", "type": "number", "required": True, "order": 160},
-    {"section": "Availability", "id": "outstation_ok", "label": "Available for outstation bookings?", "type": "boolean", "order": 170},
+    # ── SECTION 4 · Technical Requirements ─────────────────────────────
+    {"section": "Technical Requirements", "id": "sound_provider", "label": "Who provides the sound system?", "type": "select",
+     "options": ["Artist", "Customer"], "order": 400},
+    {"section": "Technical Requirements", "id": "artist_brings", "label": "What do you usually bring?", "type": "multiselect",
+     "options": ["Microphones", "Guitar", "Keyboard", "DJ Console", "Mixer", "Laptop",
+                 "Drum Kit", "Instruments", "Nothing", "Other"], "order": 410},
+    {"section": "Technical Requirements", "id": "customer_arranges", "label": "What should the customer arrange?", "type": "multiselect",
+     "options": ["Stage", "Sound System", "LED Wall", "Lighting", "Generator", "Green Room",
+                 "Extension Boards", "Chairs", "Dressing Mirror", "Drinking Water", "Power Backup"], "order": 420},
+    {"section": "Technical Requirements", "id": "speaker_brand", "label": "Preferred Speaker Brand", "type": "multiselect",
+     "options": ["No Preference", "JBL", "Bose", "RCF", "L-Acoustics", "d&b", "Other"], "order": 430},
+    {"section": "Technical Requirements", "id": "mixer_brand", "label": "Preferred Mixer Brand", "type": "multiselect",
+     "options": ["No Preference", "Yamaha", "Allen & Heath", "Soundcraft", "Other"], "order": 440},
+    {"section": "Technical Requirements", "id": "wireless_mic", "label": "Wireless Microphone Required?", "type": "toggle", "order": 450},
+    {"section": "Technical Requirements", "id": "mic_count", "label": "Number of Microphones", "type": "select",
+     "options": ["1", "2", "3", "4+"], "order": 460},
+    {"section": "Technical Requirements", "id": "stage_length_ft", "label": "Minimum stage length (ft)", "type": "number", "order": 470},
+    {"section": "Technical Requirements", "id": "stage_width_ft",  "label": "Minimum stage width (ft)", "type": "number", "order": 475},
+    {"section": "Technical Requirements", "id": "stage_height_ft", "label": "Minimum stage height (ft)", "type": "number", "order": 480},
+    {"section": "Technical Requirements", "id": "power", "label": "Power Requirement", "type": "select",
+     "options": ["Normal", "Three Phase", "Generator"], "order": 490},
+    {"section": "Technical Requirements", "id": "technical_notes", "label": "Anything else?", "type": "textarea", "order": 499},
 
-    # ── Layer 1 · Section: Technical & Logistics ──
-    {"section": "Technical", "id": "own_equipment", "label": "Bring your own equipment?", "type": "select", "options": ["Yes, full setup", "Partial - I'll list below", "No, venue provides"], "order": 180},
-    {"section": "Technical", "id": "equipment_details", "label": "Equipment you bring (if partial)", "type": "textarea", "order": 190},
-    {"section": "Technical", "id": "green_room", "label": "Green room requirement?", "type": "boolean", "order": 200},
-    {"section": "Technical", "id": "meal_pref", "label": "Meal preference on-site", "type": "select", "options": ["Veg", "Non-veg", "Vegan", "Any"], "order": 210},
+    # ── SECTION 5 · Performance ────────────────────────────────────────
+    {"section": "Performance", "id": "arrive_before", "label": "How early do you arrive?", "type": "select",
+     "options": ["30 mins", "60 mins", "90 mins", "2 Hours"], "order": 500},
+    {"section": "Performance", "id": "soundcheck_required", "label": "Soundcheck Required?", "type": "toggle", "order": 510},
+    {"section": "Performance", "id": "soundcheck_duration", "label": "Soundcheck Duration", "type": "select",
+     "options": ["15 mins", "30 mins", "45 mins", "60 mins"],
+     "show_if": {"soundcheck_required": True}, "order": 515},
+    {"section": "Performance", "id": "max_continuous", "label": "Maximum continuous performance", "type": "select",
+     "options": ["30 mins", "45 mins", "60 mins", "90 mins", "2 Hours"], "order": 520},
+    {"section": "Performance", "id": "song_requests", "label": "Can customers request songs?", "type": "select",
+     "options": ["Yes", "Only before event", "No"], "order": 530},
+    {"section": "Performance", "id": "playlist_share", "label": "Can customers share playlist?", "type": "toggle", "order": 540},
+    {"section": "Performance", "id": "dress_code_ok", "label": "Do you accept dress code requests?", "type": "toggle", "order": 550},
+    {"section": "Performance", "id": "performance_notes", "label": "Additional Notes", "type": "textarea", "order": 560},
 
-    # ── Layer 1 · Section: Pricing ──
-    {"section": "Pricing", "id": "base_fee", "label": "Base fee per performance (INR)", "type": "number", "required": True, "order": 220},
-    {"section": "Pricing", "id": "weekend_multiplier", "label": "Weekend rate multiplier", "type": "number", "step": 0.1, "order": 230},
-    {"section": "Pricing", "id": "festival_multiplier", "label": "Festival / peak-season multiplier", "type": "number", "step": 0.1, "order": 240},
-    {"section": "Pricing", "id": "outstation_surcharge", "label": "Outstation surcharge (INR flat)", "type": "number", "order": 250},
+    # ── SECTION 6 · Hospitality ────────────────────────────────────────
+    {"section": "Hospitality", "id": "hospitality_needs", "label": "What do you require?", "type": "multiselect",
+     "options": ["Mineral Water", "Tea", "Coffee", "Snacks", "Vegetarian Meal",
+                 "Non-Vegetarian Meal", "Jain Meal", "Green Room", "Private Washroom",
+                 "AC Room", "Other"], "order": 600},
 
-    # ── Layer 1 · Section: Legal & Compliance ──
-    {"section": "Legal", "id": "pan_number", "label": "PAN number", "type": "text", "required": True, "order": 260},
-    {"section": "Legal", "id": "gst_registered", "label": "Registered for GST?", "type": "boolean", "order": 270},
-    {"section": "Legal", "id": "gst_number", "label": "GSTIN (if registered)", "type": "text", "order": 280},
-    {"section": "Legal", "id": "invoice_currency", "label": "Invoice currency", "type": "select", "options": ["INR", "USD", "GBP"], "default": "INR", "order": 290},
+    # ── SECTION 7 · Commercial ─────────────────────────────────────────
+    {"section": "Commercial", "id": "min_booking_amount", "label": "Minimum Booking Amount (₹)", "type": "price", "order": 700},
+    {"section": "Commercial", "id": "advance_pct", "label": "Advance Required", "type": "select",
+     "options": ["25%", "50%", "75%", "100%"], "order": 710},
+    {"section": "Commercial", "id": "extra_hour_charge", "label": "Extra Hour Charges (₹)", "type": "price", "order": 720},
+    {"section": "Commercial", "id": "waiting_charge_per_hour", "label": "Waiting Charges (₹ per Hour)", "type": "price", "order": 730},
+    {"section": "Commercial", "id": "late_night", "label": "Late Night Charges?", "type": "toggle", "order": 740},
+    {"section": "Commercial", "id": "late_night_after", "label": "Late night — after", "type": "time",
+     "show_if": {"late_night": True}, "order": 745},
+    {"section": "Commercial", "id": "late_night_extra", "label": "Late night — extra charges (₹)", "type": "price",
+     "show_if": {"late_night": True}, "order": 747},
+    {"section": "Commercial", "id": "peak_season_pricing", "label": "Peak Season Pricing?", "type": "toggle", "order": 750},
+    {"section": "Commercial", "id": "commercial_notes", "label": "Additional Notes", "type": "textarea", "order": 760},
 
-    # ── Layer 1 · Section: Professional profile ──
-    {"section": "Profile", "id": "bio_short", "label": "One-line bio (max 120 chars)", "type": "text", "required": True, "order": 300},
-    {"section": "Profile", "id": "bio_long", "label": "Full bio", "type": "textarea", "required": True, "order": 310},
-    {"section": "Profile", "id": "youtube_link", "label": "YouTube channel / demo reel URL", "type": "url", "order": 320},
-    {"section": "Profile", "id": "instagram_handle", "label": "Instagram handle", "type": "text", "order": 330},
+    # ── SECTION 8 · Event Types ────────────────────────────────────────
+    {"section": "Event Types", "id": "event_types", "label": "Where do you perform?", "type": "multiselect",
+     "options": ["Wedding", "Reception", "Sangeet", "Birthday", "Corporate Event", "College Fest",
+                 "School Event", "Government Event", "Religious Event", "Festival",
+                 "Private Party", "Club", "Luxury Event", "Brand Launch"], "order": 800},
+
+    # ── SECTION 9 · Legal ──────────────────────────────────────────────
+    {"section": "Legal", "id": "gst_invoice", "label": "Will you provide GST Invoice?", "type": "toggle", "order": 900},
+    {"section": "Legal", "id": "nda_ok", "label": "Will you sign NDA?", "type": "toggle", "order": 910},
+    {"section": "Legal", "id": "video_recording", "label": "Can customers record videos?", "type": "select",
+     "options": ["Yes", "Only Short Videos", "No"], "order": 920},
+    {"section": "Legal", "id": "livestream_ok", "label": "Can customers livestream?", "type": "select",
+     "options": ["Yes", "No"], "order": 930},
+    {"section": "Legal", "id": "media_reuse", "label": "Can customers use photos/videos for promotion?", "type": "select",
+     "options": ["Yes", "Only with Permission", "No"], "order": 940},
+
+    # ── SECTION 10 · Availability (functional pointer only) ────────────
+    {"section": "Availability", "id": "availability_calendar", "label": "Interactive Availability Calendar",
+     "type": "info",
+     "description": "Managed on the Availability Calendar screen — Block Dates, Weekend Pricing, Festival Pricing and Peak Season Pricing are all editable there.",
+     "order": 1000},
 ]
 
-# ── Layer 2 · Category-specific questionnaires ──
-# Categories map to the same slugs used in the frontend CATEGORIES list.
-CATEGORY_QUESTIONS = {
-    "Bollywood Vocalist": [
-        {"id": "vocal_range", "label": "Vocal range (e.g. G2–C5)", "type": "text", "order": 10},
-        {"id": "song_bank_size", "label": "Approx. number of songs in repertoire", "type": "number", "order": 20},
-        {"id": "signature_songs", "label": "3 signature songs (comma-separated)", "type": "text", "order": 30},
-        {"id": "live_musicians", "label": "Perform with live band?", "type": "select", "options": ["Solo w/ track", "With musicians", "Both"], "order": 40},
-        {"id": "duet_ok", "label": "Available for duets / collaborations?", "type": "boolean", "order": 50},
+
+# ───────────────────────────── CATEGORY (LAYER 2) ──────────────────────────
+CATEGORY_QUESTIONS: Dict[str, List[Dict[str, Any]]] = {
+    "Singer": [
+        {"id": "singer_style", "label": "What type of singer are you?", "type": "multiselect",
+         "options": ["Bollywood", "Punjabi", "Classical", "Ghazal", "Sufi", "Devotional",
+                     "Retro", "Western", "Fusion", "Folk", "Other"], "order": 10},
+        {"id": "singer_setup", "label": "How do you usually perform?", "type": "select",
+         "options": ["Solo", "Guitar", "Keyboard", "Karaoke", "Live Band", "Orchestra"], "order": 20},
+        {"id": "karaoke_usage", "label": "Do you perform with karaoke tracks?", "type": "select",
+         "options": ["Always", "Sometimes", "Never"], "order": 30},
+        {"id": "hire_solo_ok", "label": "Can customers hire only you?", "type": "select", "options": ["Yes", "No"], "order": 40},
+        {"id": "musicians_travelling", "label": "How many musicians travel with you?", "type": "select",
+         "options": ["None", "1", "2", "3", "4+"], "order": 50},
+        {"id": "song_request_policy", "label": "Can customers request songs?", "type": "select",
+         "options": ["Yes", "Only if informed in advance", "No"], "order": 60},
+        {"id": "singer_notes", "label": "Anything else?", "type": "text", "order": 99},
     ],
-    "Classical Vocalist": [
-        {"id": "gharana", "label": "Gharana / tradition", "type": "text", "order": 10},
-        {"id": "guru_lineage", "label": "Guru / lineage", "type": "text", "order": 20},
-        {"id": "raga_specialties", "label": "Signature ragas", "type": "textarea", "order": 30},
-        {"id": "concert_length_min", "label": "Typical concert length (minutes)", "type": "number", "order": 40},
+    "DJ": [
+        {"id": "dj_genres", "label": "Music Genres", "type": "multiselect",
+         "options": ["Bollywood", "EDM", "House", "Techno", "Commercial", "Punjabi",
+                     "Hip-Hop", "Retro", "Other"], "order": 10},
+        {"id": "own_controller", "label": "Do you bring your own controller?", "type": "toggle", "order": 20},
+        {"id": "own_laptop", "label": "Do you bring your own laptop?", "type": "toggle", "order": 30},
+        {"id": "own_lighting", "label": "Do you bring lighting?", "type": "toggle", "order": 40},
+        {"id": "dj_booth_required", "label": "Do you require a DJ booth?", "type": "toggle", "order": 50},
+        {"id": "outdoor_ok", "label": "Can you perform outdoors?", "type": "toggle", "order": 60},
+        {"id": "dj_notes", "label": "Anything else?", "type": "text", "order": 99},
     ],
-    "DJ / Music Producer": [
-        {"id": "genres", "label": "Genres you spin", "type": "multiselect", "options": ["House", "Tech-house", "Progressive", "Bollywood", "Punjabi", "EDM Mainstage", "Hip-hop", "R&B", "Deep House", "Techno"], "order": 10},
-        {"id": "cdj_setup", "label": "CDJ / controller you use", "type": "text", "order": 20},
-        {"id": "own_cdjs", "label": "Own CDJs / mixer?", "type": "boolean", "order": 30},
-        {"id": "max_set_hours", "label": "Max continuous set length (hours)", "type": "number", "order": 40},
-        {"id": "mc_hype", "label": "MC / hype during set?", "type": "boolean", "order": 50},
+    "Band": [
+        {"id": "band_members", "label": "Number of Members", "type": "select",
+         "options": ["2", "3", "4", "5", "6+"], "order": 10},
+        {"id": "band_composition", "label": "Band Includes", "type": "multiselect",
+         "options": ["Singer", "Guitar", "Keyboard", "Drums", "Bass", "Percussion", "Sound Engineer"], "order": 20},
+        {"id": "all_members_travel", "label": "Do all members travel?", "type": "toggle", "order": 30},
+        {"id": "separate_green_rooms", "label": "Separate Green Rooms Required?", "type": "toggle", "order": 40},
+        {"id": "band_notes", "label": "Anything else?", "type": "text", "order": 99},
+    ],
+    "Dancer": [
+        {"id": "dance_styles", "label": "Dance Styles", "type": "multiselect",
+         "options": ["Bollywood", "Hip Hop", "Contemporary", "Kathak", "Bharatnatyam",
+                     "Bhangra", "Salsa", "Other"], "order": 10},
+        {"id": "dancer_composition", "label": "Solo or Group?", "type": "select",
+         "options": ["Solo", "Duo", "Group"], "order": 20},
+        {"id": "changing_room", "label": "Changing Room Required?", "type": "toggle", "order": 30},
+        {"id": "dance_floor", "label": "Dance Floor Required?", "type": "toggle", "order": 40},
+        {"id": "dancer_notes", "label": "Anything else?", "type": "text", "order": 99},
     ],
     "Stand-up Comedian": [
-        {"id": "content_type", "label": "Style", "type": "select", "options": ["Clean corporate", "Observational", "Political", "Roast", "Improv", "Storytelling"], "order": 10},
-        {"id": "duration_options", "label": "Sets you can deliver", "type": "multiselect", "options": ["15 min", "30 min", "45 min", "60 min", "90 min"], "order": 20},
-        {"id": "language_mix", "label": "Hindi / English / Hinglish mix (%)", "type": "text", "order": 30},
-        {"id": "corporate_ok", "label": "Comfortable with corporate audiences?", "type": "boolean", "order": 40},
+        {"id": "comedy_style", "label": "Comedy Style", "type": "select",
+         "options": ["Clean", "Adult", "Corporate", "Roast", "Crowd Work"], "order": 10},
+        {"id": "recording_allowed", "label": "Audience Recording Allowed?", "type": "select",
+         "options": ["Yes", "No"], "order": 20},
+        {"id": "custom_material", "label": "Can material be customised?", "type": "toggle", "order": 30},
+        {"id": "comedian_notes", "label": "Anything else?", "type": "text", "order": 99},
     ],
     "Anchor / Emcee": [
-        {"id": "event_types_hosted", "label": "Event types you host", "type": "multiselect", "options": ["Weddings","Sangeet","Corporate","Awards","Product Launch","Concerts","Festivals","Kids"], "order": 10},
-        {"id": "bilingual", "label": "Bilingual / multilingual?", "type": "boolean", "order": 20},
-        {"id": "shayari_ok", "label": "Include shayari / anchoring script?", "type": "boolean", "order": 30},
-        {"id": "improv_games", "label": "Anchor games / improv?", "type": "boolean", "order": 40},
-    ],
-    "Dancer / Troupe": [
-        {"id": "styles", "label": "Dance styles", "type": "multiselect", "options": ["Bollywood","Bharatnatyam","Kathak","Contemporary","Hip-hop","Salsa","Bhangra","Garba","Folk"], "order": 10},
-        {"id": "troupe_size", "label": "Troupe size (number of dancers)", "type": "number", "order": 20},
-        {"id": "choreography_ok", "label": "Choreograph custom pieces?", "type": "boolean", "order": 30},
-        {"id": "costume_included", "label": "Costumes included in fee?", "type": "boolean", "order": 40},
-    ],
-    "Live Band": [
-        {"id": "band_size", "label": "Number of musicians", "type": "number", "order": 10},
-        {"id": "instruments", "label": "Instruments on stage", "type": "multiselect", "options": ["Vocals","Guitar","Bass","Drums","Keyboard","Tabla","Sax","Dhol","Percussion","Violin"], "order": 20},
-        {"id": "genres_band", "label": "Genres", "type": "multiselect", "options": ["Bollywood retro","Bollywood current","Rock","Sufi","Jazz","Fusion","Folk","Ghazal"], "order": 30},
-        {"id": "sound_engineer", "label": "Bring own sound engineer?", "type": "boolean", "order": 40},
+        {"id": "events_hosted", "label": "Events Hosted", "type": "multiselect",
+         "options": ["Wedding", "Corporate", "College", "Awards", "Government"], "order": 10},
+        {"id": "script_customisation", "label": "Script Customisation?", "type": "toggle", "order": 20},
+        {"id": "teleprompter", "label": "Teleprompter Required?", "type": "toggle", "order": 30},
+        {"id": "anchor_notes", "label": "Anything else?", "type": "text", "order": 99},
     ],
     "Magician": [
-        {"id": "act_types", "label": "Act types", "type": "multiselect", "options": ["Close-up","Stage illusion","Mentalism","Kids","Comedy magic"], "order": 10},
-        {"id": "walk_around_ok", "label": "Do walk-around / cocktail-hour magic?", "type": "boolean", "order": 20},
-        {"id": "max_audience", "label": "Max audience size", "type": "number", "order": 30},
+        {"id": "magic_type", "label": "Performance Type", "type": "multiselect",
+         "options": ["Stage Magic", "Close-up Magic", "Illusion", "Mentalism"], "order": 10},
+        {"id": "assistant_required", "label": "Assistant Required?", "type": "toggle", "order": 20},
+        {"id": "audience_participation", "label": "Audience Participation?", "type": "toggle", "order": 30},
+        {"id": "magician_notes", "label": "Anything else?", "type": "text", "order": 99},
     ],
-    "Folk Artist": [
-        {"id": "folk_form", "label": "Folk form (e.g. Rajasthani, Baul, Lavani)", "type": "text", "order": 10},
-        {"id": "troupe_size_folk", "label": "Troupe size", "type": "number", "order": 20},
-        {"id": "traditional_costume", "label": "Traditional costume included?", "type": "boolean", "order": 30},
+    "Motivational Speaker": [
+        {"id": "speaker_topics", "label": "Topics", "type": "multiselect",
+         "options": ["Leadership", "Sales", "AI", "Entrepreneurship", "Education", "Motivation", "Other"], "order": 10},
+        {"id": "session_format", "label": "Session Format", "type": "select",
+         "options": ["Keynote", "Workshop", "Interactive Q&A"], "order": 20},
+        {"id": "handouts_included", "label": "Handouts / Slides Included?", "type": "toggle", "order": 30},
+        {"id": "speaker_notes", "label": "Anything else?", "type": "text", "order": 99},
     ],
+    "Celebrity": [
+        {"id": "meet_greet", "label": "Meet & Greet Included?", "type": "toggle", "order": 10},
+        {"id": "photo_session", "label": "Photo Session Included?", "type": "toggle", "order": 20},
+        {"id": "media_interaction", "label": "Media Interaction Allowed?", "type": "toggle", "order": 30},
+        {"id": "security_required", "label": "Security Required?", "type": "toggle", "order": 40},
+        {"id": "team_travels", "label": "Personal Team Travels?", "type": "toggle", "order": 50},
+        {"id": "team_size", "label": "Number of Team Members", "type": "number",
+         "show_if": {"team_travels": True}, "order": 55},
+        {"id": "celebrity_notes", "label": "Anything else?", "type": "text", "order": 99},
+    ],
+    "Influencer": [
+        {"id": "platforms", "label": "Platforms", "type": "multiselect",
+         "options": ["Instagram", "YouTube", "Facebook", "LinkedIn", "Snapchat"], "order": 10},
+        {"id": "deliverables", "label": "Deliverables", "type": "multiselect",
+         "options": ["Appearance", "Story", "Reel", "Feed Post", "Live Session", "Meet & Greet"], "order": 20},
+        {"id": "repost_policy", "label": "Can customer repost content?", "type": "select",
+         "options": ["Yes", "Only with Credit", "No"], "order": 30},
+        {"id": "influencer_notes", "label": "Anything else?", "type": "text", "order": 99},
+    ],
+    "Kids Entertainer": [
+        {"id": "kids_performance", "label": "Performance Type", "type": "multiselect",
+         "options": ["Magic", "Puppet Show", "Balloon Art", "Mascot", "Games", "Face Painting"], "order": 10},
+        {"id": "age_group", "label": "Suitable Age Group", "type": "multiselect",
+         "options": ["2–5 Years", "5–8 Years", "8–12 Years", "All Ages"], "order": 20},
+        {"id": "indoor_outdoor", "label": "Indoor or Outdoor?", "type": "multiselect",
+         "options": ["Indoor", "Outdoor", "Both"], "order": 30},
+        {"id": "kids_notes", "label": "Anything else?", "type": "text", "order": 99},
+    ],
+    "Instrumentalist": [
+        {"id": "primary_instrument", "label": "Primary Instrument", "type": "text", "order": 10},
+        {"id": "performs_solo", "label": "Do you perform solo?", "type": "toggle", "order": 20},
+        {"id": "performs_with_band", "label": "Do you perform with a band?", "type": "toggle", "order": 30},
+        {"id": "own_instrument", "label": "Do you bring your own instrument?", "type": "toggle", "order": 40},
+        {"id": "amplifier_required", "label": "Amplifier Required?", "type": "toggle", "order": 50},
+        {"id": "instrumentalist_notes", "label": "Anything else?", "type": "text", "order": 99},
+    ],
+    # Legacy slugs kept alive so old artists don't lose their answers.
+    "Bollywood Vocalist":  [],  # deprecated → mapped to "Singer"
+    "Classical Vocalist":  [],  # deprecated → mapped to "Singer"
+    "DJ / Music Producer": [],  # deprecated → mapped to "DJ"
+    "Dancer / Troupe":     [],  # deprecated → mapped to "Dancer"
+    "Live Band":           [],  # deprecated → mapped to "Band"
+    "Folk Artist":         [],  # deprecated → covered by Singer > "Folk"
 }
 
 
 class AnswerBody(BaseModel):
     """Answers coming in from the artist onboarding wizard."""
-    answers: dict[str, Any]
+    answers: Dict[str, Any]
 
 
 def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, clean: Callable, utcnow: Callable, **_: Any) -> APIRouter:
@@ -143,7 +293,6 @@ def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, cl
     @r.get("/questionnaire/universal")
     async def get_universal() -> List[Dict[str, Any]]:
         """Public read of Layer 1 questions. Prefers DB overrides if seeded."""
-        # If admin has stored a customised version, return it; else return defaults.
         override = await db.questionnaire_meta.find_one({"id": "universal"})
         if override and override.get("questions"):
             return sorted(override["questions"], key=lambda q: q.get("order", 999))
@@ -159,11 +308,12 @@ def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, cl
 
     @r.get("/questionnaire/categories")
     async def list_categories() -> List[str]:
-        """List every category with an available Layer 2 questionnaire."""
+        """List every category with an available Layer 2 questionnaire (non-empty)."""
         db_ids: set = set()
         async for m in db.questionnaire_meta.find({"id": {"$regex": "^cat:"}}):
             db_ids.add(m["id"].split(":", 1)[1])
-        return sorted(list(set(CATEGORY_QUESTIONS.keys()) | db_ids))
+        seeded = {k for k, v in CATEGORY_QUESTIONS.items() if v}
+        return sorted(list(seeded | db_ids))
 
     @r.post("/questionnaire/answers")
     async def submit_answers(body: AnswerBody, user: dict = Depends(get_current_user)) -> Dict[str, Any]:
