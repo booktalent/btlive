@@ -7,6 +7,7 @@ import "./styles/iter44.css";
 import "./styles/iter45.css";
 import "./styles/iter44_recap.css";
 import "./styles/iter45_cart.css";
+import "./styles/iter46_planner.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { AuthProvider, useAuth } from "./lib/auth";
@@ -30,6 +31,7 @@ import CityLanding from "./pages/CityLanding";
 import BlogList from "./pages/BlogList";
 import BlogArticle from "./pages/BlogArticle";
 import RecapPage from "./pages/RecapPage";
+import EventPlannerPage from "./pages/EventPlannerPage";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -70,6 +72,7 @@ function App() {
                 <Route path="/blog" element={<BlogList />} />
                 <Route path="/blog/:slug" element={<BlogArticle />} />
                 <Route path="/recap/:event_id" element={<RecapPage />} />
+                <Route path="/planner" element={<EventPlannerPage />} />
 
                 <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
                 <Route path="/customer" element={<Protected roles={ROLES_CUSTOMER}><CustomerDashboard /></Protected>} />

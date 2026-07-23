@@ -1,0 +1,232 @@
+/* ============================================================================
+   Iter 46 — AI Event Planner page
+   ============================================================================ */
+.planner-hero {
+  background:
+    radial-gradient(1000px 500px at 20% 0%, rgba(167, 139, 250, 0.20), transparent 65%),
+    radial-gradient(800px 400px at 100% 100%, rgba(245, 212, 122, 0.10), transparent 65%),
+    #0b0a12;
+  padding: 60px 20px 40px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.planner-container { max-width: 1200px; margin: 0 auto; }
+
+.planner-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+  color: #0b0a12;
+  background: linear-gradient(135deg, #f5d47a, #d1a353);
+  margin-bottom: 20px;
+  letter-spacing: 0.04em;
+}
+
+.planner-title {
+  font-size: clamp(28px, 5vw, 48px);
+  line-height: 1.15;
+  font-weight: 700;
+  margin: 0 0 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #dcd6f7 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  max-width: 800px;
+}
+.planner-sub {
+  color: #a3a1b3;
+  font-size: 15px;
+  max-width: 640px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.planner-body { padding: 40px 20px 80px; }
+
+.planner-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 28px;
+  align-items: start;
+}
+@media (max-width: 900px) { .planner-grid { grid-template-columns: 1fr; } }
+
+/* ─── Left brief form ──────────────────────────────────────────────────── */
+.planner-form {
+  background: linear-gradient(180deg, rgba(30, 27, 46, 0.85) 0%, rgba(20, 17, 30, 0.95) 100%);
+  border: 1px solid rgba(245, 212, 122, 0.25);
+  border-radius: 20px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 90px;
+}
+@media (max-width: 900px) { .planner-form { position: static; } }
+
+.planner-form-title {
+  font-size: 11px;
+  color: #a3a1b3;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+.planner-field { display: flex; flex-direction: column; gap: 6px; }
+.planner-field > span { font-size: 12px; color: #cfcbe0; font-weight: 600; }
+.planner-field input,
+.planner-field select,
+.planner-field textarea {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #eae7f0;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.planner-field input:focus,
+.planner-field select:focus,
+.planner-field textarea:focus { border-color: rgba(245, 212, 122, 0.55); background: rgba(255, 255, 255, 0.08); }
+.planner-field textarea { resize: vertical; min-height: 68px; }
+
+.planner-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ─── Right result panel ───────────────────────────────────────────────── */
+.planner-result {
+  min-height: 400px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 32px;
+}
+.planner-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: #a3a1b3;
+}
+.planner-spinner {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(245, 212, 122, 0.25);
+  border-top-color: #f5d47a;
+  animation: planner-spin 0.9s linear infinite;
+  margin: 0 auto;
+}
+@keyframes planner-spin { to { transform: rotate(360deg); } }
+
+.planner-plan-source {
+  display: inline-block;
+  font-size: 11px;
+  color: #f5d47a;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(245, 212, 122, 0.10);
+  border: 1px solid rgba(245, 212, 122, 0.28);
+  margin-bottom: 14px;
+}
+.planner-plan-headline {
+  font-size: clamp(22px, 3vw, 32px);
+  font-weight: 700;
+  margin: 0 0 10px;
+  line-height: 1.2;
+  color: #eae7f0;
+}
+.planner-plan-rationale {
+  color: #cfcbe0;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+.planner-budget-pill {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(167, 139, 250, 0.14);
+  color: #c4b5fd;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid rgba(167, 139, 250, 0.32);
+  margin-bottom: 24px;
+}
+
+.planner-section-title {
+  font-size: 12px;
+  color: #a3a1b3;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  margin: 8px 0 12px;
+}
+
+.planner-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+
+.planner-cat {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.planner-cat:hover { transform: translateY(-2px); border-color: rgba(245, 212, 122, 0.35); }
+.planner-cat.prio-1 { border-left: 3px solid #f5d47a; }
+.planner-cat.prio-2 { border-left: 3px solid #a78bfa; }
+.planner-cat.prio-3 { border-left: 3px solid #64748b; }
+
+.planner-cat-head {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; margin-bottom: 8px;
+}
+.planner-cat-name { font-weight: 700; font-size: 14px; color: #eae7f0; }
+.planner-prio {
+  font-size: 9px; font-weight: 700;
+  padding: 2px 7px; border-radius: 999px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.planner-prio.prio-1 { background: rgba(245, 212, 122, 0.18); color: #f5d47a; }
+.planner-prio.prio-2 { background: rgba(167, 139, 250, 0.18); color: #c4b5fd; }
+.planner-prio.prio-3 { background: rgba(100, 116, 139, 0.24); color: #cbd5e1; }
+
+.planner-cat-reason { font-size: 12px; color: #a3a1b3; margin: 0 0 12px; line-height: 1.5; }
+
+.planner-explore-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px; font-weight: 600;
+  color: #f5d47a;
+  background: rgba(245, 212, 122, 0.10);
+  border: 1px solid rgba(245, 212, 122, 0.28);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.planner-explore-btn:hover { background: rgba(245, 212, 122, 0.20); transform: translateY(-1px); }
+
+.planner-addons { display: flex; flex-direction: column; gap: 8px; }
+.planner-addon {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(167, 139, 250, 0.06);
+  border: 1px solid rgba(167, 139, 250, 0.20);
+}
+.planner-addon-name { font-weight: 600; font-size: 13px; color: #eae7f0; }
+.planner-addon-reason { font-size: 12px; color: #a3a1b3; margin-top: 4px; line-height: 1.5; }
+
+/* ─── Header CTA button on Landing / Nav ────────────────────────────────── */
+.planner-cta-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 700;
+  color: #0b0a12;
+  background: linear-gradient(135deg, #f5d47a, #d1a353);
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.planner-cta-pill:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -8px rgba(245, 212, 122, 0.5); }

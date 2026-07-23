@@ -3256,6 +3256,10 @@ app.include_router(
     prefix="/api",
 )
 
+# Iter 46 — AI Event Planner (Claude Sonnet 4.6 via Emergent Universal Key).
+from routes import event_planner as routes_event_planner  # noqa: E402
+app.include_router(routes_event_planner.router, prefix="/api")
+
 
 @app.on_event("startup")
 async def _iter7_startup():

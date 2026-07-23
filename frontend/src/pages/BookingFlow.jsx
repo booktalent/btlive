@@ -7,6 +7,7 @@ import AddArtistToCartModal from "../components/AddArtistToCartModal";
 import api, { fmtINRFull, formatApiError, mediaUrl, thumbUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
+import { useEventCart } from "../lib/useEventCart";
 
 /** Lazy-load Razorpay checkout JS once */
 const loadRazorpay = () => new Promise((resolve) => {
@@ -164,72 +165,31 @@ export default function BookingFlow() {
   const pkgPrice = pkg?.price || 0;
   const primarySubtotal = pkgPrice + addonsTotal + artistAddonsTotal;
 
-  // ── Iter 45 — Multi-Artist Event Cart ────────────────────────────────────
+  // ── Iter 45/46 — Multi-Artist Event Cart via useEventCart hook ──────────
   // Secondary artists added via the "Need More Artists?" panel on Step 2.
   // The primary artist is derived from the current form state and lives at
-  // cartItems[0]. Secondary artists are stored in `extraArtists` and expose
-  // their own package + add-on choices.
-  const [extraArtists, setExtraArtists] = React.useState([]);
-  const [addModalArtist, setAddModalArtist] = React.useState(null); // when set, modal opens
-  const isMultiEvent = extraArtists.length > 0;
-
-  const cartItems = React.useMemo(() => {
-    const items = [];
-    // GET /api/artists/{id} nests display fields under `.profile` — read from
-    // there so the primary row renders a real name/photo/category, not blank.
-    const primaryProfile = artist?.profile || {};
-    if (artist && pkg) {
-      const primaryPhoto = primaryProfile.profile_image;
-      items.push({
-        artist_id: id,
-        artist_name:
-          primaryProfile.stage_name ||
-          `${artist.first_name || ""} ${artist.last_name || ""}`.trim() ||
-          "Primary Artist",
-        artist_photo: primaryPhoto
-          ? (thumbUrl?.(primaryPhoto) || mediaUrl?.(primaryPhoto) || (/^https?:\/\//.test(primaryPhoto) ? primaryPhoto : null))
-          : null,
-        category: primaryProfile.category,
-        city: primaryProfile.city,
-        emoji: primaryProfile.emoji || "🎤",
-        package_id: pkg.id,
-        package_name: pkg.name,
-        package_price: Number(pkg.price),
-        // Merge both legacy hardcoded add-ons + artist-defined add-ons so the
-        // cart row's "+N add-ons" pill reflects every optional item the
-        // customer picked on Step 1.
-        addon_selections: [
-          ...form.addons.map((slug) => {
-            const meta = ADDONS.find((x) => x.id === slug);
-            return { addon_id: slug, quantity: 1, name: meta?.label || slug, price: meta?.price || 0 };
-          }),
-          ...form.addon_selections,
-        ],
-        price_subtotal: primarySubtotal,
-        is_primary: true,
-      });
-    }
-    return [...items, ...extraArtists];
-  }, [artist, pkg, id, form.addons, form.addon_selections, primarySubtotal, extraArtists]);
-
-  const cartArtistIds = React.useMemo(() => new Set(cartItems.map((c) => c.artist_id)), [cartItems]);
-
-  // Recompute cart-wide pricing whenever composition changes.
-  const cartPricing = React.useMemo(() => {
-    const subtotal = cartItems.reduce((s, i) => s + Number(i.price_subtotal || 0), 0);
-    const platform_fee = Math.round(subtotal * 0.05 * 100) / 100;
-    const gst = Math.round(platform_fee * 0.18 * 100) / 100;
-    return { subtotal, platform_fee, gst, token_amount: Math.round((platform_fee + gst) * 100) / 100 };
-  }, [cartItems]);
-
-  const addSecondaryArtist = (cartItem) => {
-    setExtraArtists((prev) => prev.some((x) => x.artist_id === cartItem.artist_id) ? prev : [...prev, cartItem]);
-    setAddModalArtist(null);
-    toast(`${cartItem.artist_name} added to your event`, "success");
-  };
-  const removeSecondaryArtist = (artist_id) => {
-    setExtraArtists((prev) => prev.filter((x) => x.artist_id !== artist_id));
-  };
+  // cartItems[0]. Secondary artists persist to localStorage keyed by primary
+  // artist id — so a coffee-break refresh brings them back.
+  const {
+    extraArtists,
+    addModalArtist,
+    cartItems,
+    cartArtistIds,
+    cartPricing,
+    isMultiEvent,
+    setAddModalArtist,
+    addSecondaryArtist,
+    removeSecondaryArtist,
+    clearCart,
+  } = useEventCart({
+    id,
+    artist,
+    pkg,
+    form,
+    primarySubtotal,
+    legacyAddonsMeta: ADDONS,
+    toast,
+  });
 
   // ── BookTalent business model ─────────────────────────────────────
   // We only collect Platform Service Fee (5% of Artist Fee) + 18% GST on it.
@@ -301,6 +261,8 @@ export default function BookingFlow() {
                   batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
                   ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
                 });
+                try { localStorage.removeItem(`bt_event_cart_${id}`); } catch { /* ignore */ }
+                clearCart();
                 setStep(6);
               } catch (e) { toast(formatApiError(e), "error"); }
               finally { setBusy(false); }
@@ -318,6 +280,8 @@ export default function BookingFlow() {
           batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
           ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
         });
+        try { localStorage.removeItem(`bt_event_cart_${id}`); } catch { /* ignore */ }
+        clearCart();
         setStep(6);
         setBusy(false);
         return;
@@ -1100,8 +1064,9 @@ function SuggestedArtistsPanel({ artistId, date, cartArtistIds, onOpenAdd }) {
                     disabled={alreadyInCart}
                     onClick={() => onOpenAdd(a)}
                     data-testid={`add-to-event-${a.user_id}`}
+                    title={alreadyInCart ? "This artist is already in your event cart" : "Add this artist to your event"}
                   >
-                    {alreadyInCart ? "✓ Added" : "+ Add to Event"}
+                    {alreadyInCart ? "✓ Already in your event" : "+ Add to Event"}
                   </button>
                 ) : (
                   <a
