@@ -1,6 +1,14 @@
 # BookTalent — Product Requirements Document
 
 
+## 🚀 Iter 52 — Persistent Cart + Agency Dashboard V2 (2026-02-19)
+- **Booking Cart (Amazon-style, persistent)**: New `/cart` route + header CartIcon with live badge. Cart survives login/logout/refresh/browser-close via server-side `carts` collection keyed by user_id OR anon cookie (30-day TTL). Anon cart auto-merges into user cart on login. Click "Book Now" while logged-out → artist saved → `/login?next=/cart` → auto-restore → checkout. Grand total math = Subtotal + 5% Platform Fee + 18% GST on fee.
+- **Agency Dashboard V2 (SaaS/ERP shell)**: Brand-new `/agency/*` with collapsible left sidebar, 6-card KPI strip, and 11 modules — Overview · Artists (Online Roster + Offline CRM) · Bookings (Platform + Offline kanban) · Clients CRM (notes + follow-ups + event history) · Events (multi-artist assign, checklist, quotation, payment tracking) · Calendar (month grid, unified feed) · Finance (invoices with line-items + tax auto-calc, expenses, summary) · Staff (role-based permissions: manager/coordinator/accountant/booking_executive) · Reports (revenue + artist performance bar charts) · Documents · Notifications feed. Legacy `/agency-legacy` retained for regression.
+- **Backend**: 25+ new endpoints under `/api/agency/*` and `/api/cart/*`. New collections: `carts`, `agency_offline_artists`, `agency_clients`, `agency_offline_events`, `agency_staff`, `agency_invoices`, `agency_expenses`, `agency_notifications`. All agency endpoints gated behind role in {agency, admin}; offline records NEVER surface on `/api/artists/search`.
+- **Testing**: testing_agent_v3_fork iteration_52.json → **24/24 green** covering full cart lifecycle, agency role-guards, offline artists CRUD + marketplace privacy, clients CRM with fan-out to notifications, invoice math, staff dup-email 409, and regression on 5 core public endpoints.
+
+
+
 ## 🔒 Iter 51 — Security Audit: cookie-only auth + ffmpeg subprocess hardening (2026-02-19)
 - **XSS token-theft vector CLOSED.** JWT no longer stored in `localStorage` on the frontend. httpOnly `access_token` cookie (Secure, SameSite=Lax, 7d) is the **sole** auth carrier for REST + WebSocket. AuthContext now derives session by calling `/auth/me` on mount (falls back to anonymous on 401). Legacy `bt_token` is wiped from localStorage on first load.
 - **Files touched (FE)**: `lib/auth.jsx` (rewritten), `lib/api.js` (removed Bearer interceptor), `components/ChatBox.jsx` (WS no longer sends `?token=`), `components/MediaUploader.jsx` (three axios calls → `withCredentials:true`), `pages/CustomerDashboard.jsx` + `pages/BookingFlow.jsx` (PDF-download `fetch` uses `credentials:"include"`), `components/QuestionnaireWizard.jsx` (fixed `react-hooks/exhaustive-deps` warning by wrapping `shouldShow` in `useCallback`).
