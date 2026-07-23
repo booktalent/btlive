@@ -279,15 +279,15 @@ def make_router(
     # ═══════════════════════════════════════════════════════════════════════
     @r.get("/artists/slug/{slug}")
     async def artist_by_slug(slug: str):
-        profile = await db.artist_profiles.find_one({"slug": slug})
+        profile = await db.artist_profiles.find_one({"slug": slug, "suspended": {"$ne": True}})
         if not profile:
             # Fallback: some legacy profiles don't have a slug yet — try
             # matching by uid-tail (last 6 chars of slug should be user_id[:6]).
             tail = slug.split("-")[-1]
             if len(tail) == 6:
-                async for p in db.artist_profiles.find({"user_id": {"$regex": f"^{re.escape(tail)}"}}, {"user_id": 1, "stage_name": 1, "category": 1, "city": 1}):
+                async for p in db.artist_profiles.find({"user_id": {"$regex": f"^{re.escape(tail)}"}, "suspended": {"$ne": True}}, {"user_id": 1, "stage_name": 1, "category": 1, "city": 1}):
                     if artist_slug(p) == slug:
-                        profile = await db.artist_profiles.find_one({"user_id": p["user_id"]})
+                        profile = await db.artist_profiles.find_one({"user_id": p["user_id"], "suspended": {"$ne": True}})
                         break
         if not profile:
             raise HTTPException(404, "Artist not found")
@@ -307,7 +307,7 @@ def make_router(
         # ("Bollywood Vocalist") that contains the slug root.
         root = slug.rstrip("s")  # e.g. "singer" → matches "Singers", "Singer"
         rx = {"$regex": re.escape(root), "$options": "i"}
-        query = {"$or": [{"category": cat["name"]}, {"category": rx}]}
+        query = {"$or": [{"category": cat["name"]}, {"category": rx}], "suspended": {"$ne": True}}
         artists = await db.artist_profiles.find(
             query,
             {"user_id": 1, "stage_name": 1, "category": 1, "city": 1, "rating_avg": 1, "review_count": 1, "starting_price": 1, "photos": 1, "emoji": 1, "slug": 1},
@@ -323,7 +323,7 @@ def make_router(
         city = await db.cities_master.find_one({"slug": slug, "active": True})
         if not city:
             raise HTTPException(404, "City not found")
-        query = {"city": city["name"]}
+        query = {"city": city["name"], "suspended": {"$ne": True}}
         artists = await db.artist_profiles.find(
             query,
             {"user_id": 1, "stage_name": 1, "category": 1, "city": 1, "rating_avg": 1, "review_count": 1, "starting_price": 1, "photos": 1, "emoji": 1, "slug": 1},
@@ -366,7 +366,7 @@ def make_router(
         # Artist profiles — include everyone with a slug (no profile_completed
         # gate; the slug itself is a sign the profile is discoverable).
         async for a in db.artist_profiles.find(
-            {"slug": {"$exists": True, "$ne": ""}},
+            {"slug": {"$exists": True, "$ne": ""}, "suspended": {"$ne": True}},
             {"user_id": 1, "stage_name": 1, "category": 1, "city": 1, "slug": 1, "updated_at": 1},
         ).limit(5000):
             slug = a.get("slug") or artist_slug(a)

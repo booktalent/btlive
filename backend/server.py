@@ -1040,7 +1040,7 @@ async def artists_search(
     page: int = 1,
     limit: int = 12,
 ):
-    query: dict = {}
+    query: dict = {"suspended": {"$ne": True}}
     if category:
         query["category"] = category
     if city:
@@ -1090,9 +1090,10 @@ async def artists_search(
 
 @api.get("/artists/featured")
 async def artists_featured(limit: int = 8):
-    docs = await db.artist_profiles.find({"$or": [{"is_featured": True}, {"is_boosted": True}]}).limit(limit).to_list(limit)
+    base = {"suspended": {"$ne": True}}
+    docs = await db.artist_profiles.find({**base, "$or": [{"is_featured": True}, {"is_boosted": True}]}).limit(limit).to_list(limit)
     if len(docs) < limit:
-        extra = await db.artist_profiles.find({"is_featured": {"$ne": True}}).sort("rating_avg", -1).limit(limit - len(docs)).to_list(limit)
+        extra = await db.artist_profiles.find({**base, "is_featured": {"$ne": True}}).sort("rating_avg", -1).limit(limit - len(docs)).to_list(limit)
         docs.extend(extra)
     out = []
     for p in docs:
@@ -1112,6 +1113,10 @@ async def artists_featured(limit: int = 8):
 async def artist_detail(user_id: str):
     prof = await db.artist_profiles.find_one({"user_id": user_id})
     if not prof:
+        raise HTTPException(404, "Artist not found")
+    # Iter 52.8 — suspended artists must not be reachable via the public
+    # profile URL either (deep-links, share links, cached SEO cards).
+    if prof.get("suspended"):
         raise HTTPException(404, "Artist not found")
     # increment view counter (best-effort)
     await db.artist_profiles.update_one({"user_id": user_id}, {"$inc": {"profile_views": 1}})
@@ -1254,6 +1259,9 @@ async def artist_quote(user_id: str, city: str):
     profile = await db.artist_profiles.find_one({"user_id": user_id})
     if not profile:
         raise HTTPException(404, "Artist not found")
+    # Iter 52.8 — suspended artists cannot be quoted either.
+    if profile.get("suspended"):
+        raise HTTPException(404, "Artist not found")
 
     if not _CITY_ALIAS_MAP:
         await _refresh_city_aliases()
@@ -1355,6 +1363,7 @@ async def artist_suggested(user_id: str, date_str: Optional[str] = None, limit: 
         "city": src.get("city"),
         "category": {"$ne": src.get("category")},
         "is_active": {"$ne": False},
+        "suspended": {"$ne": True},   # Iter 52.8 — hide suspended
     }
     cands = await db.artist_profiles.find(q).sort([("rating_avg", -1), ("review_count", -1)]).to_list(limit * 3)
 
@@ -1454,9 +1463,9 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         prof = await db.artist_profiles.find_one({"user_id": body.artist_id}) or {}
         suggestions = []
         for q in [
-            {"user_id": {"$ne": body.artist_id}, "category": prof.get("category"), "city": prof.get("city")},
-            {"user_id": {"$ne": body.artist_id}, "category": prof.get("category")},
-            {"user_id": {"$ne": body.artist_id}, "city": prof.get("city")},
+            {"user_id": {"$ne": body.artist_id}, "category": prof.get("category"), "city": prof.get("city"), "suspended": {"$ne": True}},
+            {"user_id": {"$ne": body.artist_id}, "category": prof.get("category"), "suspended": {"$ne": True}},
+            {"user_id": {"$ne": body.artist_id}, "city": prof.get("city"), "suspended": {"$ne": True}},
         ]:
             if len(suggestions) >= 3:
                 break
@@ -1864,7 +1873,17 @@ async def my_bookings(status: Optional[str] = None, user: dict = Depends(get_cur
     if status:
         q["status"] = status
     docs = await db.bookings.find(q).sort("created_at", -1).to_list(500)
-    return [clean(d) for d in docs]
+    out = []
+    for d in docs:
+        cleaned = clean(d)
+        paid = (cleaned.get("payment_status") == "paid") or (cleaned.get("amount_paid", 0) > 0)
+        # Iter 52.8 — Same contact-privacy rule as GET /bookings/{bid}.
+        if not paid and user["role"] == "artist":
+            for k in ("customer_phone", "customer_email"):
+                cleaned.pop(k, None)
+            cleaned["_contact_locked"] = True
+        out.append(cleaned)
+    return out
 
 
 @api.get("/bookings/{bid}")
@@ -1877,11 +1896,34 @@ async def get_booking(bid: str, user: dict = Depends(get_current_user)):
     artist = await db.users.find_one({"id": doc["artist_id"]})
     artist_p = await db.artist_profiles.find_one({"user_id": doc["artist_id"]})
     customer = await db.users.find_one({"id": doc["customer_id"]})
+
+    # Iter 52.8 — Contact-details privacy gate.
+    # Business rule: mobile number + email are exchanged ONLY after the
+    # customer has settled the Platform Service Fee. Admins always see
+    # everything. The redact-until-paid rule prevents artists from being
+    # side-solicited before BookTalent has captured its fee, and protects
+    # customer PII from artists who might reject the booking anyway.
+    paid = (doc.get("payment_status") == "paid") or (doc.get("amount_paid", 0) > 0)
+    redact_customer_contact = not paid and user["role"] == "artist"
+    redact_artist_contact  = not paid and user["role"] in ("customer", "corporate", "agency")
+
+    customer_clean = clean(customer) if customer else None
+    artist_clean = clean(artist) if artist else None
+    if customer_clean and redact_customer_contact:
+        for k in ("phone", "email", "whatsapp", "alt_phone"):
+            customer_clean.pop(k, None)
+        customer_clean["_contact_locked"] = True
+    if artist_clean and redact_artist_contact:
+        for k in ("phone", "email", "whatsapp", "alt_phone"):
+            artist_clean.pop(k, None)
+        artist_clean["_contact_locked"] = True
+
     return {
         "booking": clean(doc),
-        "artist": clean(artist),
+        "artist": artist_clean,
         "artist_profile": clean(artist_p) if artist_p else None,
-        "customer": clean(customer),
+        "customer": customer_clean,
+        "contact_unlocked": paid,
     }
 
 
@@ -2711,7 +2753,13 @@ async def admin_suspend(user_id: str, _: dict = Depends(admin_only)):
     if not u:
         raise HTTPException(404, "Not found")
     suspended = not u.get("suspended", False)
+    # Iter 52.8 — Mirror the suspension flag onto artist_profiles so the
+    # public search/featured/quote/spotlight queries can filter it out with a
+    # single index-friendly clause (`suspended: {$ne: true}`). Without this
+    # mirror the flag lived only on `users` and every public read continued
+    # to surface a suspended artist — the exact bug the user just reported.
     await db.users.update_one({"id": user_id}, {"$set": {"suspended": suspended}})
+    await db.artist_profiles.update_one({"user_id": user_id}, {"$set": {"suspended": suspended}})
     return {"ok": True, "suspended": suspended}
 
 
@@ -3269,6 +3317,7 @@ async def event_planner_best_fit(body: BestFitRequest):
         q: dict = {
             "$or": [{"listing_status": {"$exists": False}}, {"listing_status": {"$ne": "hidden"}}],
             "category": {"$regex": cat_regex, "$options": "i"},
+            "suspended": {"$ne": True},   # Iter 52.8 — hide suspended artists
         }
         if city:
             # Prefix match on city — accepts "Mumbai" and "Mumbai, India" alike.
