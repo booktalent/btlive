@@ -2411,3 +2411,53 @@ textarea:-webkit-autofill {
   .datetime-heading { font-size: 28px; }
   .avail-cal-mini-legend { display: none; }
 }
+
+/* ── Venue-first booking prompt on Artist Profile sidebar (Iter 52.6) ── */
+.venue-first-field { margin-bottom: 14px; }
+.venue-first-field .field-label {
+  font-size: 13px; font-weight: 600; color: #ffffff;
+  margin-bottom: 6px;
+  display: flex; align-items: center; gap: 4px;
+}
+.venue-first-field .field-input {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #fff;
+  border-radius: 10px;
+  padding: 11px 14px;
+  transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
+}
+.venue-first-field .field-input:focus {
+  outline: none;
+  border-color: rgba(246,211,102,0.5);
+  background: rgba(255,255,255,0.06);
+  box-shadow: 0 0 0 3px rgba(246,211,102,0.12);
+}
+
+.venue-status-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 500;
+  animation: dtp-fade-in 240ms cubic-bezier(.2,.8,.2,1);
+}
+.venue-status-chip.local {
+  background: rgba(110,231,168,0.12);
+  border: 1px solid rgba(110,231,168,0.35);
+  color: #a7f3d0;
+}
+.venue-status-chip.outstation {
+  background: linear-gradient(135deg, rgba(246,211,102,0.14), rgba(178,148,255,0.12));
+  border: 1px solid rgba(246,211,102,0.4);
+  color: #f6d366;
+}
+
+.venue-outstation-card {
+  margin: 14px 0 6px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(246,211,102,0.08), rgba(246,211,102,0.02));
+  border: 1px solid rgba(246,211,102,0.32);
+  border-radius: 10px;
+  animation: dtp-fade-in 260ms cubic-bezier(.2,.8,.2,1);
+}

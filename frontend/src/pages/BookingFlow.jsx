@@ -75,6 +75,8 @@ export default function BookingFlow() {
     // Iter 52.5 additions ↓
     customer_travel_allowance: "",  // optional ₹ amount the customer offers toward artist travel (informational only)
     tnc_accepted: false,             // mandatory before Proceed to Payment
+    // Iter 52.6 — outstation ack pre-collected on the artist profile
+    outstation_ack: params.get("outstation_ack") === "1",
   });
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);

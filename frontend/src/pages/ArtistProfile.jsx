@@ -16,6 +16,14 @@ export default function ArtistProfile() {
   const [selectedPkg, setSelectedPkg] = useState(null);
   const [artistId, setArtistId] = useState(id);
   const [lightbox, setLightbox] = useState(null); // { items: MediaItem[], idx: number }
+  // Iter 52.6 — Venue-first booking flow. The customer must type the event
+  // city BEFORE the "Book Now" button unlocks. We hit /artists/:id/quote to
+  // determine outstation status + adjusted quoted price so the profile shows
+  // the correct number and (when outstation) surfaces mandatory terms.
+  const [eventCity, setEventCity] = useState("");
+  const [quote, setQuote] = useState(null);
+  const [quoting, setQuoting] = useState(false);
+  const [outstationAck, setOutstationAck] = useState(false);
   const nav = useNavigate();
   const { user } = useAuth();
 
@@ -39,6 +47,27 @@ export default function ArtistProfile() {
     };
     load();
   }, [id]);
+
+  // Debounced quote fetch when the customer types an event city. We wait
+  // 400 ms after their last keystroke to avoid firing on every character
+  // and only fire when at least 2 chars are present so single-letter typos
+  // don't ping the backend.
+  useEffect(() => {
+    if (!artistId) return;
+    const city = (eventCity || "").trim();
+    if (city.length < 2) { setQuote(null); return; }
+    setQuoting(true);
+    const t = setTimeout(() => {
+      api.get(`/artists/${artistId}/quote?city=${encodeURIComponent(city)}`)
+        .then((r) => setQuote(r.data))
+        .catch(() => setQuote(null))
+        .finally(() => setQuoting(false));
+    }, 400);
+    return () => { clearTimeout(t); setQuoting(false); };
+  }, [artistId, eventCity]);
+
+  // If the customer switches package after we already quoted, keep the
+  // quote — the outstation status doesn't depend on package choice.
 
   if (data?.notFound) {
     return (
@@ -65,20 +94,49 @@ export default function ArtistProfile() {
   const galleryMedia = media.filter((m) => m.type === "gallery");
   const videoMedia = media.filter((m) => m.type === "video" || m.type === "reel");
 
+  const isOutstation = !!quote?.is_outstation;
+  const cityTouched = (eventCity || "").trim().length >= 2;
+  const bookingBlocked =
+    !cityTouched ||
+    quoting ||
+    !quote ||
+    (isOutstation && !outstationAck);
+
   const startBooking = () => {
-    // Only registered customers can book an artist. This matches the pre-cart
-    // workflow the user asked us to restore in Iter 52.5.
+    // Guard #1: venue must be entered so we can compute local/outstation
+    // *before* the customer commits to Book Now (Iter 52.6 requirement).
+    if (!cityTouched) {
+      alert("Please enter your event city first so we can quote the right price.");
+      return;
+    }
+    if (!quote) {
+      alert("Fetching quote — please wait a moment.");
+      return;
+    }
+    // Guard #2: outstation acknowledgement must be ticked for cross-city.
+    if (isOutstation && !outstationAck) {
+      alert("Please accept the Outstation Terms to continue.");
+      return;
+    }
+    // Guard #3: role checks.
+    if (user?.role === "artist") { alert("Artists cannot book themselves"); return; }
+    if (user?.role === "agency") { alert("Please log in as a Customer to book an artist."); return; }
+
+    // Thread city + outstation-ack + pkg through to the booking flow so the
+    // customer never has to re-enter them post-login.
+    const qs = new URLSearchParams();
+    if (selectedPkg?.id) qs.set("pkg", selectedPkg.id);
+    qs.set("city", eventCity.trim());
+    if (isOutstation) qs.set("outstation_ack", "1");
+    const back = `/book/${artistId}?${qs.toString()}`;
+
     if (!user) {
-      // Preserve return-to intent so post-login we drop the user right into
-      // the checkout for the exact artist + package they were browsing.
-      const back = `/book/${artistId}${selectedPkg?.id ? `?pkg=${selectedPkg.id}` : ""}`;
+      // Save intent → login → resume on the exact same booking flow.
       try { sessionStorage.setItem("bt_post_login_redirect", back); } catch { /* ignore */ }
       nav(`/login?next=${encodeURIComponent(back)}`);
       return;
     }
-    if (user.role === "artist") { alert("Artists cannot book themselves"); return; }
-    if (user.role === "agency") { alert("Please log in as a Customer to book an artist."); return; }
-    nav(`/book/${artistId}${selectedPkg?.id ? `?pkg=${selectedPkg.id}` : ""}`);
+    nav(back);
   };
 
   // ── SEO JSON-LD (Person + Offer for the cheapest package) ───────────
@@ -345,23 +403,100 @@ export default function ArtistProfile() {
 
           <div data-testid="booking-sidebar">
             <div className="card card-pad" style={{ position: "sticky", top: 90 }}>
-              {selectedPkg && (
+              {selectedPkg && (() => {
+                // Resolve the price the customer should see:
+                //   • no venue yet → package base price ("Starting price")
+                //   • quote in flight OR no quote → still base
+                //   • quote arrived → outstation-adjusted `quoted_price` from
+                //     the matching package in the /quote response
+                const quotedPkg = quote?.packages?.find((p) => p.id === selectedPkg.id);
+                const displayPrice = quotedPkg?.quoted_price ?? selectedPkg.price;
+                const surcharge = quote?.outstation_surcharge_pct || 0;
+                return (
                 <>
                   <div className="font-serif" style={{ fontSize: 32, fontWeight: 700, color: "var(--gold-light)" }}>
-                    {fmtINRFull(selectedPkg.price)}
+                    {fmtINRFull(displayPrice)}
                   </div>
-                  <div className="text-muted fs-12 mb-20">Starting price · {selectedPkg.name}</div>
+                  <div className="text-muted fs-12 mb-16" data-testid="artist-price-label">
+                    {isOutstation && surcharge > 0
+                      ? <>Outstation quote · {selectedPkg.name} <span className="text-gold">(+{surcharge}%)</span></>
+                      : <>Starting price · {selectedPkg.name}</>}
+                  </div>
+
+                  {/* Venue-first prompt (Iter 52.6) — must be filled before Book Now */}
+                  <div className="field venue-first-field">
+                    <div className="field-label">
+                      📍 Where's your event?
+                      <span className="fs-11 text-muted" style={{ fontWeight: 400, marginLeft: 6 }}>required</span>
+                    </div>
+                    <input
+                      className="field-input"
+                      type="text"
+                      placeholder="e.g. Mumbai, Delhi, Bengaluru…"
+                      value={eventCity}
+                      onChange={(e) => setEventCity(e.target.value)}
+                      autoComplete="address-level2"
+                      data-testid="venue-first-input"
+                    />
+                    {cityTouched && quoting && (
+                      <div className="text-muted fs-11 mt-4">Checking availability & pricing…</div>
+                    )}
+                    {cityTouched && quote && !quoting && (
+                      <div className={`venue-status-chip ${isOutstation ? "outstation" : "local"}`} data-testid="venue-status-chip">
+                        {isOutstation
+                          ? <>🌍 <span>Outstation booking · Artist based in {quote.artist_city}</span></>
+                          : <>🟢 <span>Local booking · Same city as artist</span></>}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="field">
                     <div className="field-label">Package</div>
                     <select className="field-input" value={selectedPkg.id} onChange={(e) => setSelectedPkg(packages.find(p => p.id === e.target.value))} data-testid="pkg-select">
-                      {packages.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name} — {fmtINRFull(p.price)}</option>
-                      ))}
+                      {packages.map((p) => {
+                        const qp = quote?.packages?.find((x) => x.id === p.id);
+                        const price = qp?.quoted_price ?? p.price;
+                        return <option key={p.id} value={p.id}>{p.name} — {fmtINRFull(price)}</option>;
+                      })}
                     </select>
                   </div>
-                  <button className="btn btn-gold btn-block" onClick={startBooking} data-testid="confirm-booking-btn">
+
+                  {/* Outstation Terms — only rendered when the venue quote flags outstation */}
+                  {isOutstation && quote?.outstation_notice && (
+                    <div className="venue-outstation-card" data-testid="venue-outstation-card">
+                      <div className="fw-700 text-gold fs-12 mb-6" style={{ letterSpacing: ".08em", textTransform: "uppercase" }}>
+                        📢 Outstation Terms
+                      </div>
+                      <div className="fs-12 mb-8" style={{ lineHeight: 1.5 }}>{quote.outstation_notice}</div>
+                      <label className="flex items-start gap-8" style={{ cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={outstationAck}
+                          onChange={(e) => setOutstationAck(e.target.checked)}
+                          data-testid="venue-outstation-ack"
+                          style={{ marginTop: 3, flex: "none" }}
+                        />
+                        <span className="fs-12">
+                          I understand and agree to arrange all outstation logistics (travel, stay, meals, local transport) directly with the artist.
+                        </span>
+                      </label>
+                    </div>
+                  )}
+
+                  <button
+                    className="btn btn-gold btn-block"
+                    onClick={startBooking}
+                    disabled={bookingBlocked}
+                    data-testid="confirm-booking-btn"
+                    title={bookingBlocked ? "Fill the fields above to unlock" : undefined}
+                  >
                     🔐 Book Now
                   </button>
+                  {!cityTouched && (
+                    <div className="text-muted fs-11 mt-8" style={{ textAlign: "center" }}>
+                      Enter your event city above to unlock booking
+                    </div>
+                  )}
                   <div style={{ marginTop: 16, fontSize: 12, color: "var(--white-muted)" }}>
                     <div style={{ padding: "8px 0" }}>✓ Auto-generated legal contract</div>
                     <div style={{ padding: "8px 0" }}>✓ Direct payment to artist as per agreement</div>
@@ -369,7 +504,8 @@ export default function ArtistProfile() {
                     <div style={{ padding: "8px 0" }}>✓ GST invoice included</div>
                   </div>
                 </>
-              )}
+                );
+              })()}
             </div>
           </div>
         </div>

@@ -1217,6 +1217,88 @@ async def artist_availability(user_id: str, from_date: Optional[str] = None, to_
     return {"blocked_dates": blocked, "premium_dates": premium, "count": len(blocked) + len(premium)}
 
 
+@api.get("/artists/{user_id}/quote")
+async def artist_quote(user_id: str, city: str):
+    """
+    Pre-flight venue check for the artist profile "Where's your event?" prompt.
+
+    Returns whether the given event city is outstation for this artist (using
+    the canonical city-alias map so Bombay/Mumbai count as the same city),
+    plus the packages with an outstation surcharge applied when relevant so
+    the customer sees the *right* price BEFORE hitting Book Now.
+
+    Contract:
+      GET /api/artists/{user_id}/quote?city=Mumbai
+      →  {
+           artist_city: "Mumbai",
+           event_city:  "Mumbai",
+           is_outstation: false,
+           outstation_multiplier: 1.0,
+           outstation_notice: "…",              (only when outstation)
+           packages: [{id, name, base_price, quoted_price, ...}]
+         }
+
+    Business rules:
+      * `outstation_multiplier` comes from admin/settings public payload
+        (`outstation_price_multiplier`, default 1.15 — a 15% surcharge to
+        absorb higher-effort quoting). Falls back to 1.0 if the setting is
+        absent, so the endpoint stays backward-compatible.
+      * The multiplier is APPLIED to `base_price` to produce `quoted_price`.
+        The customer sees quoted_price on the artist card; the booking flow
+        still stores base_price + will let them add explicit TA / rider costs
+        on the review step (Iter 52.5 additions).
+    """
+    if not city or not city.strip():
+        raise HTTPException(400, "city is required")
+
+    profile = await db.artist_profiles.find_one({"user_id": user_id})
+    if not profile:
+        raise HTTPException(404, "Artist not found")
+
+    if not _CITY_ALIAS_MAP:
+        await _refresh_city_aliases()
+
+    artist_city = profile.get("city")
+    is_out = _outstation_check(artist_city, city, _CITY_ALIAS_MAP)
+
+    settings = await db.settings.find_one({"key": "platform"}) or {}
+    multiplier = float(settings.get("outstation_price_multiplier") or 1.0) if is_out else 1.0
+    notice = settings.get("outstation_notice") or (
+        "Travel, accommodation, local transportation, meals, hospitality, and any other "
+        "outstation expenses are NOT included in the Artist Package Fee. Please arrange "
+        "these directly with the artist."
+    )
+
+    # Package list — apply the outstation multiplier for a quoted display price.
+    pkgs_out: list[dict] = []
+    async for p in db.packages.find({"artist_id": user_id}).sort("price", 1):
+        base = float(p.get("price") or 0)
+        pkgs_out.append({
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "duration": p.get("duration"),
+            "description": p.get("description"),
+            "is_popular": bool(p.get("is_popular")),
+            "base_price": base,
+            "quoted_price": round(base * multiplier, 2),
+            "travel_required": bool(p.get("travel_required")),
+            "accommodation_required": bool(p.get("accommodation_required")),
+        })
+
+    return {
+        "artist_id": user_id,
+        "artist_city": artist_city,
+        "event_city": city.strip(),
+        "is_outstation": is_out,
+        "outstation_multiplier": multiplier,
+        "outstation_surcharge_pct": round((multiplier - 1) * 100, 2) if is_out else 0,
+        "outstation_notice": notice if is_out else "",
+        "packages": pkgs_out,
+    }
+
+
+
+
 @api.get("/artists/{user_id}/suggested")
 async def artist_suggested(user_id: str, date_str: Optional[str] = None, limit: int = 4):
     """
