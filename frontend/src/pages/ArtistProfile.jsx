@@ -4,6 +4,7 @@ import Nav from "../components/Nav";
 import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
+import TravelRiderCard from "../components/TravelRiderCard";
 import api, { fmtINRFull, mediaUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
@@ -481,6 +482,17 @@ export default function ArtistProfile() {
                         </span>
                       </label>
                     </div>
+                  )}
+
+                  {/* Detailed rider — sourced from the artist's onboarding questionnaire.
+                      Rendered only for outstation quotes so local bookings aren't cluttered. */}
+                  {isOutstation && quote?.rider && (
+                    <TravelRiderCard
+                      rider={quote.rider}
+                      artistCity={quote.artist_city}
+                      eventCity={quote.event_city}
+                      compact
+                    />
                   )}
 
                   <button

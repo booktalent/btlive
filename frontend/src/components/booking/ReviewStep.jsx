@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import api from "../../lib/api";
+import TravelRiderCard from "../TravelRiderCard";
 
 /**
- * Iter 50 — ReviewStep, updated in Iter 52.5:
+ * Iter 50 — ReviewStep, updated in Iter 52.5/52.7:
  *   • Customer-offered Travel Allowance (optional, informational, snapshotted
  *     to the booking + contract PDF so the artist has it in writing).
  *   • Mandatory Terms & Conditions declaration checkbox — required before
@@ -15,7 +17,20 @@ export default function ReviewStep({
   platformSettings,
   onBack,
   onNext,
+  artistId,
 }) {
+  // Iter 52.7 — pull the artist's Travel & Hospitality rider straight from
+  // their onboarding questionnaire so the customer can see everything they'll
+  // need to arrange BEFORE hitting Proceed to Payment. No new questions are
+  // asked; we just read profile.answers via /artists/{id}/quote?city=…
+  const [rider, setRider] = useState(null);
+  useEffect(() => {
+    if (!isOutstation || !artistId || !form?.city) return;
+    api.get(`/artists/${artistId}/quote?city=${encodeURIComponent(form.city)}`)
+      .then((r) => setRider(r.data?.rider || null))
+      .catch(() => setRider(null));
+  }, [isOutstation, artistId, form?.city]);
+
   const showTravelRider =
     pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes);
 
@@ -96,6 +111,14 @@ export default function ReviewStep({
             <input type="checkbox" checked={!!form.outstation_ack} onChange={(e) => set("outstation_ack", e.target.checked)} data-testid="outstation-ack" />
             <span className="fs-12">I understand and agree to arrange all outstation logistics directly with the Artist.</span>
           </label>
+        </div>
+      )}
+
+      {/* Rider block — questionnaire-sourced, only for outstation. Renders
+          "empty state" gracefully when the artist hasn't answered yet. */}
+      {isOutstation && (
+        <div className="mb-16" data-testid="review-rider-block">
+          <TravelRiderCard rider={rider} artistCity={undefined} eventCity={form.city} />
         </div>
       )}
 

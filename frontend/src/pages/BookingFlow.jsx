@@ -696,6 +696,7 @@ export default function BookingFlow() {
                 platformSettings={platformSettings}
                 onBack={() => setStep(3)}
                 onNext={() => setStep(5)}
+                artistId={id}
               />
             )}
 

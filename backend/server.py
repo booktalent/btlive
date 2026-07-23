@@ -1285,6 +1285,46 @@ async def artist_quote(user_id: str, city: str):
             "accommodation_required": bool(p.get("accommodation_required")),
         })
 
+    # Iter 52.7 — Distil the Travel & Hospitality rider from the answers the
+    # artist already filled in during onboarding (`profile.answers`). This is
+    # what the customer sees BEFORE confirming an outstation booking, so no
+    # duplicate input is asked of the artist elsewhere.
+    ans = (profile.get("answers") or {}) if isinstance(profile.get("answers"), dict) else {}
+    def _first(*keys):
+        for k in keys:
+            v = ans.get(k)
+            if v not in (None, "", [], {}): return v
+        return None
+    hosp = _first("hospitality_needs") or []
+    if isinstance(hosp, str):
+        hosp = [x.strip() for x in hosp.split(",") if x.strip()]
+    food_prefs = [h for h in hosp if h in ("Vegetarian Meal", "Non-Vegetarian Meal", "Jain Meal")]
+
+    rider = {
+        "travel_modes":    _first("travel_modes") or [],
+        "flight_class":    _first("flight_class"),
+        "local_transport": _first("local_transport") or _first("pickup_required"),
+        "hotel_required":  _first("hotel_required"),
+        "hotel_category":  _first("hotel_category"),
+        "rooms_required":  _first("rooms_required") or _first("travel_party_size"),
+        "food_preference": ", ".join(food_prefs) if food_prefs else _first("food_preference"),
+        "hospitality_needs": hosp,
+        "green_room_required": ("Green Room" in hosp) or bool(_first("separate_green_rooms")),
+        "sound_provider":  _first("sound_provider"),
+        "sound_details":   _first("sound_details", "sound_requirements"),
+        "light_details":   _first("light_details", "light_requirements", "own_lighting"),
+        "technical_notes": _first("technical_notes"),
+        "travel_notes":    _first("travel_notes"),
+        "travel_who_pays": _first("travel_who_pays"),
+        "additional_conditions": _first("additional_conditions", "other_conditions"),
+    }
+    # Also snapshot which entries actually have content so the FE can render
+    # empty-state gracefully.
+    rider["has_any"] = any(
+        (v if not isinstance(v, list) else len(v) > 0)
+        for k, v in rider.items() if k != "has_any"
+    )
+
     return {
         "artist_id": user_id,
         "artist_city": artist_city,
@@ -1294,6 +1334,7 @@ async def artist_quote(user_id: str, city: str):
         "outstation_surcharge_pct": round((multiplier - 1) * 100, 2) if is_out else 0,
         "outstation_notice": notice if is_out else "",
         "packages": pkgs_out,
+        "rider": rider,   # ← Travel & Hospitality snapshot from questionnaire
     }
 
 
