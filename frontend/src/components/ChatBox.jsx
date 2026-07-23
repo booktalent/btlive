@@ -57,14 +57,12 @@ export default function ChatBox({ bookingId, otherName = "Counterparty", payment
   useEffect(() => {
     if (!bookingId || !user) return;
     if (!access?.enabled) return; // payment gate
-    const token = localStorage.getItem("bt_token");
-    if (!token) return;
-    // WebSocket needs an absolute URL. `api.defaults.baseURL` is the relative
-    // "/api" per production charter, so derive the wss host from the browser
-    // origin — works identically in Emergent preview (ingress) and on the VPS
-    // (Nginx WebSocket proxy).
+    // Auth is carried by the httpOnly access_token cookie — browsers attach
+    // same-origin cookies to WebSocket handshakes automatically. The backend
+    // (chat_routes.ws_chat) prefers the cookie and falls back to ?token= for
+    // legacy clients. Nothing to read from JS storage anymore.
     const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${wsProto}//${window.location.host}/api/ws/chat/${bookingId}?token=${encodeURIComponent(token)}`;
+    const url = `${wsProto}//${window.location.host}/api/ws/chat/${bookingId}`;
     let ws;
     try {
       ws = new WebSocket(url);

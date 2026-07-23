@@ -187,8 +187,8 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
   }
 
   const downloadPdf = async (url, filename) => {
-    const token = localStorage.getItem("bt_token");
-    const r = await fetch(`${API}${url}`, { headers: { Authorization: `Bearer ${token}` } });
+    // httpOnly cookie flows automatically thanks to credentials: "include".
+    const r = await fetch(`${API}${url}`, { credentials: "include" });
     if (!r.ok) { alert("Download failed"); return; }
     const blob = await r.blob();
     const a = document.createElement("a");

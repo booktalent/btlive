@@ -237,10 +237,16 @@ def make_chat_router(db, get_current_user) -> APIRouter:
         return {"ok": True, "updated": result.modified_count}
 
     @r.websocket("/ws/chat/{booking_id}")
-    async def ws_chat(websocket: WebSocket, booking_id: str, token: str = Query(...)):
-        # Authenticate from token query
+    async def ws_chat(websocket: WebSocket, booking_id: str, token: str | None = Query(None)):
+        # Auth priority: httpOnly cookie (preferred, XSS-safe) → ?token= query
+        # (legacy). Browsers send same-origin cookies with WS handshakes
+        # automatically, so the cookie path is the primary one going forward.
+        auth_token = token or websocket.cookies.get("access_token")
+        if not auth_token:
+            await websocket.close(code=4001)
+            return
         try:
-            payload = jwt_decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+            payload = jwt_decode(auth_token, os.environ["JWT_SECRET"], algorithms=["HS256"])
             user_id = payload.get("sub")
         except PyJWTError:
             await websocket.close(code=4001)

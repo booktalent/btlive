@@ -14,20 +14,12 @@ export const API = "/api";
 
 const client = axios.create({
   baseURL: API,
-  // Send httpOnly auth cookie on every request. Since the frontend and API
-  // share the same origin (both served by Nginx / K8s ingress), this Just
-  // Works. See auth.jsx for the httpOnly cookie migration rationale.
+  // Send the httpOnly auth cookie on every request. Frontend & API share the
+  // same origin (both served by Nginx / K8s ingress), so this Just Works.
+  // The cookie is the SOLE auth carrier now — no more Bearer header injection
+  // from localStorage (Iter 51 security audit closed that XSS-token-theft
+  // vector). See auth.jsx for the migration rationale.
   withCredentials: true,
-});
-
-client.interceptors.request.use((cfg) => {
-  // Legacy: keep sending the Bearer header from localStorage so WebSocket
-  // handshakes (which can't send cookies programmatically) keep working.
-  // The httpOnly cookie is the primary auth signal for REST calls; the
-  // Bearer header is a fallback + WS-compat carrier.
-  const tok = localStorage.getItem("bt_token");
-  if (tok) cfg.headers.Authorization = `Bearer ${tok}`;
-  return cfg;
 });
 
 export default client;

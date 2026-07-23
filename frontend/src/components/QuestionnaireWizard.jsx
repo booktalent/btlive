@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 
 /**
@@ -51,7 +51,7 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
   // Skip-logic helper: hide a question if `show_if` is set and doesn't match.
   // Supports: { question_id: value }, { question_id: [v1, v2] }, or the shortcut
   // { category: "DJ / Music Producer" } for category-specific gating.
-  const shouldShow = (q) => {
+  const shouldShow = useCallback((q) => {
     const cond = q.show_if;
     if (!cond || typeof cond !== "object") return true;
     for (const [key, expected] of Object.entries(cond)) {
@@ -63,7 +63,7 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
       }
     }
     return true;
-  };
+  }, [liveCategory, answers]);
 
   // Group Layer 1 questions by section, keep original order per section
   const sections = useMemo(() => {
@@ -78,7 +78,7 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
     const visibleLayer2 = layer2.filter(shouldShow);
     if (visibleLayer2.length > 0) arr.push({ section: liveCategory || "Category specifics", questions: visibleLayer2 });
     return arr;
-  }, [layer1, layer2, liveCategory, answers]);
+  }, [layer1, layer2, liveCategory, shouldShow]);
 
   const totalSteps = sections.length;
   const current = sections[stepIdx];

@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { API } from "../lib/api";
-
 /**
  * Sprint 2 — Chunked, resumable, drag-and-drop media uploader.
  *
@@ -32,10 +31,9 @@ export default function MediaUploader({
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
 
-  const authHeader = useMemo(() => {
-    const t = localStorage.getItem("bt_token");
-    return t ? { Authorization: `Bearer ${t}` } : {};
-  }, []);
+  // Auth is via httpOnly cookie now — axios needs `withCredentials: true` on
+  // every request (see /app/frontend/src/lib/auth.jsx for rationale).
+  const axiosOpts = useMemo(() => ({ withCredentials: true }), []);
 
   const addFiles = useCallback((files) => {
     const arr = Array.from(files).slice(0, maxFiles);
@@ -67,7 +65,7 @@ export default function MediaUploader({
       const initRes = await axios.post(
         `${API}/uploads/init`,
         { filename: item.file.name, size: item.file.size, mime: item.file.type || "application/octet-stream", type },
-        { headers: authHeader },
+        axiosOpts,
       );
       const { upload_id, chunk_size, expected_chunks } = initRes.data;
       updateItem(item.id, { status: "uploading", uploadId: upload_id });
@@ -90,7 +88,8 @@ export default function MediaUploader({
               `${API}/uploads/${upload_id}/chunk?index=${i}`,
               blob,
               {
-                headers: { ...authHeader, "Content-Type": "application/octet-stream" },
+                withCredentials: true,
+                headers: { "Content-Type": "application/octet-stream" },
                 timeout: 120000,
               },
             );
@@ -116,7 +115,7 @@ export default function MediaUploader({
       const completeRes = await axios.post(
         `${API}/uploads/${upload_id}/complete`,
         {},
-        { headers: authHeader },
+        axiosOpts,
       );
 
       updateItem(item.id, { status: "done" });

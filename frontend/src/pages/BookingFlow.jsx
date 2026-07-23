@@ -736,8 +736,7 @@ export default function BookingFlow() {
                     className="btn btn-ghost"
                     style={{ display: successData.batch ? "none" : undefined }}
                     onClick={async () => {
-                      const tok = localStorage.getItem("bt_token");
-                      const r = await fetch(`${api.defaults.baseURL}/bookings/${successData.booking.id}/invoice`, { headers: { Authorization: `Bearer ${tok}` } });
+                      const r = await fetch(`${api.defaults.baseURL}/bookings/${successData.booking.id}/invoice`, { credentials: "include" });
                       const blob = await r.blob();
                       const a = document.createElement("a");
                       a.href = window.URL.createObjectURL(blob);

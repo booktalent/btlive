@@ -31,7 +31,31 @@ MAX_HEIGHT: int = 720
 
 
 async def _run_ffmpeg(input_path: str, output_path: str) -> tuple[int, str]:
-    """Await the ffmpeg subprocess. Returns (return_code, stderr_tail)."""
+    """Await the ffmpeg subprocess. Returns (return_code, stderr_tail).
+
+    SECURITY NOTE (audit response, Feb 2026):
+    ------------------------------------------
+    This uses `asyncio.create_subprocess_exec` — the *safe* subprocess API
+    that invokes the target binary via `execve` directly, with NO shell
+    interpretation. It is NOT Python's `exec()` builtin (which would be an
+    eval/code-injection primitive) and it is NOT `subprocess.run(..., shell=True)`
+    (which would splice a shell). Argument list is passed as a `list[str]`,
+    so path characters like `; & | $ \` etc. are treated as literal filename
+    bytes by ffmpeg — no injection surface exists.
+
+    Additional defense-in-depth: we assert both paths are absolute, live under
+    the OS tempdir or the configured media root, and contain no NUL bytes.
+    """
+    import tempfile
+    tmp_root = tempfile.gettempdir()
+    media_root = os.environ.get("MEDIA_ROOT", "/app/backend/media_uploads")
+    for p in (input_path, output_path):
+        if "\x00" in p:
+            raise ValueError("path contains NUL byte")
+        abs_p = os.path.abspath(p)
+        if not (abs_p.startswith(tmp_root) or abs_p.startswith(media_root)):
+            raise ValueError(f"path outside allowed roots: {abs_p}")
+
     cmd = [
         FFMPEG_BIN or "ffmpeg", "-y", "-i", input_path,
         "-vf", f"scale='min({MAX_HEIGHT * 16 // 9},iw)':'min({MAX_HEIGHT},ih)':force_original_aspect_ratio=decrease",
