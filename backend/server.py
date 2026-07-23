@@ -371,6 +371,14 @@ class BookingCreate(BaseModel):
     # can render every artist the customer hired for that event. Ownership is
     # enforced: the event_id must belong to another booking of the same user.
     event_id: Optional[str] = None
+    # Iter 52.5 — Optional travel allowance the customer commits to pay the
+    # artist direct-to-artist. Snapshotted to booking + contract PDF. The
+    # platform never handles this money — it exists for auditability only.
+    customer_travel_allowance: Optional[float] = 0
+    # Iter 52.5 — Terms & Conditions declaration checkbox from the Review step.
+    # We reject the booking if this is False so the acceptance is captured
+    # in-flow (audit trail).
+    tnc_accepted: bool = False
 
 
 class BookingStatusUpdate(BaseModel):
@@ -1300,6 +1308,9 @@ ADDON_PRICES = {
 async def create_booking(body: BookingCreate, user: dict = Depends(get_current_user)):
     if user["role"] not in ("customer", "corporate", "agency"):
         raise HTTPException(403, "Only customers can create bookings")
+    # Iter 52.5 — enforce Terms & Conditions declaration from the Review step.
+    if not body.tnc_accepted:
+        raise HTTPException(400, "Please accept the Terms & Conditions before proceeding")
     pkg = await db.packages.find_one({"id": body.package_id, "artist_id": body.artist_id})
     if not pkg:
         raise HTTPException(404, "Package not found")
@@ -1416,6 +1427,13 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         "event_type": body.event_type,
         "venue": body.venue,
         "city": body.city,
+        # Iter 52.5 — Customer-offered travel allowance (direct-to-artist,
+        # informational only). Printed on the contract PDF.
+        "customer_travel_allowance": float(body.customer_travel_allowance or 0),
+        # Iter 52.5 — T&C declaration audit trail (also enforced at request-time
+        # via the 400 guard above).
+        "tnc_accepted": True,
+        "tnc_accepted_at": datetime.now(timezone.utc).isoformat(),
         # Outstation Business Rule — snapshot both cities and flag mismatch at
         # booking-creation time so history is immutable even if the artist
         # profile city or the customer's event city is edited later.
@@ -1906,8 +1924,10 @@ EVENT DETAILS:
   Package    : {booking.get('package_name')}
 
 TRAVEL & ACCOMMODATION (borne by Client, in addition to the Artist Fee):
-{_format_travel_reqs(booking.get('travel_requirements') or {})}
-{outstation_block}{"SPECIAL INSTRUCTIONS FROM CLIENT:" + chr(10) + "  " + (booking.get("special_instructions") or "").strip() + chr(10) + chr(10) if (booking.get("special_instructions") or "").strip() else ""}FINANCIAL TERMS:
+{_format_travel_reqs(booking.get('travel_requirements') or {})}{
+    ("  Customer Travel Allowance offered (direct-to-artist) : ₹" + f"{float(booking.get('customer_travel_allowance') or 0):.2f}" + chr(10))
+    if float(booking.get('customer_travel_allowance') or 0) > 0 else ""
+}{outstation_block}{"SPECIAL INSTRUCTIONS FROM CLIENT:" + chr(10) + "  " + (booking.get("special_instructions") or "").strip() + chr(10) + chr(10) if (booking.get("special_instructions") or "").strip() else ""}FINANCIAL TERMS:
   Artist Performance Fee (paid by Client directly to Artist) : ₹{booking['pricing'].get('artist_fee', booking['pricing'].get('package_fee', 0) + booking['pricing'].get('addons_total', 0)):.2f}
 
   Platform Service Fee (5% — payable to BookTalent)          : ₹{booking['pricing']['platform_fee']:.2f}

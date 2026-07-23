@@ -61,6 +61,9 @@ export default function BookingFlow() {
     customer_phone: user?.phone || "",
     customer_email: user?.email || "",
     coupon_code: "",
+    // Iter 52.5 additions ↓
+    customer_travel_allowance: "",  // optional ₹ amount the customer offers toward artist travel (informational only)
+    tnc_accepted: false,             // mandatory before Proceed to Payment
   });
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);

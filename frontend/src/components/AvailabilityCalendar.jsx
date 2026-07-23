@@ -129,12 +129,14 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
           if (!d) return <div key={`e-${i}`} className="avail-cal-cell empty" />;
           const dateStr = fmtDate(d);
           const past = d < today;
+          const isToday = d.getTime() === today.getTime();
           const isBlocked = blocked.has(dateStr);
           const isPremium = !!premium[dateStr];
           const isSelected = selected === dateStr;
           const disabled = past || isBlocked;
           const cls = ["avail-cal-cell"];
           if (past) cls.push("past");
+          if (isToday) cls.push("today");
           if (isBlocked) cls.push("blocked");
           if (isPremium && !isBlocked && !past) cls.push("premium");
           if (isSelected) cls.push("selected");

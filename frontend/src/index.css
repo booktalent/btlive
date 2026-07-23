@@ -1503,119 +1503,171 @@ textarea:-webkit-autofill {
 
 /* ────────────────────────────────────────────────────────────────────────
    Availability Calendar (artist profile + booking flow)
+   Iter 52.5 — full visual refresh. Editorial, premium look:
+   • Serif month heading + subtle divider (avoids the "date-picker widget" vibe)
+   • Elevated inline legend (dot only, no chunky rounded blobs)
+   • Cells breathe: no borders on Free days, just a whisper of fill so the
+     calendar reads as a *page*, not a bag of Skittles.
+   • Booked days: strikethrough + muted red text (no chunky ring)
+   • Selected day: soft gold gradient with a golden ring instead of the old
+     saturated-orange square that looked like an alert badge.
    ──────────────────────────────────────────────────────────────────────── */
-.avail-cal { padding: 14px; }
+.avail-cal { padding: 20px 22px 18px; }
 .avail-cal-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 .avail-cal-title {
-  font-family: var(--font-serif, serif);
-  font-size: 15px; font-weight: 700;
-  color: var(--gold-light);
+  font-family: var(--font-serif, "Cormorant Garamond", serif);
+  font-size: 22px; font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #f6d366;
+  text-align: center;
 }
 .avail-cal-nav {
-  width: 28px; height: 28px;
-  border-radius: 7px;
-  border: 1px solid var(--glass-border);
-  background: rgba(255,255,255,0.04);
-  color: #fff;
-  font-size: 16px; line-height: 1;
+  width: 32px; height: 32px;
+  border-radius: 9px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: rgba(255,255,255,0.75);
+  font-size: 17px; line-height: 1;
   cursor: pointer;
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color 180ms ease, background 180ms ease, color 180ms ease, transform 180ms ease;
 }
-.avail-cal-nav:hover { border-color: var(--gold); background: rgba(212,175,55,0.08); }
+.avail-cal-nav:hover {
+  border-color: rgba(246,211,102,0.5);
+  background: rgba(246,211,102,0.06);
+  color: #f6d366;
+  transform: translateY(-1px);
+}
 
 .avail-cal-legend {
-  display: flex; gap: 10px; flex-wrap: wrap;
-  margin-bottom: 8px;
-  font-size: 10px; color: var(--white-muted);
+  display: flex; gap: 20px; flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 11px; color: var(--white-muted);
+  letter-spacing: 0.02em;
 }
-.avail-cal-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.avail-cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .avail-cal-legend .dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
 }
-.dot-free { background: rgba(16, 185, 129, 0.7); }
-.dot-blocked { background: rgba(239, 68, 68, 0.75); }
-.dot-premium { background: linear-gradient(135deg, #a78bfa, #d4af37); }
-.dot-selected { background: var(--gold); }
+.dot-free    { background: rgba(110,231,168,0.7); }
+.dot-blocked { background: rgba(239,68,68,0.8); }
+.dot-premium { background: linear-gradient(135deg, #b294ff, #f6d366); }
+.dot-selected{ background: linear-gradient(135deg, #f6d366, #b48429); box-shadow: 0 0 6px rgba(246,211,102,0.6); }
 
 .avail-cal-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 3px;
+  gap: 4px;
 }
 .avail-cal-h {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.3px;
-  color: var(--white-muted);
-  text-align: center; padding: 4px 0;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.18em;
+  color: rgba(255,255,255,0.4);
+  text-align: center; padding: 8px 0 10px;
   text-transform: uppercase;
 }
 .avail-cal-cell {
   aspect-ratio: 1;
   min-width: 0;
-  max-width: 44px;
+  max-width: 52px;
   justify-self: center;
   width: 100%;
-  border-radius: 7px;
+  border-radius: 10px;
   border: 1px solid transparent;
-  background: rgba(255,255,255,0.03);
-  color: var(--white);
-  font-size: 12px;
+  background: transparent;
+  color: rgba(255,255,255,0.85);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition: background 200ms ease, color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
   display: grid; place-items: center;
   padding: 0;
+  position: relative;
 }
-.avail-cal-cell.empty { background: transparent; cursor: default; pointer-events: none; }
+.avail-cal-cell.empty {
+  background: transparent; cursor: default; pointer-events: none;
+  color: transparent;
+}
 .avail-cal-cell.free {
-  border-color: rgba(16, 185, 129, 0.28);
-  background: rgba(16, 185, 129, 0.08);
-  color: #a7f3d0;
+  /* Available days: subtle green wash + no border. Feels like a page, not
+     an outlined pill. Number stays white so the color-coding is a hint,
+     not a shout. */
+  background: rgba(110,231,168,0.06);
+  color: rgba(230,255,240,0.95);
 }
 .avail-cal-cell.free:hover {
-  border-color: var(--gold);
-  transform: scale(1.06);
+  background: rgba(110,231,168,0.14);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px -8px rgba(110,231,168,0.4);
 }
 .avail-cal-cell.blocked {
-  background: rgba(239, 68, 68, 0.14);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #fca5a5;
+  background: rgba(239,68,68,0.05);
+  color: rgba(255,150,150,0.55);
   cursor: not-allowed;
   text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(239,68,68,0.4);
+}
+.avail-cal-cell.blocked:hover {
+  /* No hover on non-clickable dates — keep it feeling honest. */
+  transform: none;
+  box-shadow: none;
 }
 .avail-cal-cell.premium {
   position: relative;
-  background: linear-gradient(135deg, rgba(167, 139, 250, 0.18), rgba(212, 175, 55, 0.22));
-  border-color: rgba(212, 175, 55, 0.5);
-  color: var(--gold-light);
+  background: linear-gradient(135deg, rgba(178,148,255,0.08), rgba(246,211,102,0.10));
+  color: #f6d366;
   font-weight: 600;
 }
 .avail-cal-cell.premium:hover {
-  transform: scale(1.06);
-  border-color: var(--gold);
+  background: linear-gradient(135deg, rgba(178,148,255,0.16), rgba(246,211,102,0.18));
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px -8px rgba(246,211,102,0.45);
 }
 .avail-cal-premium-mark {
   position: absolute;
-  top: 2px; right: 4px;
+  top: 3px; right: 5px;
   font-size: 9px;
   font-weight: 700;
-  color: var(--gold-light);
+  color: #f6d366;
   letter-spacing: -0.5px;
+  opacity: 0.85;
 }
 .avail-cal-cell.past {
-  opacity: 0.3;
+  opacity: 0.22;
   cursor: not-allowed;
+  color: rgba(255,255,255,0.55);
 }
+.avail-cal-cell.past:hover { transform: none; background: transparent; box-shadow: none; }
 .avail-cal-cell.selected {
-  background: linear-gradient(180deg, var(--gold), #b45309) !important;
-  color: #000 !important;
-  border-color: var(--gold) !important;
-  font-weight: 700;
-  transform: scale(1.02);
+  background: linear-gradient(160deg, rgba(246,211,102,0.85), rgba(180,132,41,0.85)) !important;
+  color: #0b0b0d !important;
+  font-weight: 800;
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 2px rgba(246,211,102,0.35),
+    0 12px 28px -12px rgba(246,211,102,0.7);
+  text-decoration: none !important;
 }
+.avail-cal-cell.selected:hover { transform: translateY(-1px); }
+
+/* Today marker — a soft golden dot in the corner if not selected/blocked. */
+.avail-cal-cell.today:not(.selected)::after {
+  content: "";
+  position: absolute;
+  bottom: 5px; left: 50%;
+  width: 4px; height: 4px; border-radius: 50%;
+  background: #f6d366;
+  transform: translateX(-50%);
+}
+
 .avail-cal-loading {
-  text-align: center; padding: 8px;
+  text-align: center; padding: 10px;
   color: var(--white-muted); font-size: 11px;
 }
 

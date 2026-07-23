@@ -1,9 +1,11 @@
 import React from "react";
 
 /**
- * Iter 50 — ReviewStep
- * Step 4 of BookingFlow — read-only summary + T&Cs acknowledgements.
- * All state remains in BookingFlow; this file just renders.
+ * Iter 50 — ReviewStep, updated in Iter 52.5:
+ *   • Customer-offered Travel Allowance (optional, informational, snapshotted
+ *     to the booking + contract PDF so the artist has it in writing).
+ *   • Mandatory Terms & Conditions declaration checkbox — required before
+ *     "Proceed to Payment" is enabled.
  */
 export default function ReviewStep({
   pkg,
@@ -16,7 +18,16 @@ export default function ReviewStep({
 }) {
   const showTravelRider =
     pkg && (pkg.travel_required || pkg.accommodation_required || pkg.local_transport_required || pkg.meals_required || pkg.travel_notes);
-  const nextDisabled = (showTravelRider && !form.travel_ack) || (isOutstation && !form.outstation_ack);
+
+  // Proceed-to-Payment gate. T&C is ALWAYS required; travel-ack only when a
+  // travel rider is on the package; outstation-ack only for outstation events.
+  const nextDisabled =
+    !form.tnc_accepted ||
+    (showTravelRider && !form.travel_ack) ||
+    (isOutstation && !form.outstation_ack);
+
+  const taValue = Number(form.customer_travel_allowance || 0);
+  const showTa = showTravelRider || isOutstation; // only shown when travel is a factor
 
   return (
     <div className="card card-pad" data-testid="step-4">
@@ -88,9 +99,70 @@ export default function ReviewStep({
         </div>
       )}
 
+      {/* Travel Allowance offered by the customer (informational). Rendered
+          only when the booking has a travel/outstation dimension so it stays
+          out of the way for local bookings. */}
+      {showTa && (
+        <div className="card card-pad mb-16" data-testid="review-ta-block">
+          <h3 className="fw-600 fs-13 mb-8 text-gold" style={{ textTransform: "uppercase" }}>💸 Travel Allowance Offered (Optional)</h3>
+          <div className="text-muted fs-12 mb-10" style={{ lineHeight: 1.5 }}>
+            Offering a flat travel allowance? Artists often adjust their package fee when TA is covered up-front. This amount is direct-to-artist — the platform never handles it, but it will be printed on the booking agreement so both sides have it in writing.
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span className="fs-14 text-muted">₹</span>
+            <input
+              type="number"
+              min="0"
+              step="500"
+              placeholder="e.g. 5000"
+              value={form.customer_travel_allowance}
+              onChange={(e) => set("customer_travel_allowance", e.target.value)}
+              className="field-input"
+              style={{ maxWidth: 180 }}
+              data-testid="ta-offered-input"
+            />
+            {taValue > 0 && (
+              <span className="text-gold fs-12 fw-600" data-testid="ta-offered-echo">
+                ₹{taValue.toLocaleString("en-IN")} committed to artist
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Mandatory Terms & Conditions declaration (Iter 52.5). */}
+      <div className="card card-pad mb-16" style={{ borderColor: form.tnc_accepted ? "rgba(110,231,168,0.3)" : "rgba(255,120,120,0.28)" }} data-testid="review-tnc-block">
+        <h3 className="fw-600 fs-13 mb-8" style={{ textTransform: "uppercase", color: form.tnc_accepted ? "#6ee7a8" : "#ffd270" }}>
+          📜 Declaration
+        </h3>
+        <label className="flex items-start gap-8" style={{ lineHeight: 1.55 }}>
+          <input
+            type="checkbox"
+            checked={!!form.tnc_accepted}
+            onChange={(e) => set("tnc_accepted", e.target.checked)}
+            data-testid="tnc-accept-checkbox"
+            style={{ marginTop: 3, flex: "none" }}
+          />
+          <span className="fs-12">
+            I confirm that the details above are accurate and I have read and agree to BookTalent's{" "}
+            <a href="/terms" target="_blank" rel="noreferrer" className="text-gold" data-testid="tnc-link-terms">Terms & Conditions</a>,{" "}
+            <a href="/privacy" target="_blank" rel="noreferrer" className="text-gold" data-testid="tnc-link-privacy">Privacy Policy</a>{" "}
+            and{" "}
+            <a href="/refund" target="_blank" rel="noreferrer" className="text-gold" data-testid="tnc-link-refund">Cancellation & Refund Policy</a>.
+            I acknowledge that BookTalent collects only the 5% Platform Service Fee + 18% GST here — the artist's package fee is paid directly to the artist as per the signed agreement.
+          </span>
+        </label>
+      </div>
+
       <div className="flex justify-between mt-24">
         <button className="btn btn-ghost" onClick={onBack} data-testid="step4-back">← Back</button>
-        <button className="btn btn-gold" onClick={onNext} disabled={nextDisabled} data-testid="step4-next">
+        <button
+          className="btn btn-gold"
+          onClick={onNext}
+          disabled={nextDisabled}
+          data-testid="step4-next"
+          title={nextDisabled ? "Please tick the required boxes above" : undefined}
+        >
           🔐 Proceed to Payment →
         </button>
       </div>
