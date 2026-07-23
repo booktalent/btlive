@@ -891,3 +891,45 @@ A customer often needs 2-3 artists for one event (Vocalist + DJ + Anchor for a w
 - AI Event Planner + smart add-on recommendations
 - Refactor server.py (~3300 lines) into routes/bookings.py, routes/events.py, routes/payments.py
 - Extract `artistFee(b)` helper — repeated 4× in ArtistDashboard.jsx
+
+---
+
+## Iter 45 — Multi-Artist Cart INSIDE the Booking Flow (Feb 2026)
+
+### Product shift
+Iter 44 shipped multi-artist events via a **post-payment** suggestion strip. Iter 45 moves the same capability **into the primary booking flow**: as soon as the customer picks a date at Step 2, a "Need More Artists for This Event?" panel opens below the calendar with in-line **+ Add to Event** buttons. Every added artist joins a dynamic cart, and Step 5 fires a **single unified checkout** for all Platform Service Fees + GST across N artists — one payment, N bookings, N separate contracts.
+
+### Frontend
+- **`AddArtistToCartModal.jsx`** — new modal. Loads `/artists/{id}` + `/artists/{id}/addons`, defaults to the cheapest package, pre-checks mandatory add-ons, updates subtotal live, calls `onAdd(cartItem)`.
+- **`BookingCart.jsx`** — new sidebar/inline cart. Lists every artist (Primary pill on cart[0], remove ✕ on secondaries), aggregate subtotal → Platform Fee (5%) → GST (18%) → **"You pay BookTalent now"** line item. Explains "The rest is settled direct-to-artist."
+- **`BookingFlow.jsx`**
+  - `extraArtists` state + `cartItems` useMemo (reads `artist.profile.*` — not top-level — after iter44's normalization defect resurfaced here)
+  - Primary artist's Step 1 add-ons (both legacy `form.addons` and Sprint-3 `form.addon_selections`) are **preserved intact** and correctly merged into `primarySubtotal` + cart-row "+N add-ons" pill
+  - `submitBooking` branches: `isMultiEvent` → `POST /bookings/batch` + `POST /payments/batch/init` + `POST /payments/batch/verify`; else the existing single-artist path
+  - Success screen shows "Your event with N artists is officially booked" + list of all Event Refs (batch) OR the legacy single-artist card (unchanged)
+  - Pay button label appends "· N artists" when multi
+  - Batch payload correctly separates `addons` (legacy slugs) and `addon_selections` (Sprint-3 UUIDs) for the primary
+- **`CustomerDashboard.jsx`** — new **🎪 My Events** tab. `EventsGrouped` component groups by `event_id`, fetches every unique artist_id via `/artists/{id}` (uid resolved via `profile.user_id`), renders one card per event with per-artist status pills + Share Recap button
+
+### Backend privacy verified
+- `/bookings/mine` filters by `artist_id` → an artist NEVER sees sibling bookings in the same event
+- `/bookings/{id}` returns 403 to any user who's neither the customer nor the specific booked artist
+- `/events/{id}/summary` returns 403 to artists (owner-only)
+- Test suite `/app/backend/tests/test_iter45_multi_artist_privacy.py` — **12/12 green**
+
+### Fixed during this iteration (RCA'd in `iteration_45.json`)
+- Cart's primary row was blank → fields moved to `artist.profile.*`
+- My Events rows showed "Artist" → uid resolver now reads `r.data.profile?.user_id` first
+- Batch payload was sending legacy add-on slugs as `addon_selections` → now correctly split
+
+### Verified
+- `/app/test_reports/iteration_45.json` — Backend 12/12; Frontend end-to-end (batch create → unified pay → success screen with Event Refs → recap page with 3 artists + no PII → My Events grouping)
+- Live 3-artist event `fed20ca6-1d1a-4461-82e5-1b9dd5463d64` (Priya + Mohit + Dhiren) rendered visually
+- New event `733cfa74-be21-401c-9a2c-b3d4da0476c3` (Priya + Kavya) — primary's legacy AND artist-defined add-ons persisted via `addons: ['dhol','anchor']` and `addon_snapshots[PW_Sound_Setup]`
+
+### Follow-up backlog
+- Extract `useEventCart()` hook + split BookingFlow.jsx (now ~1100 lines)
+- Add `normalizeArtist(r)` helper to prevent the profile.* vs top-level defect recurring a third time
+- AI Event Planner + smart add-on recommendations
+- Refactor server.py (~3300 lines) into routes/bookings.py, routes/events.py, routes/payments.py
+

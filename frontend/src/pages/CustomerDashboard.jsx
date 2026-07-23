@@ -474,11 +474,15 @@ function EventsGrouped({ bookings, onAction }) {
       const next = { ...artistCache };
       rs.forEach((r) => {
         if (!r?.data) return;
-        const uid = r.data.user_id || r.data.id;
+        // /api/artists/{id} nests everything under `.profile` — read from
+        // there first, then fall back to top-level so both shapes work.
+        const p = r.data.profile || {};
+        const uid = p.user_id || r.data.user_id || r.data.id;
+        if (!uid) return;
         next[uid] = {
-          stage_name: r.data.stage_name || r.data.profile?.stage_name || "Artist",
-          category: r.data.category || r.data.profile?.category,
-          emoji: r.data.emoji || r.data.profile?.emoji || "🎤",
+          stage_name: p.stage_name || r.data.stage_name || "Artist",
+          category: p.category || r.data.category,
+          emoji: p.emoji || r.data.emoji || "🎤",
         };
       });
       setArtistCache(next);

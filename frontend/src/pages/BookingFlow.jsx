@@ -175,26 +175,42 @@ export default function BookingFlow() {
 
   const cartItems = React.useMemo(() => {
     const items = [];
+    // GET /api/artists/{id} nests display fields under `.profile` — read from
+    // there so the primary row renders a real name/photo/category, not blank.
+    const primaryProfile = artist?.profile || {};
     if (artist && pkg) {
+      const primaryPhoto = primaryProfile.profile_image;
       items.push({
         artist_id: id,
-        artist_name: artist.stage_name || `${artist.first_name || ""} ${artist.last_name || ""}`.trim(),
-        artist_photo: artist.profile_image
-          ? (thumbUrl?.(artist.profile_image) || mediaUrl?.(artist.profile_image) || (/^https?:\/\//.test(artist.profile_image) ? artist.profile_image : null))
+        artist_name:
+          primaryProfile.stage_name ||
+          `${artist.first_name || ""} ${artist.last_name || ""}`.trim() ||
+          "Primary Artist",
+        artist_photo: primaryPhoto
+          ? (thumbUrl?.(primaryPhoto) || mediaUrl?.(primaryPhoto) || (/^https?:\/\//.test(primaryPhoto) ? primaryPhoto : null))
           : null,
-        category: artist.category,
-        city: artist.city,
-        emoji: artist.emoji || "🎤",
+        category: primaryProfile.category,
+        city: primaryProfile.city,
+        emoji: primaryProfile.emoji || "🎤",
         package_id: pkg.id,
         package_name: pkg.name,
         package_price: Number(pkg.price),
-        addon_selections: form.addon_selections,
+        // Merge both legacy hardcoded add-ons + artist-defined add-ons so the
+        // cart row's "+N add-ons" pill reflects every optional item the
+        // customer picked on Step 1.
+        addon_selections: [
+          ...form.addons.map((slug) => {
+            const meta = ADDONS.find((x) => x.id === slug);
+            return { addon_id: slug, quantity: 1, name: meta?.label || slug, price: meta?.price || 0 };
+          }),
+          ...form.addon_selections,
+        ],
         price_subtotal: primarySubtotal,
         is_primary: true,
       });
     }
     return [...items, ...extraArtists];
-  }, [artist, pkg, id, form.addon_selections, primarySubtotal, extraArtists]);
+  }, [artist, pkg, id, form.addons, form.addon_selections, primarySubtotal, extraArtists]);
 
   const cartArtistIds = React.useMemo(() => new Set(cartItems.map((c) => c.artist_id)), [cartItems]);
 
@@ -239,8 +255,10 @@ export default function BookingFlow() {
         const items = cartItems.map((c) => ({
           artist_id: c.artist_id,
           package_id: c.package_id,
+          // Primary keeps its Step-1 legacy addon slugs AND Sprint-3 artist
+          // add-ons separately. Secondary artists never see legacy addons.
           addons: c.is_primary ? form.addons : [],
-          addon_selections: c.addon_selections || [],
+          addon_selections: c.is_primary ? form.addon_selections : (c.addon_selections || []),
           event_date: form.event_date,
           event_time: form.event_time,
           event_type: form.event_type,
