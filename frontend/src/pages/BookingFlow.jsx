@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import Nav from "../components/Nav";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
-import api, { fmtINRFull, formatApiError } from "../lib/api";
+import BookingCart from "../components/BookingCart";
+import AddArtistToCartModal from "../components/AddArtistToCartModal";
+import api, { fmtINRFull, formatApiError, mediaUrl, thumbUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 
@@ -160,13 +162,66 @@ export default function BookingFlow() {
     return s + sub + gst;
   }, 0);
   const pkgPrice = pkg?.price || 0;
+  const primarySubtotal = pkgPrice + addonsTotal + artistAddonsTotal;
+
+  // ── Iter 45 — Multi-Artist Event Cart ────────────────────────────────────
+  // Secondary artists added via the "Need More Artists?" panel on Step 2.
+  // The primary artist is derived from the current form state and lives at
+  // cartItems[0]. Secondary artists are stored in `extraArtists` and expose
+  // their own package + add-on choices.
+  const [extraArtists, setExtraArtists] = React.useState([]);
+  const [addModalArtist, setAddModalArtist] = React.useState(null); // when set, modal opens
+  const isMultiEvent = extraArtists.length > 0;
+
+  const cartItems = React.useMemo(() => {
+    const items = [];
+    if (artist && pkg) {
+      items.push({
+        artist_id: id,
+        artist_name: artist.stage_name || `${artist.first_name || ""} ${artist.last_name || ""}`.trim(),
+        artist_photo: artist.profile_image
+          ? (thumbUrl?.(artist.profile_image) || mediaUrl?.(artist.profile_image) || (/^https?:\/\//.test(artist.profile_image) ? artist.profile_image : null))
+          : null,
+        category: artist.category,
+        city: artist.city,
+        emoji: artist.emoji || "🎤",
+        package_id: pkg.id,
+        package_name: pkg.name,
+        package_price: Number(pkg.price),
+        addon_selections: form.addon_selections,
+        price_subtotal: primarySubtotal,
+        is_primary: true,
+      });
+    }
+    return [...items, ...extraArtists];
+  }, [artist, pkg, id, form.addon_selections, primarySubtotal, extraArtists]);
+
+  const cartArtistIds = React.useMemo(() => new Set(cartItems.map((c) => c.artist_id)), [cartItems]);
+
+  // Recompute cart-wide pricing whenever composition changes.
+  const cartPricing = React.useMemo(() => {
+    const subtotal = cartItems.reduce((s, i) => s + Number(i.price_subtotal || 0), 0);
+    const platform_fee = Math.round(subtotal * 0.05 * 100) / 100;
+    const gst = Math.round(platform_fee * 0.18 * 100) / 100;
+    return { subtotal, platform_fee, gst, token_amount: Math.round((platform_fee + gst) * 100) / 100 };
+  }, [cartItems]);
+
+  const addSecondaryArtist = (cartItem) => {
+    setExtraArtists((prev) => prev.some((x) => x.artist_id === cartItem.artist_id) ? prev : [...prev, cartItem]);
+    setAddModalArtist(null);
+    toast(`${cartItem.artist_name} added to your event`, "success");
+  };
+  const removeSecondaryArtist = (artist_id) => {
+    setExtraArtists((prev) => prev.filter((x) => x.artist_id !== artist_id));
+  };
+
   // ── BookTalent business model ─────────────────────────────────────
   // We only collect Platform Service Fee (5% of Artist Fee) + 18% GST on it.
   // The Artist Performance Fee is settled directly between Customer and Artist.
-  const artistFee = pkgPrice + addonsTotal + artistAddonsTotal;  // paid directly to artist
+  const artistFee = primarySubtotal;                    // paid directly to artist
   const platformFee = Math.round(artistFee * 0.05);    // BookTalent service charge
   const gst = Math.round(platformFee * 0.18);          // 18% on platform fee only
-  const total = platformFee + gst;                      // amount payable to BookTalent
+  const total = platformFee + gst;                      // amount payable to BookTalent (single-artist)
   const token = total;                                  // legacy var — full BT amount
   // Keep `subtotal` defined to avoid breakage in legacy display blocks
   const subtotal = artistFee;
@@ -175,6 +230,81 @@ export default function BookingFlow() {
     setBusy(true);
     setAlternatives(null);
     try {
+      // ── Iter 45: Multi-Artist Batch Checkout ─────────────────────────────
+      // When the customer has added secondary artists, all bookings are
+      // created under one event_id and paid for in a single Razorpay/mock
+      // checkout via /payments/batch/{init,verify}. Each artist still gets
+      // an isolated booking, contract, and 24-hour confirmation window.
+      if (isMultiEvent) {
+        const items = cartItems.map((c) => ({
+          artist_id: c.artist_id,
+          package_id: c.package_id,
+          addons: c.is_primary ? form.addons : [],
+          addon_selections: c.addon_selections || [],
+          event_date: form.event_date,
+          event_time: form.event_time,
+          event_type: form.event_type,
+          venue: form.venue,
+          city: form.city,
+          guests: form.guests,
+          language_pref: form.language_pref,
+          notes: c.is_primary ? form.notes : "",
+          special_instructions: c.is_primary ? (form.special_instructions || "") : "",
+          customer_name: form.customer_name,
+          customer_phone: form.customer_phone,
+          customer_email: form.customer_email,
+          coupon_code: c.is_primary ? form.coupon_code : "",
+        }));
+        let batchR;
+        try {
+          batchR = await api.post("/bookings/batch", { items });
+        } catch (e) {
+          throw e;
+        }
+        const { event_id, booking_ids } = batchR.data;
+        const initR = await api.post("/payments/batch/init", { booking_ids, method: paymentMethod });
+        if (initR.data.gateway === "razorpay") {
+          const loaded = await loadRazorpay();
+          if (!loaded) { toast("Could not load payment gateway", "error"); setBusy(false); return; }
+          const rp = initR.data.razorpay;
+          const rzp = new window.Razorpay({
+            key: rp.key_id, amount: initR.data.amount_paise, currency: rp.currency,
+            name: rp.name, description: rp.description, order_id: rp.order_id,
+            prefill: rp.prefill, notes: rp.notes, theme: { color: "#D4AF37" },
+            handler: async (resp) => {
+              try {
+                const verR = await api.post("/payments/batch/verify", {
+                  payment_id: initR.data.payment_id, booking_ids,
+                  razorpay_order_id: resp.razorpay_order_id,
+                  razorpay_payment_id: resp.razorpay_payment_id,
+                  razorpay_signature: resp.razorpay_signature,
+                });
+                setSuccessData({
+                  batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
+                  ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
+                });
+                setStep(6);
+              } catch (e) { toast(formatApiError(e), "error"); }
+              finally { setBusy(false); }
+            },
+            modal: { ondismiss: () => { setBusy(false); toast("Payment cancelled", "error"); } },
+          });
+          rzp.on("payment.failed", (r) => { setBusy(false); toast(`Payment failed: ${r?.error?.description || "unknown"}`, "error"); });
+          rzp.open();
+          return;
+        }
+        const verR = await api.post("/payments/batch/verify", {
+          payment_id: initR.data.payment_id, booking_ids, mock_otp: "123456",
+        });
+        setSuccessData({
+          batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
+          ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
+        });
+        setStep(6);
+        setBusy(false);
+        return;
+      }
+      // ── Single-artist flow (unchanged) ──────────────────────────────────
       // 1. Create booking (join existing event umbrella if provided)
       let r;
       try {
@@ -431,7 +561,16 @@ export default function BookingFlow() {
                 </div>
               </div>
               {form.event_date && (
-                <SuggestedArtistsPanel artistId={id} date={form.event_date} />
+                <SuggestedArtistsPanel
+                  artistId={id}
+                  date={form.event_date}
+                  cartArtistIds={cartArtistIds}
+                  onOpenAdd={(a) => setAddModalArtist(a)}
+                />
+              )}
+              {/* Multi-artist cart preview once anyone added */}
+              {isMultiEvent && (
+                <BookingCart items={cartItems} pricing={cartPricing} onRemove={removeSecondaryArtist} />
               )}
               </>
             )}
@@ -669,7 +808,7 @@ export default function BookingFlow() {
                 <div className="flex justify-between mt-24">
                   <button className="btn btn-ghost" onClick={() => setStep(4)} data-testid="step5-back">← Back</button>
                   <button className="btn btn-gold btn-lg" disabled={busy} onClick={submitBooking} data-testid="pay-now-btn">
-                    {busy ? "Processing…" : `🔐 Pay ${fmtINRFull(token)} ${paymentConfig.razorpay_enabled ? "via Razorpay" : "to Confirm"}`}
+                    {busy ? "Processing…" : `🔐 Pay ${fmtINRFull(isMultiEvent ? cartPricing.token_amount : token)} ${paymentConfig.razorpay_enabled ? "via Razorpay" : "to Confirm"}${isMultiEvent ? ` · ${cartItems.length} artists` : ""}`}
                   </button>
                 </div>
               </div>
@@ -680,23 +819,48 @@ export default function BookingFlow() {
                 <div style={{ fontSize: 72, marginBottom: 12 }}>✅</div>
                 <h2 className="font-serif" style={{ fontSize: 40, fontWeight: 700, marginBottom: 8 }}>Booking Confirmed!</h2>
                 <p className="text-muted mb-20">
-                  Your booking with <strong>{artist.profile.stage_name}</strong> is officially confirmed.
-                  The artist has been notified.
+                  {successData.batch ? (
+                    <>Your event with <strong>{successData.count} artists</strong> is officially booked. All artists have been notified.</>
+                  ) : (
+                    <>Your booking with <strong>{artist.profile.stage_name}</strong> is officially confirmed. The artist has been notified.</>
+                  )}
                 </p>
                 <div className="pill pill-gold mb-24" style={{ fontSize: 14, padding: "8px 16px" }} data-testid="booking-ref">
-                  Booking Ref: {successData.ref}
+                  {successData.batch ? `Event Refs: ${(successData.refs || []).join(" · ")}` : `Booking Ref: ${successData.ref}`}
                 </div>
-                <div className="card card-pad mb-20" style={{ textAlign: "left", maxWidth: 480, margin: "0 auto 20px" }}>
-                  <div className="flex justify-between mb-8"><span className="text-muted">Artist</span><span>{artist.profile.stage_name}</span></div>
-                  <div className="flex justify-between mb-8"><span className="text-muted">Package</span><span>{pkg?.name}</span></div>
-                  <div className="flex justify-between mb-8"><span className="text-muted">Date</span><span>{form.event_date} · {form.event_time}</span></div>
-                  <div className="flex justify-between mb-8"><span className="text-muted">Venue</span><span>{form.venue}</span></div>
-                  <div className="flex justify-between mb-8"><span className="text-muted">Artist Performance Fee</span><span>{fmtINRFull(artistFee)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted">Paid to BookTalent</span><span className="text-green">{fmtINRFull(total)}</span></div>
-                  <div className="text-muted fs-11 mt-12" style={{ marginTop: 12, lineHeight: 1.4 }}>
-                    ℹ️ The Artist Performance Fee of <b>{fmtINRFull(artistFee)}</b> will be settled directly with the artist as per your signed agreement.
+                {successData.batch ? (
+                  <div className="card card-pad mb-20" style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 20px" }}>
+                    <div className="fs-13 mb-12">
+                      <div className="text-muted">Event Date</div>
+                      <div className="fw-700">{form.event_date} · {form.event_time}</div>
+                    </div>
+                    <div className="fs-13 mb-12">
+                      <div className="text-muted">Venue</div>
+                      <div className="fw-700">{form.venue}, {form.city}</div>
+                    </div>
+                    <div className="fs-13">
+                      <div className="text-muted mb-8">Artists in this Event</div>
+                      {cartItems.map((c) => (
+                        <div key={c.artist_id} className="flex justify-between fs-12" style={{ padding: "6px 0", borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
+                          <span>{c.artist_name}<span className="text-muted"> · {c.category}</span></span>
+                          <span className="text-gold">{fmtINRFull(c.price_subtotal || c.package_price || 0)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="card card-pad mb-20" style={{ textAlign: "left", maxWidth: 480, margin: "0 auto 20px" }}>
+                    <div className="flex justify-between mb-8"><span className="text-muted">Artist</span><span>{artist.profile.stage_name}</span></div>
+                    <div className="flex justify-between mb-8"><span className="text-muted">Package</span><span>{pkg?.name}</span></div>
+                    <div className="flex justify-between mb-8"><span className="text-muted">Date</span><span>{form.event_date} · {form.event_time}</span></div>
+                    <div className="flex justify-between mb-8"><span className="text-muted">Venue</span><span>{form.venue}</span></div>
+                    <div className="flex justify-between mb-8"><span className="text-muted">Artist Performance Fee</span><span>{fmtINRFull(artistFee)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted">Paid to BookTalent</span><span className="text-green">{fmtINRFull(total)}</span></div>
+                    <div className="text-muted fs-11 mt-12" style={{ marginTop: 12, lineHeight: 1.4 }}>
+                      ℹ️ The Artist Performance Fee of <b>{fmtINRFull(artistFee)}</b> will be settled directly with the artist as per your signed agreement.
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-12 justify-center" style={{ flexWrap: "wrap" }}>
                   <button className="btn btn-gold" onClick={() => nav("/customer")} data-testid="success-go-dashboard">📊 Go to Dashboard</button>
                   {successData.event_id && (
@@ -708,6 +872,7 @@ export default function BookingFlow() {
                   )}
                   <button
                     className="btn btn-ghost"
+                    style={{ display: successData.batch ? "none" : undefined }}
                     onClick={async () => {
                       const tok = localStorage.getItem("bt_token");
                       const r = await fetch(`${api.defaults.baseURL}/bookings/${successData.booking.id}/invoice`, { headers: { Authorization: `Bearer ${tok}` } });
@@ -766,6 +931,11 @@ export default function BookingFlow() {
 
           {step < 6 && (
             <div data-testid="order-summary">
+              {isMultiEvent ? (
+                <div style={{ position: "sticky", top: 90 }}>
+                  <BookingCart items={cartItems} pricing={cartPricing} onRemove={removeSecondaryArtist} compact />
+                </div>
+              ) : (
               <div className="card card-pad" style={{ position: "sticky", top: 90 }}>
                 <div className="flex items-center gap-12 mb-16" style={{ padding: 8, background: "var(--glass)", borderRadius: 10 }}>
                   <div className="avatar avatar-lg" style={{ background: "linear-gradient(135deg, var(--purple), var(--gold))", width: 50, height: 50, fontSize: 24 }}>
@@ -810,10 +980,19 @@ export default function BookingFlow() {
                     "Travel, accommodation, local transport, food, hospitality and any other outstation expenses are NOT included in the Artist Package Fee. These expenses will be discussed and managed directly between the Customer and the Artist."}
                 </div>
               </div>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {addModalArtist && (
+        <AddArtistToCartModal
+          suggestedArtist={addModalArtist}
+          onAdd={addSecondaryArtist}
+          onClose={() => setAddModalArtist(null)}
+        />
+      )}
 
       {alternatives && (
         <div className="modal-bg" onClick={() => setAlternatives(null)} data-testid="alternatives-modal">
@@ -850,13 +1029,13 @@ export default function BookingFlow() {
 }
 
 // ─── Suggested Artists panel — cross-sell during date-pick step ─────────
-function SuggestedArtistsPanel({ artistId, date }) {
+function SuggestedArtistsPanel({ artistId, date, cartArtistIds, onOpenAdd }) {
   const [items, setItems] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   React.useEffect(() => {
     if (!artistId || !date) return;
     setLoading(true);
-    api.get(`/artists/${artistId}/suggested?date_str=${date}&limit=4`)
+    api.get(`/artists/${artistId}/suggested?date_str=${date}&limit=6`)
       .then((r) => setItems(r.data?.suggested || []))
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
@@ -866,44 +1045,57 @@ function SuggestedArtistsPanel({ artistId, date }) {
     return <div className="card card-pad mt-16 text-center text-muted fs-13" data-testid="suggested-loading">Finding complementary artists…</div>;
   }
   if (items.length === 0) return null;
+  const hasAdd = typeof onOpenAdd === "function";
   return (
     <div className="card card-pad mt-16 suggested-panel" data-testid="suggested-artists">
       <div className="smart-panel-head">
         <span className="smart-panel-icon" style={{ background: "linear-gradient(135deg, #22d3ee, #7c3aed)" }}>✨</span>
         <div>
-          <div className="smart-panel-title">Book another artist for this event?</div>
-          <div className="smart-panel-sub">Complementary artists free on {date} — many customers pair a Singer with an Anchor or DJ</div>
+          <div className="smart-panel-title">Need More Artists for This Event?</div>
+          <div className="smart-panel-sub">Available on {date} — add them to the same booking, one checkout, separate contracts.</div>
         </div>
       </div>
       <div className="suggested-grid">
-        {items.map((a) => (
-          <a
-            key={a.user_id}
-            href={`/artist/${a.slug || a.user_id}`}
-            className="suggested-card"
-            data-testid={`suggested-${a.user_id}`}
-          >
-            <div
-              className="suggested-thumb"
-              style={a.profile_image ? {
-                background: `linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.7)), url(${/^https?:\/\//.test(a.profile_image) ? a.profile_image : `${api.defaults.baseURL}/media/${a.profile_image}`}) center/cover`,
-              } : {}}
-            >
-              {!a.profile_image && <span style={{ fontSize: 40 }}>🎤</span>}
-            </div>
-            <div className="suggested-body">
-              <div className="fw-700 fs-13">{a.stage_name}</div>
-              <div className="text-muted fs-11">{a.category}</div>
-              <div className="suggested-foot">
-                <span className="text-gold fs-12">★ {(a.rating_avg || 0).toFixed(1)}</span>
-                {a.starting_price && <span className="text-gold fw-600 fs-12">{fmtINRFull(a.starting_price)}</span>}
+        {items.map((a) => {
+          const alreadyInCart = cartArtistIds?.has?.(a.user_id);
+          return (
+            <div key={a.user_id} className="suggested-card" data-testid={`suggested-${a.user_id}`}>
+              <div
+                className="suggested-thumb"
+                style={a.profile_image ? {
+                  background: `linear-gradient(180deg, rgba(0,0,0,0.15), rgba(0,0,0,0.7)), url(${/^https?:\/\//.test(a.profile_image) ? a.profile_image : `${api.defaults.baseURL}/media/${a.profile_image}`}) center/cover`,
+                } : {}}
+              >
+                {!a.profile_image && <span style={{ fontSize: 40 }}>🎤</span>}
+              </div>
+              <div className="suggested-body">
+                <div className="fw-700 fs-13">{a.stage_name}</div>
+                <div className="text-muted fs-11">{a.category}</div>
+                <div className="suggested-foot">
+                  <span className="text-gold fs-12">★ {(a.rating_avg || 0).toFixed(1)}</span>
+                  {a.starting_price && <span className="text-gold fw-600 fs-12">{fmtINRFull(a.starting_price)}</span>}
+                </div>
+                {hasAdd ? (
+                  <button
+                    type="button"
+                    className={`suggested-add-btn ${alreadyInCart ? "added" : ""}`}
+                    disabled={alreadyInCart}
+                    onClick={() => onOpenAdd(a)}
+                    data-testid={`add-to-event-${a.user_id}`}
+                  >
+                    {alreadyInCart ? "✓ Added" : "+ Add to Event"}
+                  </button>
+                ) : (
+                  <a
+                    href={`/artist/${a.slug || a.user_id}`}
+                    className="suggested-add-btn"
+                    data-testid={`view-artist-${a.user_id}`}
+                  >View Profile →</a>
+                )}
               </div>
             </div>
-          </a>
-        ))}
-      </div>
-      <div className="text-muted fs-11 mt-8" style={{ textAlign: "center" }}>
-        Tip: complete this booking first, then tap any suggested artist to start a second booking. One event, two artists — separate contracts, one great show.
+          );
+        })}
       </div>
     </div>
   );

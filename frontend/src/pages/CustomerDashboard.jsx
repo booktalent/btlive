@@ -65,6 +65,7 @@ export default function CustomerDashboard() {
         {[
           { id: "overview", label: "📊 Overview" },
           { id: "bookings", label: "🎟️ My Bookings" },
+          { id: "events", label: "🎪 My Events" },
           { id: "reviews", label: "⭐ Reviews" },
           { id: "messages", label: "💬 Messages" },
         ].map((x) => (
@@ -104,6 +105,12 @@ export default function CustomerDashboard() {
             <div className="card" data-testid="cust-bookings">
               <div className="card-head"><div className="card-title">🎟️ All Bookings</div></div>
               <BookingsTable bookings={bookings} role="customer" onAction={doAction} onReview={setReviewModal} />
+            </div>
+          )}
+
+          {tab === "events" && (
+            <div data-testid="cust-events">
+              <EventsGrouped bookings={bookings} onAction={doAction} />
             </div>
           )}
 
@@ -432,3 +439,140 @@ function Messages() {
     </div>
   );
 }
+
+/**
+ * Iter 45 — EventsGrouped
+ * Renders bookings grouped by event_id. Multi-artist events appear as one
+ * card with per-artist sub-rows; solo bookings still get their own card.
+ */
+function EventsGrouped({ bookings, onAction }) {
+  const [artistCache, setArtistCache] = useState({});
+
+  const groups = React.useMemo(() => {
+    const map = new Map();
+    for (const b of bookings) {
+      const key = b.event_id || b.id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(b);
+    }
+    const arr = Array.from(map.entries()).map(([event_id, items]) => ({
+      event_id,
+      items: [...items].sort((a, b) => (a.artist_id || "").localeCompare(b.artist_id || "")),
+      first: items[0],
+    }));
+    arr.sort((x, y) => (y.first.event_date || "").localeCompare(x.first.event_date || ""));
+    return arr;
+  }, [bookings]);
+
+  // Batch-fetch stage_name + category for every unique artist_id shown.
+  useEffect(() => {
+    const ids = Array.from(new Set(bookings.map((b) => b.artist_id))).filter((id) => id && !artistCache[id]);
+    if (!ids.length) return;
+    let cancelled = false;
+    Promise.all(ids.map((id) => api.get(`/artists/${id}`).catch(() => null))).then((rs) => {
+      if (cancelled) return;
+      const next = { ...artistCache };
+      rs.forEach((r) => {
+        if (!r?.data) return;
+        const uid = r.data.user_id || r.data.id;
+        next[uid] = {
+          stage_name: r.data.stage_name || r.data.profile?.stage_name || "Artist",
+          category: r.data.category || r.data.profile?.category,
+          emoji: r.data.emoji || r.data.profile?.emoji || "🎤",
+        };
+      });
+      setArtistCache(next);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings]);
+
+  if (!groups.length) {
+    return (
+      <div className="card card-pad text-center">
+        <div style={{ fontSize: 44 }}>🎪</div>
+        <div className="fw-600 mt-8">No events yet</div>
+        <div className="text-muted fs-13 mt-4">Book an artist and this is where all your events will show up.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {groups.map((g) => {
+        const evDate = g.first.event_date;
+        const evType = g.first.event_type;
+        const venue = g.first.venue;
+        const city = g.first.city;
+        const isMulti = g.items.length > 1;
+        return (
+          <div key={g.event_id} className="event-group-card" data-testid={`event-group-${g.event_id}`}>
+            <div className="event-group-head">
+              <div>
+                <div className="event-group-title">{evType || "Event"} — {formatDate(evDate)}</div>
+                <div className="event-group-sub">{venue}{city ? `, ${city}` : ""} · {g.items.length} artist{isMulti ? "s" : ""}</div>
+              </div>
+              <div className="event-group-actions">
+                <button
+                  className="btn btn-ghost btn-xs"
+                  onClick={() => window.open(`/recap/${g.event_id}`, "_blank", "noopener")}
+                  data-testid={`event-share-${g.event_id}`}
+                >💬 Share Recap</button>
+              </div>
+            </div>
+            <div className="event-group-artists">
+              {g.items.map((b) => {
+                const info = artistCache[b.artist_id] || {};
+                return (
+                <div key={b.id} className="event-group-artist-row" data-testid={`event-artist-${b.id}`}>
+                  <div className="event-group-thumb">
+                    <span>{info.emoji || "🎤"}</span>
+                  </div>
+                  <div>
+                    <div className="fw-600 fs-13">{info.stage_name || "Artist"}</div>
+                    <div className="text-muted fs-11">{info.category || b.event_type || ""} · {b.ref}</div>
+                  </div>
+                  <span className={`event-group-status-pill ${statusClass(b.status)}`}>
+                    {statusLabel(b.status)}
+                  </span>
+                  {b.status === "pending_artist" && (
+                    <button className="btn btn-ghost btn-xs" onClick={() => onAction(b.id, "cancel")} data-testid={`event-cancel-${b.id}`}>Cancel</button>
+                  )}
+                </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function statusClass(s) {
+  if (["confirmed", "started"].includes(s)) return "confirmed";
+  if (["completed", "reviewed"].includes(s)) return "completed";
+  if (["cancelled", "rejected", "auto_expired"].includes(s)) return "cancelled";
+  return "pending";
+}
+function statusLabel(s) {
+  const map = {
+    pending_payment: "Awaiting Payment",
+    pending_artist: "Awaiting Artist",
+    confirmed: "Confirmed",
+    started: "In Progress",
+    completed: "Completed",
+    reviewed: "Reviewed",
+    cancelled: "Cancelled",
+    rejected: "Rejected",
+    auto_expired: "Expired",
+  };
+  return map[s] || s;
+}
+function formatDate(s) {
+  if (!s) return "";
+  try {
+    return new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  } catch { return s; }
+}
+
