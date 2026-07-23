@@ -64,6 +64,9 @@ export function useEventCart({ id, artist, pkg, form, primarySubtotal, legacyAdd
         }));
       }
     } catch { /* localStorage disabled */ }
+    // Notify listeners (EventCartIndicator in the top nav) that the pending
+    // cart map has changed so they can re-render without polling.
+    try { window.dispatchEvent(new Event("bt-event-cart-changed")); } catch { /* SSR */ }
     if (!cartRestoredNotified && extraArtists.length > 0 && typeof toast === "function") {
       setCartRestoredNotified(true);
       toast(`Welcome back — ${extraArtists.length} artist${extraArtists.length > 1 ? "s" : ""} still in your event cart`, "success");

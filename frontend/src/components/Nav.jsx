@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import NotificationBell from "./NotificationBell";
+import EventCartIndicator from "./EventCartIndicator";
 
 export default function Nav() {
   const { user, logout } = useAuth();
@@ -54,6 +55,7 @@ export default function Nav() {
               </>
             ) : (
               <>
+                <EventCartIndicator />
                 <NotificationBell />
                 <span className="text-muted fs-13" data-testid="nav-user-name">
                   Hi, {user.first_name}
