@@ -5,6 +5,7 @@ import api, { fmtINRFull, formatApiError, API } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import ChatBox from "../components/ChatBox";
+import PendingEventCarts from "../components/PendingEventCarts";
 
 export default function CustomerDashboard() {
   const { user } = useAuth();
@@ -99,6 +100,11 @@ export default function CustomerDashboard() {
             <Kpi icon="✅" cls="kpi-icon-green" num={analytics.completed || 0} label="Completed" />
             <Kpi icon="📅" cls="kpi-icon-amber" num={analytics.upcoming || 0} label="Upcoming" />
           </div>
+
+          {/* Resume-in-progress event carts (Iter 52.5 — user request:
+              "I added artists but navigated away by mistake, where is my
+              event cart?"). Only renders when at least one is stored. */}
+          <PendingEventCarts />
 
           {tab === "overview" && (
             <div className="card" data-testid="cust-overview">

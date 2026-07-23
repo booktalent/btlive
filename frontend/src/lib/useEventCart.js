@@ -31,21 +31,44 @@ export function useEventCart({ id, artist, pkg, form, primarySubtotal, legacyAdd
   const [addModalArtist, setAddModalArtist] = useState(null);
   const [cartRestoredNotified, setCartRestoredNotified] = useState(false);
 
-  // Persist after every mutation
+  // Persist after every mutation.
+  // Payload now includes primary artist name + photo so the "Pending Carts"
+  // panel on the Customer Dashboard can render a Resume card without having
+  // to re-fetch the artist. (Iter 52.5 UX request — users kept losing carts
+  // when they navigated away by mistake and forgot which artist they had
+  // started with.)
   useEffect(() => {
     if (!storageKey) return;
     try {
       if (extraArtists.length === 0) {
         localStorage.removeItem(storageKey);
       } else {
-        localStorage.setItem(storageKey, JSON.stringify({ items: extraArtists, saved_at: Date.now() }));
+        const primaryProfile = artist?.profile || {};
+        const primaryPhoto = primaryProfile.profile_image
+          ? (thumbUrl?.(primaryProfile.profile_image) || mediaUrl?.(primaryProfile.profile_image) || null)
+          : null;
+        const primaryName =
+          primaryProfile.stage_name ||
+          `${artist?.first_name || ""} ${artist?.last_name || ""}`.trim() ||
+          "Primary Artist";
+        localStorage.setItem(storageKey, JSON.stringify({
+          items: extraArtists,
+          saved_at: Date.now(),
+          primary_id: id,
+          primary_name: primaryName,
+          primary_photo: primaryPhoto,
+          primary_category: primaryProfile.category,
+          primary_city: primaryProfile.city,
+          event_date: form?.event_date || null,
+          event_city: form?.city || null,
+        }));
       }
     } catch { /* localStorage disabled */ }
     if (!cartRestoredNotified && extraArtists.length > 0 && typeof toast === "function") {
       setCartRestoredNotified(true);
       toast(`Welcome back — ${extraArtists.length} artist${extraArtists.length > 1 ? "s" : ""} still in your event cart`, "success");
     }
-  }, [extraArtists, storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [extraArtists, storageKey, artist, id, form?.event_date, form?.city]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addSecondaryArtist = useCallback((cartItem) => {
     setExtraArtists((prev) => prev.some((x) => x.artist_id === cartItem.artist_id) ? prev : [...prev, cartItem]);
