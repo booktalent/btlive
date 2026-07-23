@@ -173,10 +173,6 @@ export default function ArtistProfile() {
             <div className="font-serif fs-20 fw-700">{profile.experience_years || 8} yrs</div>
             <div className="text-muted fs-11 mt-4">Experience</div>
           </div>
-          <div className="card card-pad text-center profile-stat-full">
-            <div className="font-serif fs-20 fw-700">{profile.followers}</div>
-            <div className="text-muted fs-11 mt-4">Followers</div>
-          </div>
         </div>
 
         <div className="profile-main-grid">
