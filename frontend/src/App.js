@@ -32,6 +32,8 @@ import BlogList from "./pages/BlogList";
 import BlogArticle from "./pages/BlogArticle";
 import RecapPage from "./pages/RecapPage";
 import EventPlannerPage from "./pages/EventPlannerPage";
+import CartPage from "./pages/CartPage";
+import AgencyDashboardV2 from "./pages/agency/AgencyDashboardV2";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
@@ -74,11 +76,13 @@ function App() {
                 <Route path="/blog/:slug" element={<BlogArticle />} />
                 <Route path="/recap/:event_id" element={<RecapPage />} />
                 <Route path="/planner" element={<EventPlannerPage />} />
+                <Route path="/cart" element={<CartPage />} />
 
                 <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
                 <Route path="/customer" element={<Protected roles={ROLES_CUSTOMER}><CustomerDashboard /></Protected>} />
                 <Route path="/artist" element={<Protected roles={ROLES_ARTIST}><ArtistDashboard /></Protected>} />
-                <Route path="/agency" element={<Protected roles={ROLES_AGENCY}><AgencyDashboard /></Protected>} />
+                <Route path="/agency/*" element={<Protected roles={ROLES_AGENCY}><AgencyDashboardV2 /></Protected>} />
+                <Route path="/agency-legacy" element={<Protected roles={ROLES_AGENCY}><AgencyDashboard /></Protected>} />
                 <Route path="/corporate" element={<Protected roles={ROLES_CORPORATE}><CorporateDashboard /></Protected>} />
                 <Route path="/admin" element={<Protected roles={ROLES_ADMIN}><AdminDashboard /></Protected>} />
                 <Route path="*" element={<NotFound />} />

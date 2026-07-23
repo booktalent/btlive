@@ -6,6 +6,7 @@ import SEO, { buildBreadcrumb } from "../components/SEO";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import api, { fmtINRFull, mediaUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useBookingCart, savePendingBookNow } from "../lib/useBookingCart";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,6 +19,7 @@ export default function ArtistProfile() {
   const [lightbox, setLightbox] = useState(null); // { items: MediaItem[], idx: number }
   const nav = useNavigate();
   const { user } = useAuth();
+  const { add: addToCart } = useBookingCart();
 
   useEffect(() => {
     // Support both /artist/:uuid and SEO-friendly /artist/:slug URLs
@@ -65,10 +67,29 @@ export default function ArtistProfile() {
   const galleryMedia = media.filter((m) => m.type === "gallery");
   const videoMedia = media.filter((m) => m.type === "video" || m.type === "reel");
 
-  const startBooking = () => {
-    if (!user) { nav("/login"); return; }
-    if (user.role === "artist") { alert("Artists cannot book themselves"); return; }
-    nav(`/book/${artistId}?pkg=${selectedPkg.id}`);
+  const startBooking = async () => {
+    if (user?.role === "artist") { alert("Artists cannot book themselves"); return; }
+    // Always add to cart first (Amazon-style flow). Cart is persistent even
+    // for anonymous users — the server merges the anon cart into the user
+    // cart when they log in.
+    try {
+      await addToCart({
+        artist_id: artistId,
+        package_id: selectedPkg?.id,
+        duration_hours: 3,
+        addons: [],
+      });
+    } catch { /* if the network fails, still proceed — cart is best-effort */ }
+
+    if (!user) {
+      // Persist the intent so post-login we come right back to /cart.
+      savePendingBookNow({ artist_id: artistId, package_id: selectedPkg?.id });
+      try { sessionStorage.setItem("bt_post_login_redirect", "/cart"); } catch { /* ignore */ }
+      nav("/login?next=/cart");
+      return;
+    }
+    // Authenticated → jump straight to cart, user can add more artists or checkout.
+    nav("/cart");
   };
 
   // ── SEO JSON-LD (Person + Offer for the cheapest package) ───────────

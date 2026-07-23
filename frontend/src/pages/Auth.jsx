@@ -67,14 +67,26 @@ export default function Auth({ mode = "signin" }) {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  // Determine the post-login destination: (1) `?next=` param wins,
+  // (2) sessionStorage `bt_post_login_redirect` (set by cart flow), else
+  // (3) fall back to the role-based dashboard.
+  const resolveDest = (u) => {
+    const nextParam = params.get("next");
+    if (nextParam) return nextParam;
+    try {
+      const stashed = sessionStorage.getItem("bt_post_login_redirect");
+      if (stashed) { sessionStorage.removeItem("bt_post_login_redirect"); return stashed; }
+    } catch { /* ignore */ }
+    return u.role === "admin" ? "/admin" : u.role === "artist" ? "/artist" : u.role === "agency" ? "/agency" : u.role === "corporate" ? "/corporate" : "/customer";
+  };
+
   const doSignIn = async (e) => {
     e?.preventDefault();
     setBusy(true);
     try {
       const u = await login(form.email, form.password);
       toast(`Welcome back, ${u.first_name}!`);
-      const dest = u.role === "admin" ? "/admin" : u.role === "artist" ? "/artist" : u.role === "agency" ? "/agency" : u.role === "corporate" ? "/corporate" : "/customer";
-      nav(dest);
+      nav(resolveDest(u));
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(false);
   };
@@ -94,8 +106,7 @@ export default function Auth({ mode = "signin" }) {
       };
       const u = await register(payload);
       toast(`Welcome to BookTalent, ${u.first_name}!`);
-      const dest = u.role === "artist" ? "/artist" : u.role === "admin" ? "/admin" : u.role === "agency" ? "/agency" : u.role === "corporate" ? "/corporate" : "/customer";
-      nav(dest);
+      nav(resolveDest(u));
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(false);
   };
