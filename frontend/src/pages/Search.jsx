@@ -280,7 +280,7 @@ export default function Search() {
 
         {loading ? (
           <div className="artist-grid-v2">
-            {[...Array(8)].map((_, i) => <div key={i} className="sk-artist-card" data-testid={`sk-search-${i}`} />)}
+            {[...Array(8)].map((_, i) => <div key={`sk-search-${i}`} className="sk-artist-card" data-testid={`sk-search-${i}`} />)}
           </div>
         ) : items.length === 0 ? (
           <div className="empty">

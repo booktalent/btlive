@@ -326,7 +326,7 @@ export default function Landing() {
             "Weddings & Receptions", "Corporate Events", "Birthday Parties", "College Fests",
             "Brand Activations", "Private Concerts", "Club Nights", "Hotel Shows", "Virtual Events",
           ].map((label, i) => (
-            <div className="marquee-item" key={i}>
+            <div className="marquee-item" key={`${label}-${i}`}>
               <span className="marquee-dot" /> {label}
             </div>
           ))}
@@ -400,7 +400,7 @@ export default function Landing() {
               </div>
               <div className="artist-grid-v2">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className="sk-artist-card" data-testid={`sk-rail-${i}`}>
+                  <div key={`sk-rail-${i}`} className="sk-artist-card" data-testid={`sk-rail-${i}`}>
                     <div className="sk sk-cover" />
                     <div className="sk-body">
                       <div className="sk sk-line mid" />
