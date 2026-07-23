@@ -1,6 +1,14 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔒 Iter 51 — Security Audit: cookie-only auth + ffmpeg subprocess hardening (2026-02-19)
+- **XSS token-theft vector CLOSED.** JWT no longer stored in `localStorage` on the frontend. httpOnly `access_token` cookie (Secure, SameSite=Lax, 7d) is the **sole** auth carrier for REST + WebSocket. AuthContext now derives session by calling `/auth/me` on mount (falls back to anonymous on 401). Legacy `bt_token` is wiped from localStorage on first load.
+- **Files touched (FE)**: `lib/auth.jsx` (rewritten), `lib/api.js` (removed Bearer interceptor), `components/ChatBox.jsx` (WS no longer sends `?token=`), `components/MediaUploader.jsx` (three axios calls → `withCredentials:true`), `pages/CustomerDashboard.jsx` + `pages/BookingFlow.jsx` (PDF-download `fetch` uses `credentials:"include"`), `components/QuestionnaireWizard.jsx` (fixed `react-hooks/exhaustive-deps` warning by wrapping `shouldShow` in `useCallback`).
+- **Files touched (BE)**: `chat_routes.py:239` — WS `ws_chat` now accepts optional `?token=` **or** falls back to `websocket.cookies.get("access_token")`; `video_compression.py:_run_ffmpeg` — added explicit path allow-list (tempdir + MEDIA_ROOT) & NUL-byte guard, plus a security note clarifying `asyncio.create_subprocess_exec` is the safe `execve` API (NOT Python's `exec()` builtin, NOT `shell=True`).
+- **Testing**: testing_agent_v3_fork iteration_51.json → 20/20 iter51 tests + 19/19 iter30 cookie-auth regression → **39/39 green**. Verified login/register/otp-verify all set the httpOnly cookie, `/auth/me` works cookie-only, logout clears it, WS accepts cookie-only auth, invoice PDF + chunked upload endpoints reachable without any Bearer header, ffmpeg still compresses a 2.4 MB test-pattern mp4 (`video_compressed=true`), session persists across hard refresh, `localStorage.bt_token` stays null.
+
+
+
 ## 🎨 Iter 41 — Home / Category / City / Blog banners fully admin-editable (2026-02-18)
 - **Home page hero**: 6 new admin-editable public settings (`home_hero_image/eyebrow/title/subtitle/cta_label/cta_url`) — Landing renders them when set and falls back to the default poetic hero otherwise. Managed via Admin → Settings → 🏠 Homepage Hero Banner.
 - **Category & City landing banners**: `MasterItem` model now accepts `hero_image / hero_title / hero_subtitle / hero_cta_label / hero_cta_url`. Category (`/artists/<slug>`) and City (`/artists/city/<slug>`) pages show these as a hero when set. Managed via Admin → Master Data (each row now has a "▼ Featured Banner" toggle).
