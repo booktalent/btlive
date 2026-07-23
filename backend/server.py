@@ -1861,6 +1861,29 @@ async def payment_batch_verify(body: BatchPaymentVerify, user: dict = Depends(ge
 # (registered near the bottom of this file alongside the other route modules).
 
 
+# Iter 53 — Artist Payment Gating: platform fee, GST and BookTalent-side totals
+# are BookTalent-only lines. Artists must never see them (transparent
+# business-model rule). They only see: package_name, pricing.package_fee.
+# We keep pricing.addons_total + artist_fee (their earnings) too, but scrub
+# platform_fee / gst / total / token_amount / balance_due before serialising.
+_ARTIST_PRICING_REDACT_KEYS = (
+    "platform_fee",
+    "gst",
+    "total",
+    "token_amount",
+    "balance_due",
+    "coupon_discount",
+)
+
+
+def _redact_pricing_for_artist(booking_doc: dict) -> None:
+    """Remove BookTalent-facing pricing lines from a booking dict in-place."""
+    p = booking_doc.get("pricing")
+    if isinstance(p, dict):
+        for k in _ARTIST_PRICING_REDACT_KEYS:
+            p.pop(k, None)
+
+
 @api.get("/bookings/mine")
 async def my_bookings(status: Optional[str] = None, user: dict = Depends(get_current_user)):
     q: dict = {}
@@ -1882,6 +1905,10 @@ async def my_bookings(status: Optional[str] = None, user: dict = Depends(get_cur
             for k in ("customer_phone", "customer_email"):
                 cleaned.pop(k, None)
             cleaned["_contact_locked"] = True
+        # Iter 53 — Business-model transparency: strip platform-fee / total
+        # from every artist-facing booking payload regardless of payment state.
+        if user["role"] == "artist":
+            _redact_pricing_for_artist(cleaned)
         out.append(cleaned)
     return out
 
@@ -1918,8 +1945,19 @@ async def get_booking(bid: str, user: dict = Depends(get_current_user)):
             artist_clean.pop(k, None)
         artist_clean["_contact_locked"] = True
 
+    # Iter 53 — For artist viewers, strip platform-fee / GST / grand-total from
+    # the pricing block AND the top-level booking fields the customer sees.
+    booking_clean = clean(doc)
+    if user["role"] == "artist":
+        _redact_pricing_for_artist(booking_clean)
+        # customer_phone / customer_email also live on the flat booking doc.
+        if not paid:
+            for k in ("customer_phone", "customer_email"):
+                booking_clean.pop(k, None)
+            booking_clean["_contact_locked"] = True
+
     return {
-        "booking": clean(doc),
+        "booking": booking_clean,
         "artist": artist_clean,
         "artist_profile": clean(artist_p) if artist_p else None,
         "customer": customer_clean,
@@ -3007,6 +3045,11 @@ async def download_invoice_pdf(bid: str, user: dict = Depends(get_current_user))
         raise HTTPException(404, "Booking not found")
     if user["role"] != "admin" and user["id"] not in (booking["customer_id"], booking["artist_id"]):
         raise HTTPException(403, "Forbidden")
+    # Iter 53 — The Platform Service Fee invoice is a BookTalent-to-Customer
+    # document. Artists must not download it (contains platform fee + GST
+    # they shouldn't see).
+    if user["role"] == "artist":
+        raise HTTPException(403, "Platform invoices are issued only to the customer.")
     artist_user = await db.users.find_one({"id": booking["artist_id"]}) or {}
     artist_profile = await db.artist_profiles.find_one({"user_id": booking["artist_id"]}) or {}
     pdf_bytes = generate_invoice_pdf(booking, {**artist_user, **artist_profile})

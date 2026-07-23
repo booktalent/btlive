@@ -219,7 +219,7 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
             <th>Ref</th>
             <th>Event</th>
             <th>Date</th>
-            {role !== "artist" && <th>Amount</th>}
+            {role === "artist" ? <th>Package</th> : <th>Amount</th>}
             <th>Status</th>
             <th>Actions</th>
           </tr>
@@ -241,7 +241,12 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                   )}
                 </td>
                 <td className="fs-12">{b.event_date}<br/><span className="text-muted">{b.event_time}</span></td>
-                {role !== "artist" && (
+                {role === "artist" ? (
+                  <td data-testid={`pkg-cell-${b.id}`}>
+                    <div className="fw-600 fs-13">{b.package_name || "—"}</div>
+                    <div className="text-gold font-serif fs-16 fw-700">{fmtINRFull(b.pricing?.package_fee || 0)}</div>
+                  </td>
+                ) : (
                   <td className="text-gold font-serif fs-18 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>
                 )}
                 <td>
@@ -280,7 +285,7 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                         title="Download Contract PDF"
                       >📄 Contract</button>
                     )}
-                    {b.amount_paid > 0 && (
+                    {b.amount_paid > 0 && role !== "artist" && (
                       <button
                         className="btn btn-ghost btn-xs"
                         onClick={() => downloadPdf(`/bookings/${b.id}/invoice`, `invoice_${b.ref}.pdf`)}
