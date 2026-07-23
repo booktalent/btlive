@@ -933,3 +933,42 @@ Iter 44 shipped multi-artist events via a **post-payment** suggestion strip. Ite
 - AI Event Planner + smart add-on recommendations
 - Refactor server.py (~3300 lines) into routes/bookings.py, routes/events.py, routes/payments.py
 
+
+---
+
+## Iter 46 — AI Event Planner + Cart Persistence + Duplicate Guard + `useEventCart` (Feb 2026)
+
+### 1. Duplicate Artist Guard
+The suggested-artist "+ Add to Event" button now flips to **"✓ Already in your event"**, is disabled, and carries a friendly title tooltip. Removing the artist from the cart re-enables the button — verified by testing agent.
+
+### 2. Cart Persistence
+Secondary-artist cart is saved to `localStorage['bt_event_cart_<primaryArtistId>']` after every mutation. On mount, the cart is restored and a one-shot toast "Welcome back — N artists still in your event cart" fires. `clearCart()` is called on both single-artist and batch-artist successful checkout so the cart is wiped after payment.
+
+### 3. AI Event Planner — `/api/event-planner/suggest`
+- **Backend**: `/app/backend/routes/event_planner.py` — Claude Sonnet 4.6 via Emergent Universal Key with a deterministic rule-based fallback. Never 500s.
+- **Response shape**: `{ headline, rationale, categories: [{category, reason, priority: 1|2|3}, …], addons: [{name, reason}, …], approx_budget, source: 'llm'|'fallback' }`
+- **Frontend**: `/app/frontend/src/pages/EventPlannerPage.jsx` — public `/planner` route. Brief form → Curated line-up with priority-tagged categories + smart add-ons + `Explore <cat>s →` deep-links to `/discover?category=&city=&date=`.
+- **Nav**: New `[data-testid=nav-planner]` link in desktop + mobile drawer.
+- **Route alias**: Added `/discover` as an alias for `/search` so planner deep-links resolve cleanly; category label stripped of "/ Suffix" for chip matching.
+
+### 4. `useEventCart` hook — Skinnier BookingFlow
+New hook at `/app/frontend/src/lib/useEventCart.js` (126 lines) owns:
+- primary + secondary composition into `cartItems`
+- `cartArtistIds`, `cartPricing` (5% + 18% GST)
+- localStorage persistence + welcome-back toast
+- `addSecondaryArtist`, `removeSecondaryArtist`, `clearCart`
+
+Result: `BookingFlow.jsx` 1146 → **1086 lines** (-60).
+
+### Verified
+- `/app/test_reports/iteration_46.json` — Backend 11/11, Frontend 80% (only Explore CTA bug)
+- `/app/test_reports/iteration_46_retest.json` — Frontend 100% after `/discover` alias fix
+- `/app/backend/tests/test_iter46_event_planner.py` — LLM + fallback + example endpoints tested
+
+### Follow-up backlog
+- Landing-page hero CTA for `/planner` ("Try the AI Event Planner →")
+- Planner: "Add all to cart" one-shot button that fills the event cart with best-fit artists for each recommended category
+- Extract `<PaymentStep />` sub-component + move batch/single branching there
+- Refactor `server.py` (~3300 lines) into `routes/bookings.py`, `routes/events.py`, `routes/payments.py`
+- FFmpeg chunked video compression for artist media uploads
+
