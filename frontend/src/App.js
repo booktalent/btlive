@@ -32,7 +32,6 @@ import BlogList from "./pages/BlogList";
 import BlogArticle from "./pages/BlogArticle";
 import RecapPage from "./pages/RecapPage";
 import EventPlannerPage from "./pages/EventPlannerPage";
-import CartPage from "./pages/CartPage";
 import AgencyDashboardV2 from "./pages/agency/AgencyDashboardV2";
 
 function Protected({ children, roles }) {
@@ -76,7 +75,6 @@ function App() {
                 <Route path="/blog/:slug" element={<BlogArticle />} />
                 <Route path="/recap/:event_id" element={<RecapPage />} />
                 <Route path="/planner" element={<EventPlannerPage />} />
-                <Route path="/cart" element={<CartPage />} />
 
                 <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
                 <Route path="/customer" element={<Protected roles={ROLES_CUSTOMER}><CustomerDashboard /></Protected>} />

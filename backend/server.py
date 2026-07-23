@@ -3195,10 +3195,11 @@ app.include_router(_iter9_router, prefix="/api")
 _iter11_router = make_iter11_router(db, get_current_user, admin_only)
 app.include_router(_iter11_router, prefix="/api")
 
-# Iter52 — Persistent multi-artist Cart + Agency CRM (offline artists/clients/events/staff/finance)
-from routes.cart import make_cart_router  # noqa: E402
+# Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
+# Note: the persistent Booking Cart shipped in Iter 52 was removed at user
+# request in Iter 52.5 — the artist-profile flow is single-artist and
+# customer-login-gated as before. Cart router + collection are gone.
 from routes.agency_crm import make_agency_crm_router  # noqa: E402
-app.include_router(make_cart_router(db, get_current_user), prefix="/api")
 app.include_router(make_agency_crm_router(db, get_current_user), prefix="/api")
 
 # Iter13 — server.py modularisation. Domain routers split out for maintainability.

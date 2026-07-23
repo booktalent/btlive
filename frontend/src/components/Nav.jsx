@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import NotificationBell from "./NotificationBell";
-import CartIcon from "./CartIcon";
 
 export default function Nav() {
   const { user, logout } = useAuth();
@@ -48,7 +47,6 @@ export default function Nav() {
             {user && <Link to={dashLink} className="nav-link" data-testid="nav-dashboard">Dashboard</Link>}
           </div>
           <div className="nav-actions">
-            <CartIcon />
             {!user ? (
               <>
                 <Link to="/login" className="btn btn-ghost btn-sm" data-testid="nav-signin">Sign In</Link>
