@@ -49,7 +49,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!user) { nav("/login"); return; }
     if (user.role !== "admin") { nav("/"); return; }
-    api.get("/admin/stats").then(r => setStats(r.data));
+    api.get("/admin/stats").then(r => setStats(r.data)).catch(() => {});
     // `nav` from react-router is stable; only re-run when `user` changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -156,7 +156,7 @@ function AdminArtists({ toast }) {
   const [list, setList] = useState([]);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const reload = () => api.get("/admin/artists").then((r) => setList(r.data));
+  const reload = () => api.get("/admin/artists").then((r) => setList(r.data)).catch(() => setList([]));
   useEffect(() => { reload(); }, []);
   const feature = async (uid) => { await api.post(`/admin/artists/${uid}/feature`); toast("Feature toggled"); reload(); };
   const suspend = async (uid) => {
@@ -222,7 +222,7 @@ function AdminArtists({ toast }) {
 
 function AdminBookings() {
   const [list, setList] = useState([]);
-  useEffect(() => { api.get("/admin/bookings").then(r => setList(r.data)); }, []);
+  useEffect(() => { api.get("/admin/bookings").then(r => setList(r.data)).catch(() => setList([])); }, []);
   return (
     <div className="card" data-testid="admin-bookings">
       <div className="card-head"><div className="card-title">📋 All Bookings ({list.length})</div></div>
@@ -251,7 +251,7 @@ function AdminKYC({ toast }) {
   const [list, setList] = useState([]);
   const [status, setStatus] = useState("pending");
   const [expanded, setExpanded] = useState(null);
-  const reload = () => api.get(`/admin/kyc?status=${status}`).then((r) => setList(r.data));
+  const reload = () => api.get(`/admin/kyc?status=${status}`).then((r) => setList(r.data)).catch(() => setList([]));
   // `reload` is a new closure every render — including it triggers infinite fetch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [status]);
@@ -381,7 +381,7 @@ function AdminCoupons({ toast }) {
   const [drillIn, setDrillIn] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [form, setForm] = useState({ code: "", description: "", discount_type: "percent", discount_value: 10, max_uses: 100, per_user_limit: 1, expires_at: "2026-12-31", min_order: 0, applies_to: "all", active: true });
-  const reload = () => api.get("/admin/coupons/analytics").then(r => setAnalytics(r.data));
+  const reload = () => api.get("/admin/coupons/analytics").then(r => setAnalytics(r.data)).catch(() => setAnalytics({}));
   useEffect(() => { reload(); }, []);
   const create = async () => {
     try { await api.post("/admin/coupons", form); toast("Created"); setShowAdd(false); reload(); }
@@ -504,8 +504,9 @@ function AdminUsers({ toast }) {
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
-  const reload = () => api.get(`/admin/users${filter ? `?role=${filter}` : ""}`).then((r) => setList(r.data));
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [filter]);
+  const reload = () => api.get(`/admin/users${filter ? `?role=${filter}` : ""}`).then((r) => setList(r.data)).catch(() => setList([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { reload(); }, [filter]);
   const suspend = async (uid) => {
     const r = await api.post(`/admin/artists/${uid}/suspend`);
     toast?.(r.data.suspended ? "Suspended" : "Unsuspended");
@@ -758,11 +759,11 @@ function UserEditModal({ user, profile, onClose, onSaved, toast }) {
 
 function AdminDisputes({ toast }) {
   const [list, setList] = useState([]);
-  useEffect(() => { api.get("/admin/disputes").then(r => setList(r.data)); }, []);
+  useEffect(() => { api.get("/admin/disputes").then(r => setList(r.data)).catch(() => setList([])); }, []);
   const resolve = async (did, decision) => {
     await api.post(`/admin/disputes/${did}/resolve`, { decision });
     toast("Resolved");
-    api.get("/admin/disputes").then(r => setList(r.data));
+    api.get("/admin/disputes").then(r => setList(r.data)).catch(() => setList([]));
   };
   return (
     <div className="card" data-testid="admin-disputes">
