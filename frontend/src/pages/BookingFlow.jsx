@@ -100,7 +100,7 @@ export default function BookingFlow() {
     params.set("limit", "6");
     api
       .get(`/artists/${successData.booking.artist_id}/suggested?${params.toString()}`)
-      .then((r) => setSuggested(Array.isArray(r.data) ? r.data : (r.data?.artists || [])))
+      .then((r) => setSuggested(Array.isArray(r.data) ? r.data : (r.data?.suggested || r.data?.artists || [])))
       .catch(() => setSuggested([]));
   }, [step, successData]);
 

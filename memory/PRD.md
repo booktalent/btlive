@@ -859,3 +859,35 @@ BookTalent is a strict **fixed-pricing lead-generation** marketplace. Artists ca
 - **P2** Refactor `server.py` (~3000 lines) and `iter7_routes.py` into `routes/bookings.py`, `routes/payments.py`, etc.
 - **P2** Extract `artistFee(b)` helper — same fallback expression is copy-pasted 4× in ArtistDashboard.jsx
 
+
+
+---
+
+## Iter 44 — Multi-Artist Event + Shareable Booking Recap (Feb 2026)
+
+### Product concept
+A customer often needs 2-3 artists for one event (Vocalist + DJ + Anchor for a wedding, etc.). BookTalent now treats every booking as belonging to an **Event Umbrella** (event_id UUID). One event can house many bookings — each with its own contract, its own 24-hour Artist Confirmation window, its own accept/reject lifecycle. From the customer's side, all the artists live under one shareable Booking Recap page.
+
+### Backend
+- `BookingCreate.event_id: Optional[str]` — pass an existing event_id to attach to that umbrella (must belong to caller). Omit = mint a new umbrella.
+- `POST /api/bookings` now auto-generates event_id and returns it on the booking doc.
+- `POST /api/bookings/batch` — create up to 6 bookings in one call, all under one event_id. First item mints event_id; remaining items attach.
+- `POST /api/payments/batch/init` + `POST /api/payments/batch/verify` — single Razorpay checkout that flips N bookings to `pending_artist` in one go. Verify has a status guard: only mutates bookings currently in `pending_payment`.
+- `GET /api/events/{event_id}/recap` — PUBLIC. Returns event details + artists[]. Legacy single-artist bookings shareable via their booking_id (fallback lookup).
+- `GET /api/events/{event_id}/summary` — auth + ACL, returns aggregate {platform_fee, gst, amount_paid, count}.
+
+### Frontend
+- `/recap/:event_id` public page — QR code, share buttons (WhatsApp / Copy Link / Email), watermark, empty state.
+- BookingFlow success screen — "Share Event Recap" button + horizontal "Complete your event" strip of complementary artists that link back with `?event_id=…` to auto-attach.
+- BookingFlow now reads `?event_id=` and pre-fills date/time/city/venue/event_type from URL.
+- CustomerDashboard — "Share Recap" button on every applicable booking row.
+
+### Verified
+- `/app/test_reports/iteration_44_retest.json` — Backend 16/16, Frontend 5/5
+- Live multi-artist event `074519dd-c59b-4db3-a109-324b3798fbc9` renders 2 artists correctly
+
+### Follow-up backlog
+- Pre-payment cart drawer UI (batch endpoint exists; needs UX)
+- AI Event Planner + smart add-on recommendations
+- Refactor server.py (~3300 lines) into routes/bookings.py, routes/events.py, routes/payments.py
+- Extract `artistFee(b)` helper — repeated 4× in ArtistDashboard.jsx
