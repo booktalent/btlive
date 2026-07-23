@@ -28,7 +28,18 @@ const ADDONS = [
   { id: "extra-hour", label: "⏱️ Extra Hour", price: 8000 },
 ];
 
-const TIME_SLOTS = ["2:00 PM", "4:00 PM", "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM", "11:00 PM"];
+// Iter 52.5 — Time slots now carry a mood-label so the grid reads like a
+// premium concierge picker ("6:00 PM · Evening") instead of a bare list.
+const TIME_SLOTS = [
+  { time: "2:00 PM",  label: "Matinee" },
+  { time: "4:00 PM",  label: "Afternoon" },
+  { time: "6:00 PM",  label: "Evening" },
+  { time: "7:00 PM",  label: "Evening" },
+  { time: "8:00 PM",  label: "Prime" },
+  { time: "9:00 PM",  label: "Popular" },
+  { time: "10:00 PM", label: "Late" },
+  { time: "11:00 PM", label: "Late" },
+];
 
 export default function BookingFlow() {
   const { id } = useParams();
@@ -511,40 +522,51 @@ export default function BookingFlow() {
 
             {step === 2 && (
               <>
-              <div className="card card-pad" data-testid="step-2">
-                <h2 className="font-serif fs-20 fw-700 mb-8">Pick your Date & Time</h2>
-                <p className="text-muted fs-13 mb-20">Tap an available (green) date on the calendar. Red dates are already booked.</p>
+              <div className="card card-pad datetime-step" data-testid="step-2">
+                <h2 className="datetime-heading">
+                  Pick your <span className="datetime-heading-serif">Date &amp; Time</span>
+                </h2>
+                <p className="text-muted fs-13 mb-20" style={{ paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  Select an available date and preferred performance time slot.
+                </p>
                 <AvailabilityCalendar
                   artistUserId={id}
                   selected={form.event_date}
                   onPick={(d) => set("event_date", d)}
                 />
                 {form.event_date && (
-                  <div className="text-center mt-12 fs-13" style={{ color: "var(--gold-light)" }}>
-                    Selected: <strong>{form.event_date}</strong>
+                  <div className="datetime-selected-pill" data-testid="selected-date-pill">
+                    <span aria-hidden style={{ fontSize: 15 }}>📅</span>
+                    <span>{new Date(form.event_date + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</span>
                   </div>
                 )}
                 {form.event_date && (
-                  <div className="field mt-20">
-                    <div className="field-label">Performance Start Time</div>
-                    <div className="grid grid-4 gap-10">
-                      {TIME_SLOTS.map((t) => (
-                        <div
-                          key={t}
-                          onClick={() => set("event_time", t)}
-                          className={`pkg-card text-center ${form.event_time === t ? "selected" : ""}`}
-                          style={{ padding: 12, fontSize: 13, fontWeight: 600 }}
-                          data-testid={`time-${t.replace(/[^0-9]/g, "")}`}
-                        >
-                          {t}
-                        </div>
-                      ))}
+                  <div className="field mt-20 timeslot-block">
+                    <div className="fs-14 fw-700 mb-12">Select Performance Start Time</div>
+                    <div className="timeslot-grid">
+                      {TIME_SLOTS.map((t) => {
+                        const active = form.event_time === t.time;
+                        return (
+                          <button
+                            key={t.time}
+                            type="button"
+                            onClick={() => set("event_time", t.time)}
+                            className={`timeslot-card ${active ? "active" : ""}`}
+                            data-testid={`time-${t.time.replace(/[^0-9]/g, "")}`}
+                          >
+                            <div className="timeslot-time">{t.time}</div>
+                            <div className="timeslot-label">{t.label}</div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
                 <div className="flex justify-between mt-24">
                   <button className="btn btn-ghost" onClick={() => setStep(1)} data-testid="step2-back">← Back</button>
-                  <button className="btn btn-gold" disabled={!form.event_date || !form.event_time} onClick={() => setStep(3)} data-testid="step2-next">Continue →</button>
+                  <button className="btn btn-gold" disabled={!form.event_date || !form.event_time} onClick={() => setStep(3)} data-testid="step2-next">
+                    Continue to Event Info →
+                  </button>
                 </div>
               </div>
               {form.event_date && (

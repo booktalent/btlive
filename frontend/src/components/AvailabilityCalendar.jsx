@@ -79,9 +79,15 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
   return (
     <div className="avail-cal card card-pad" data-testid="availability-calendar">
       <div className="avail-cal-head">
-        <button type="button" onClick={() => step(-1)} className="avail-cal-nav" aria-label="Previous month" data-testid="cal-prev">‹</button>
-        <div className="avail-cal-title">{monthLabel}</div>
-        <button type="button" onClick={() => step(1)} className="avail-cal-nav" aria-label="Next month" data-testid="cal-next">›</button>
+        <div className="avail-cal-header-pill" data-testid="avail-cal-header-pill">
+          <button type="button" onClick={() => step(-1)} className="avail-cal-nav" aria-label="Previous month" data-testid="cal-prev">‹</button>
+          <div className="avail-cal-title">{monthLabel}</div>
+          <button type="button" onClick={() => step(1)} className="avail-cal-nav" aria-label="Next month" data-testid="cal-next">›</button>
+        </div>
+        <div className="avail-cal-mini-legend" aria-hidden>
+          <span><i className="dot dot-free" /> Available</span>
+          <span><i className="dot dot-blocked" /> Booked</span>
+        </div>
       </div>
       {bulkMode && (
         <div className="avail-cal-toolbar">
@@ -115,14 +121,8 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
           )}
         </div>
       )}
-      <div className="avail-cal-legend">
-        <span><i className="dot dot-free" /> Free</span>
-        <span><i className="dot dot-premium" /> Premium</span>
-        <span><i className="dot dot-blocked" /> Booked / Blocked</span>
-        <span><i className="dot dot-selected" /> Selected</span>
-      </div>
       <div className="avail-cal-grid">
-        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => (
           <div key={`h-${i}`} className="avail-cal-h">{d}</div>
         ))}
         {days.map((d, i) => {
@@ -204,6 +204,12 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
             </button>
           );
         })}
+      </div>
+      <div className="avail-cal-legend avail-cal-legend-footer">
+        <span><i className="dot dot-free" /> Available</span>
+        <span><i className="dot dot-blocked" /> Booked</span>
+        <span><i className="dot dot-selected" /> Selected</span>
+        <span><i className="dot dot-today" /> Today</span>
       </div>
       {loading && <div className="avail-cal-loading">Loading availability…</div>}
       {bulkMode && bulkSelection.size > 0 && (

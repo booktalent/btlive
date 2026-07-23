@@ -1504,166 +1504,198 @@ textarea:-webkit-autofill {
 /* ────────────────────────────────────────────────────────────────────────
    Availability Calendar (artist profile + booking flow)
    Iter 52.5 — full visual refresh. Editorial, premium look:
-   • Serif month heading + subtle divider (avoids the "date-picker widget" vibe)
-   • Elevated inline legend (dot only, no chunky rounded blobs)
-   • Cells breathe: no borders on Free days, just a whisper of fill so the
-     calendar reads as a *page*, not a bag of Skittles.
-   • Booked days: strikethrough + muted red text (no chunky ring)
-   • Selected day: soft gold gradient with a golden ring instead of the old
-     saturated-orange square that looked like an alert badge.
+   • Compact rounded "header pill" (‹ Month Year ›) on the left,
+     mini "Available / Booked" legend on the right.
+   • Weekday header row in muted serif-italic style.
+   • Rounded-rectangle cells with subtle emerald outlines for available days,
+     tinted red strike-through for booked days, no border at all for empty
+     leading cells → makes the grid breathe like a magazine spread.
+   • Footer legend under the grid with dot markers.
    ──────────────────────────────────────────────────────────────────────── */
-.avail-cal { padding: 20px 22px 18px; }
+.avail-cal { padding: 22px 22px 18px; }
 .avail-cal-head {
-  display: grid;
-  grid-template-columns: 34px 1fr 34px;
-  align-items: center;
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px;
+  margin-bottom: 6px;
+}
+.avail-cal-header-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
 }
 .avail-cal-title {
   font-family: var(--font-serif, "Cormorant Garamond", serif);
-  font-size: 22px; font-weight: 700;
-  letter-spacing: 0.01em;
-  color: #f6d366;
-  text-align: center;
+  font-size: 20px; font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.005em;
+  padding: 0 8px;
+  min-width: 140px; text-align: center;
 }
 .avail-cal-nav {
-  width: 32px; height: 32px;
-  border-radius: 9px;
-  border: 1px solid rgba(255,255,255,0.1);
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
   background: transparent;
-  color: rgba(255,255,255,0.75);
-  font-size: 17px; line-height: 1;
+  color: rgba(255,255,255,0.85);
+  font-size: 15px; line-height: 1;
   cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease, color 180ms ease, transform 180ms ease;
+  display: grid; place-items: center;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease, color 180ms ease;
 }
 .avail-cal-nav:hover {
-  border-color: rgba(246,211,102,0.5);
-  background: rgba(246,211,102,0.06);
+  border-color: rgba(246,211,102,0.6);
+  background: rgba(246,211,102,0.1);
   color: #f6d366;
-  transform: translateY(-1px);
 }
+
+.avail-cal-mini-legend {
+  display: inline-flex; align-items: center; gap: 16px;
+  font-size: 11.5px; color: rgba(255,255,255,0.65);
+  letter-spacing: 0.02em;
+}
+.avail-cal-mini-legend .dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 4px;
+}
+.avail-cal-mini-legend .dot-free    { background: #6ee7a8; box-shadow: 0 0 6px rgba(110,231,168,0.5); }
+.avail-cal-mini-legend .dot-blocked { background: #ff8888; box-shadow: 0 0 6px rgba(255,120,120,0.4); }
 
 .avail-cal-legend {
   display: flex; gap: 20px; flex-wrap: wrap;
-  margin-bottom: 12px;
-  font-size: 11px; color: var(--white-muted);
+  font-size: 11.5px; color: rgba(255,255,255,0.65);
   letter-spacing: 0.02em;
+}
+.avail-cal-legend-footer {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.05);
 }
 .avail-cal-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .avail-cal-legend .dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
 }
-.dot-free    { background: rgba(110,231,168,0.7); }
-.dot-blocked { background: rgba(239,68,68,0.8); }
+.dot-free    { background: #6ee7a8; }
+.dot-blocked { background: #ff8888; }
 .dot-premium { background: linear-gradient(135deg, #b294ff, #f6d366); }
-.dot-selected{ background: linear-gradient(135deg, #f6d366, #b48429); box-shadow: 0 0 6px rgba(246,211,102,0.6); }
+.dot-selected{ background: linear-gradient(135deg, #b294ff, #7d5cff); }
+.dot-today   { background: #f6d366; }
 
 .avail-cal-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
+  gap: 6px;
+  margin-top: 14px;
 }
 .avail-cal-h {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.18em;
-  color: rgba(255,255,255,0.4);
-  text-align: center; padding: 8px 0 10px;
-  text-transform: uppercase;
+  font-size: 12px; font-weight: 500;
+  color: rgba(255,255,255,0.5);
+  text-align: center; padding: 8px 0 6px;
+  font-family: var(--font-serif, "Cormorant Garamond", serif);
+  font-style: italic;
+  letter-spacing: 0.03em;
 }
 .avail-cal-cell {
-  aspect-ratio: 1;
+  aspect-ratio: 1.15 / 1;
   min-width: 0;
-  max-width: 52px;
-  justify-self: center;
+  max-width: 74px;
+  justify-self: stretch;
   width: 100%;
-  border-radius: 10px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: rgba(255,255,255,0.85);
-  font-size: 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+  color: rgba(255,255,255,0.9);
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 200ms ease, color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+  transition: background 200ms ease, color 200ms ease, transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
   display: grid; place-items: center;
   padding: 0;
   position: relative;
 }
 .avail-cal-cell.empty {
-  background: transparent; cursor: default; pointer-events: none;
+  background: transparent;
+  border-color: transparent;
+  cursor: default; pointer-events: none;
   color: transparent;
 }
+/* Available: emerald outline on transparent bg */
 .avail-cal-cell.free {
-  /* Available days: subtle green wash + no border. Feels like a page, not
-     an outlined pill. Number stays white so the color-coding is a hint,
-     not a shout. */
-  background: rgba(110,231,168,0.06);
-  color: rgba(230,255,240,0.95);
+  background: rgba(255,255,255,0.02);
+  border-color: rgba(110,231,168,0.35);
+  color: rgba(255,255,255,0.95);
 }
 .avail-cal-cell.free:hover {
-  background: rgba(110,231,168,0.14);
+  border-color: rgba(110,231,168,0.7);
+  background: rgba(110,231,168,0.08);
   transform: translateY(-1px);
-  box-shadow: 0 6px 14px -8px rgba(110,231,168,0.4);
+  box-shadow: 0 8px 18px -10px rgba(110,231,168,0.45);
 }
+/* Booked: red strikethrough, muted */
 .avail-cal-cell.blocked {
-  background: rgba(239,68,68,0.05);
-  color: rgba(255,150,150,0.55);
+  background: rgba(255,120,120,0.05);
+  border-color: rgba(255,120,120,0.25);
+  color: rgba(255,120,120,0.75);
   cursor: not-allowed;
   text-decoration: line-through;
   text-decoration-thickness: 1px;
-  text-decoration-color: rgba(239,68,68,0.4);
+  text-decoration-color: rgba(255,120,120,0.6);
 }
-.avail-cal-cell.blocked:hover {
-  /* No hover on non-clickable dates — keep it feeling honest. */
-  transform: none;
-  box-shadow: none;
-}
+.avail-cal-cell.blocked:hover { transform: none; box-shadow: none; }
+/* Premium: violet-gold gradient wash */
 .avail-cal-cell.premium {
   position: relative;
-  background: linear-gradient(135deg, rgba(178,148,255,0.08), rgba(246,211,102,0.10));
+  background: linear-gradient(135deg, rgba(178,148,255,0.10), rgba(246,211,102,0.10));
+  border-color: rgba(246,211,102,0.35);
   color: #f6d366;
   font-weight: 600;
 }
 .avail-cal-cell.premium:hover {
-  background: linear-gradient(135deg, rgba(178,148,255,0.16), rgba(246,211,102,0.18));
+  background: linear-gradient(135deg, rgba(178,148,255,0.18), rgba(246,211,102,0.18));
   transform: translateY(-1px);
-  box-shadow: 0 6px 14px -8px rgba(246,211,102,0.45);
+  box-shadow: 0 8px 18px -10px rgba(246,211,102,0.45);
 }
 .avail-cal-premium-mark {
   position: absolute;
-  top: 3px; right: 5px;
+  top: 4px; right: 6px;
   font-size: 9px;
   font-weight: 700;
   color: #f6d366;
   letter-spacing: -0.5px;
   opacity: 0.85;
 }
+/* Past / dimmed */
 .avail-cal-cell.past {
-  opacity: 0.22;
+  opacity: 0.35;
   cursor: not-allowed;
   color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.015);
+  border-color: rgba(255,255,255,0.04);
 }
-.avail-cal-cell.past:hover { transform: none; background: transparent; box-shadow: none; }
+.avail-cal-cell.past:hover { transform: none; background: rgba(255,255,255,0.015); box-shadow: none; }
+/* Selected: purple gradient with soft violet glow (matches reference) */
 .avail-cal-cell.selected {
-  background: linear-gradient(160deg, rgba(246,211,102,0.85), rgba(180,132,41,0.85)) !important;
-  color: #0b0b0d !important;
-  font-weight: 800;
+  background: linear-gradient(135deg, #7d5cff, #b294ff) !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+  font-weight: 700;
   transform: translateY(-1px);
   box-shadow:
-    0 0 0 2px rgba(246,211,102,0.35),
-    0 12px 28px -12px rgba(246,211,102,0.7);
+    0 0 0 3px rgba(178,148,255,0.28),
+    0 14px 28px -12px rgba(125,92,255,0.7);
   text-decoration: none !important;
 }
 .avail-cal-cell.selected:hover { transform: translateY(-1px); }
-
-/* Today marker — a soft golden dot in the corner if not selected/blocked. */
-.avail-cal-cell.today:not(.selected)::after {
+/* Today marker — golden dot at the bottom */
+.avail-cal-cell.today:not(.selected):not(.blocked)::after {
   content: "";
   position: absolute;
-  bottom: 5px; left: 50%;
-  width: 4px; height: 4px; border-radius: 50%;
+  bottom: 6px; left: 50%;
+  width: 5px; height: 5px; border-radius: 50%;
   background: #f6d366;
   transform: translateX(-50%);
+  box-shadow: 0 0 6px rgba(246,211,102,0.7);
 }
 
 .avail-cal-loading {
@@ -2298,3 +2330,84 @@ textarea:-webkit-autofill {
 }
 .ecart-popover-foot a { color: #f6d366; text-decoration: none; font-weight: 600; }
 .ecart-popover-foot a:hover { text-decoration: underline; }
+
+/* ── Booking step 2 — Pick your Date & Time (Iter 52.5 redesign) ────── */
+.datetime-step { padding: 24px 26px 28px; }
+.datetime-heading {
+  font-family: var(--font-serif, "Cormorant Garamond", serif);
+  font-size: 36px; font-weight: 700; line-height: 1.1;
+  margin: 0 0 6px;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+.datetime-heading-serif {
+  font-style: italic;
+  background: linear-gradient(135deg, #f6d366, #d4a835);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.datetime-selected-pill {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, rgba(125,92,255,0.18), rgba(178,148,255,0.08));
+  border: 1px solid rgba(178,148,255,0.4);
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-top: 18px;
+  box-shadow: 0 8px 22px -14px rgba(125,92,255,0.55);
+  animation: dtp-fade-in 260ms cubic-bezier(.2,.8,.2,1);
+}
+@keyframes dtp-fade-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+.timeslot-block { margin-top: 24px; }
+.timeslot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.timeslot-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px 8px 12px;
+  color: rgba(255,255,255,0.9);
+  cursor: pointer;
+  text-align: center;
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+}
+.timeslot-card:hover {
+  border-color: rgba(178,148,255,0.4);
+  background: rgba(178,148,255,0.06);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px -12px rgba(178,148,255,0.45);
+}
+.timeslot-time {
+  font-family: var(--font-serif, "Cormorant Garamond", serif);
+  font-size: 20px; font-weight: 700; line-height: 1;
+  color: #ffffff;
+}
+.timeslot-label {
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.55);
+  text-transform: capitalize;
+}
+.timeslot-card.active {
+  background: linear-gradient(135deg, #7d5cff, #b294ff);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 3px rgba(178,148,255,0.28),
+    0 16px 30px -14px rgba(125,92,255,0.7);
+}
+.timeslot-card.active .timeslot-time { color: #ffffff; }
+.timeslot-card.active .timeslot-label { color: rgba(255,255,255,0.85); }
+
+@media (max-width: 720px) {
+  .timeslot-grid { grid-template-columns: repeat(2, 1fr); }
+  .datetime-heading { font-size: 28px; }
+  .avail-cal-mini-legend { display: none; }
+}
