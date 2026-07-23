@@ -4,6 +4,7 @@ Pure-Python via ReportLab — no external binaries.
 """
 import io
 from datetime import datetime
+from typing import Any, Dict
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib import colors
@@ -19,7 +20,7 @@ MUTED = colors.HexColor("#6B7280")
 LIGHT_BG = colors.HexColor("#FAF7EF")
 
 
-def _styles():
+def _styles() -> Dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     return {
         "title": ParagraphStyle("title", parent=base["Title"], fontName="Helvetica-Bold", fontSize=22, textColor=DARK, alignment=TA_CENTER, spaceAfter=4),
@@ -273,6 +274,6 @@ def generate_invoice_pdf(booking: dict, artist: dict) -> bytes:
     return buf.getvalue()
 
 
-def utcnow_fmt():
+def utcnow_fmt() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")

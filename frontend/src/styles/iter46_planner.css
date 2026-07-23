@@ -324,3 +324,62 @@
   .hero-planner-sub { font-size: 11px; }
 }
 
+
+/* ─── Iter 48 — Cart preview + urgency badges on planner cards ─────────── */
+.planner-preview-line {
+  font-size: 12px;
+  color: #cfcbe0;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planner-cat.sold-out {
+  opacity: 0.65;
+  filter: grayscale(0.35);
+}
+.planner-cat.sold-out .planner-explore-btn {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.32);
+  color: #fca5a5;
+}
+.planner-soldout-pill {
+  background: rgba(239, 68, 68, 0.22) !important;
+  color: #fca5a5 !important;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  animation: planner-pulse 2.4s ease-in-out infinite;
+}
+@keyframes planner-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 12px 2px rgba(239, 68, 68, 0.28); }
+}
+
+.planner-cat-match {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: rgba(245, 212, 122, 0.08);
+  border: 1px dashed rgba(245, 212, 122, 0.4);
+}
+.planner-cat-match-emoji { font-size: 18px; }
+.planner-cat-match-name {
+  font-size: 12px; font-weight: 600;
+  color: #eae7f0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.planner-cat-match-price {
+  font-size: 11px; font-weight: 700;
+  color: #f5d47a;
+  letter-spacing: 0.02em;
+}
+

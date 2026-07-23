@@ -13,7 +13,7 @@ This module ships the **read** side + seed. The dynamic renderer and admin
 form-builder UI arrive in a follow-up.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from typing import Optional, Any
+from typing import Any, Callable, Dict, List, Optional
 from pydantic import BaseModel
 
 
@@ -137,11 +137,11 @@ class AnswerBody(BaseModel):
     answers: dict[str, Any]
 
 
-def make_router(*, get_current_user, admin_only, db, clean, utcnow, **_):
+def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, clean: Callable, utcnow: Callable, **_: Any) -> APIRouter:
     r = APIRouter()
 
     @r.get("/questionnaire/universal")
-    async def get_universal():
+    async def get_universal() -> List[Dict[str, Any]]:
         """Public read of Layer 1 questions. Prefers DB overrides if seeded."""
         # If admin has stored a customised version, return it; else return defaults.
         override = await db.questionnaire_meta.find_one({"id": "universal"})
@@ -150,7 +150,7 @@ def make_router(*, get_current_user, admin_only, db, clean, utcnow, **_):
         return UNIVERSAL_QUESTIONS
 
     @r.get("/questionnaire/category/{slug}")
-    async def get_category(slug: str):
+    async def get_category(slug: str) -> List[Dict[str, Any]]:
         """Public read of Layer 2 questions for a specific category slug."""
         override = await db.questionnaire_meta.find_one({"id": f"cat:{slug}"})
         if override and override.get("questions"):
@@ -158,15 +158,15 @@ def make_router(*, get_current_user, admin_only, db, clean, utcnow, **_):
         return CATEGORY_QUESTIONS.get(slug, [])
 
     @r.get("/questionnaire/categories")
-    async def list_categories():
+    async def list_categories() -> List[str]:
         """List every category with an available Layer 2 questionnaire."""
-        db_ids = set()
+        db_ids: set = set()
         async for m in db.questionnaire_meta.find({"id": {"$regex": "^cat:"}}):
             db_ids.add(m["id"].split(":", 1)[1])
         return sorted(list(set(CATEGORY_QUESTIONS.keys()) | db_ids))
 
     @r.post("/questionnaire/answers")
-    async def submit_answers(body: AnswerBody, user: dict = Depends(get_current_user)):
+    async def submit_answers(body: AnswerBody, user: dict = Depends(get_current_user)) -> Dict[str, Any]:
         """Artist submits (partial) answers — merged into their profile.answers."""
         if user["role"] != "artist":
             raise HTTPException(403, "Artist only")
@@ -178,7 +178,7 @@ def make_router(*, get_current_user, admin_only, db, clean, utcnow, **_):
         return {"ok": True, "saved_keys": list(body.answers.keys())}
 
     @r.get("/questionnaire/answers/mine")
-    async def my_answers(user: dict = Depends(get_current_user)):
+    async def my_answers(user: dict = Depends(get_current_user)) -> Dict[str, Any]:
         if user["role"] != "artist":
             raise HTTPException(403, "Artist only")
         prof = await db.artist_profiles.find_one({"user_id": user["id"]}) or {}
@@ -186,10 +186,10 @@ def make_router(*, get_current_user, admin_only, db, clean, utcnow, **_):
 
     # ── Admin CRUD for question metadata (rename/reorder/add/remove) ─────
     class _MetaBody(BaseModel):
-        questions: list[dict]
+        questions: List[Dict[str, Any]]
 
     @r.put("/admin/questionnaire/universal")
-    async def admin_set_universal(body: _MetaBody, _: dict = Depends(admin_only)):
+    async def admin_set_universal(body: _MetaBody, _: dict = Depends(admin_only)) -> Dict[str, Any]:
         await db.questionnaire_meta.update_one(
             {"id": "universal"},
             {"$set": {"id": "universal", "questions": body.questions, "updated_at": utcnow()}},
@@ -198,7 +198,7 @@ def make_router(*, get_current_user, admin_only, db, clean, utcnow, **_):
         return {"ok": True, "count": len(body.questions)}
 
     @r.put("/admin/questionnaire/category/{slug}")
-    async def admin_set_category(slug: str, body: _MetaBody, _: dict = Depends(admin_only)):
+    async def admin_set_category(slug: str, body: _MetaBody, _: dict = Depends(admin_only)) -> Dict[str, Any]:
         await db.questionnaire_meta.update_one(
             {"id": f"cat:{slug}"},
             {"$set": {"id": f"cat:{slug}", "slug": slug, "questions": body.questions, "updated_at": utcnow()}},

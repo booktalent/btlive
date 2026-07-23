@@ -21,6 +21,8 @@ export default function EventPlannerPage() {
   const [busy, setBusy] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [plan, setPlan] = useState(null);
+  const [preview, setPreview] = useState(null);       // best-fit resolved artists
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [form, setForm] = useState({
     event_type: "Wedding",
     guests: 400,
@@ -32,6 +34,44 @@ export default function EventPlannerPage() {
   });
 
   useEffect(() => { document.title = "AI Event Planner · BookTalent"; }, []);
+
+  // Iter 48 — Cart Preview + Urgency Badges
+  // After a plan renders, resolve LLM categories → concrete artists so we can:
+  //  (a) show real "Priya ₹25k · Vortex ₹18k" line-up on the Add-All button
+  //  (b) red-badge any category where zero artists are available on the date
+  useEffect(() => {
+    if (!plan?.categories?.length) { setPreview(null); return; }
+    let cancelled = false;
+    setPreviewLoading(true);
+    api.post("/event-planner/best-fit", {
+      categories: plan.categories.map((c) => c.category),
+      city: form.city,
+      event_date: form.event_date || null,
+    }).then((r) => { if (!cancelled) setPreview(r.data || []); })
+      .catch(() => { if (!cancelled) setPreview([]); })
+      .finally(() => { if (!cancelled) setPreviewLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]);
+
+  // Look up the resolved artist for a plan category so we can render the
+  // urgency badge and per-category name/price directly under each cat card.
+  const previewForCategory = (label) => {
+    if (!preview) return null;
+    return preview.find((x) => x.category === label) || null;
+  };
+  const matchedPreview = React.useMemo(
+    () => (preview || []).filter((x) => x.matched && x.package_id),
+    [preview]
+  );
+  const previewTotal = matchedPreview.reduce((s, x) => s + Number(x.starting_price || 0), 0);
+  const previewLabel = matchedPreview.length
+    ? matchedPreview.slice(0, 3).map((x) => {
+        const first = (x.stage_name || "").split(" ")[0] || "?";
+        const price = x.starting_price ? `₹${Math.round(x.starting_price / 1000)}k` : "";
+        return price ? `${first} ${price}` : first;
+      }).join(" · ") + (matchedPreview.length > 3 ? ` · +${matchedPreview.length - 3}` : "")
+    : "";
 
   const upd = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -64,28 +104,18 @@ export default function EventPlannerPage() {
     nav(`/discover?${p.toString()}`);
   };
 
-  // Iter 47 — One-tap "Add all to cart":
-  // 1. Ask /event-planner/best-fit for one artist per recommended category
-  // 2. Pick the first matched artist as PRIMARY (opens /book/{primary})
-  // 3. Store the remaining matched artists as secondaries in the primary's
-  //    localStorage cart — useEventCart will restore them on mount
+  // Iter 47/48 — One-tap "Add all to cart": uses the preview we already
+  // resolved (via useEffect above) so this handler is fast + deterministic.
   const addAllToCart = async () => {
     if (!plan) return;
     setSeeding(true);
     try {
-      const cats = plan.categories.map((c) => c.category);
-      const r = await api.post("/event-planner/best-fit", {
-        categories: cats,
-        city: form.city,
-        event_date: form.event_date || null,
-      });
-      const matched = (r.data || []).filter((x) => x.matched && x.package_id);
+      const matched = matchedPreview;
       if (matched.length === 0) {
         toast("No available artists match your line-up right now — try adjusting date or city", "error");
         return;
       }
       const [primary, ...rest] = matched;
-      // Build the useEventCart shape for each secondary
       const secondaries = rest.map((a) => ({
         artist_id: a.user_id,
         artist_name: a.stage_name,
@@ -101,15 +131,13 @@ export default function EventPlannerPage() {
         addon_selections: [],
         price_subtotal: a.starting_price || 0,
       }));
-      // Seed localStorage under the primary's key so useEventCart restores it.
       try {
         localStorage.setItem(`bt_event_cart_${primary.user_id}`, JSON.stringify({
           items: secondaries,
           saved_at: Date.now(),
           from_planner: true,
         }));
-      } catch { /* ignore */ }
-      // Hand off to the booking flow prefilled with the event basics.
+      } catch { /* localStorage disabled */ }
       const qs = new URLSearchParams();
       if (primary.package_id) qs.set("pkg", primary.package_id);
       if (form.event_date) qs.set("date", form.event_date);
@@ -220,35 +248,62 @@ export default function EventPlannerPage() {
                   <div className="planner-budget-pill">Budget: {plan.approx_budget}</div>
                 )}
 
-                <div className="planner-add-all-row">
+                <div className="planner-add-all-row" data-testid="planner-add-all-row">
                   <button
                     className="btn btn-gold btn-lg planner-add-all-btn"
                     onClick={addAllToCart}
-                    disabled={seeding}
+                    disabled={seeding || previewLoading || matchedPreview.length === 0}
                     data-testid="planner-add-all"
                     title="Auto-fill your event cart with the best available artist for every recommended category, and jump straight to checkout"
                   >
-                    {seeding ? "Building your cart…" : `🛒 Add all ${plan.categories.length} to my cart`}
+                    {seeding ? "Building your cart…"
+                      : previewLoading ? "Checking availability…"
+                      : matchedPreview.length === 0
+                        ? "No artists available for these categories"
+                        : `🛒 Add all ${matchedPreview.length} to cart · ₹${Math.round(previewTotal / 1000)}k`}
                   </button>
-                  <span className="text-muted fs-11">One tap → cart pre-filled → single checkout. You can still swap or remove artists in the next step.</span>
+                  {previewLabel && (
+                    <span className="planner-preview-line" data-testid="planner-preview-line">
+                      {previewLabel}
+                    </span>
+                  )}
                 </div>
 
                 <div className="planner-section-title">Recommended Line-up</div>
                 <div className="planner-cats" data-testid="planner-categories">
-                  {plan.categories.map((c, i) => (
-                    <div key={`${c.category}-${i}`} className={`planner-cat prio-${c.priority}`} data-testid={`planner-cat-${i}`}>
+                  {plan.categories.map((c, i) => {
+                    const p = previewForCategory(c.category);
+                    const soldOut = !previewLoading && preview && (!p || !p.matched);
+                    const matched = p?.matched && p?.package_id;
+                    return (
+                    <div key={`${c.category}-${i}`} className={`planner-cat prio-${c.priority} ${soldOut ? "sold-out" : ""}`} data-testid={`planner-cat-${i}`}>
                       <div className="planner-cat-head">
                         <span className="planner-cat-name">{c.category}</span>
-                        <span className={`planner-prio prio-${c.priority}`}>
-                          {c.priority === 1 ? "Must-have" : c.priority === 2 ? "Strong pick" : "Optional"}
-                        </span>
+                        {soldOut ? (
+                          <span className="planner-prio planner-soldout-pill" data-testid={`planner-soldout-${i}`}>
+                            ⚠ 0 available{form.event_date ? " on this date" : ""}
+                          </span>
+                        ) : (
+                          <span className={`planner-prio prio-${c.priority}`}>
+                            {c.priority === 1 ? "Must-have" : c.priority === 2 ? "Strong pick" : "Optional"}
+                          </span>
+                        )}
                       </div>
                       <p className="planner-cat-reason">{c.reason}</p>
+                      {matched && (
+                        <div className="planner-cat-match" data-testid={`planner-match-${i}`}>
+                          <span className="planner-cat-match-emoji">{p.emoji || "🎤"}</span>
+                          <span className="planner-cat-match-name">{p.stage_name}</span>
+                          {p.starting_price && (
+                            <span className="planner-cat-match-price">from ₹{Math.round(p.starting_price / 1000)}k</span>
+                          )}
+                        </div>
+                      )}
                       <button className="planner-explore-btn" onClick={() => exploreCategory(c.category)} data-testid={`planner-explore-${i}`}>
                         Explore {c.category}s →
                       </button>
                     </div>
-                  ))}
+                  );})}
                 </div>
 
                 {plan.addons.length > 0 && (
