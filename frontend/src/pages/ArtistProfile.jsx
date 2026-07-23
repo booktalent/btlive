@@ -156,22 +156,48 @@ export default function ArtistProfile() {
           </div>
         </div>
 
-        <div className="profile-stats-grid mb-24">
-          <div className="card card-pad text-center">
-            <div className="font-serif fs-20 fw-700 text-gold">★ {profile.rating_avg.toFixed(1)}</div>
-            <div className="text-muted fs-11 mt-4">Rating</div>
+        {/* Trust belt — icon-led, left-aligned stat cards. Each metric gets its
+            own accent (gold/emerald/violet/bronze) so the eye can parse them in
+            a glance. The rating card gets an extra tier badge when ≥ 4.5. */}
+        <div className="artist-trust-belt mb-24" data-testid="artist-trust-belt">
+          <div className="ats-card ats-rating" data-testid="stat-rating">
+            <div className="ats-star-row" aria-label={`${profile.rating_avg.toFixed(1)} out of 5`}>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} className={`ats-star ${i < Math.round(profile.rating_avg) ? "on" : ""}`}>★</span>
+              ))}
+            </div>
+            <div className="ats-value font-serif" data-testid="stat-rating-value">{profile.rating_avg.toFixed(1)}</div>
+            <div className="ats-label">
+              Rating
+              {profile.rating_avg >= 4.5 && profile.review_count >= 5 && (
+                <span className="ats-tier" data-testid="stat-rating-tier">Elite · Top&nbsp;5%</span>
+              )}
+            </div>
+            <span className="ats-shine" aria-hidden />
           </div>
-          <div className="card card-pad text-center">
-            <div className="font-serif fs-20 fw-700">{profile.review_count}</div>
-            <div className="text-muted fs-11 mt-4">Reviews</div>
+
+          <div className="ats-card ats-reviews" data-testid="stat-reviews">
+            <div className="ats-icon">💬</div>
+            <div className="ats-value font-serif">{profile.review_count}</div>
+            <div className="ats-label">Verified Reviews</div>
+            <span className="ats-shine" aria-hidden />
           </div>
-          <div className="card card-pad text-center">
-            <div className="font-serif fs-20 fw-700">{profile.events_done}</div>
-            <div className="text-muted fs-11 mt-4">Events Done</div>
+
+          <div className="ats-card ats-events" data-testid="stat-events">
+            <div className="ats-icon">🎉</div>
+            <div className="ats-value font-serif">{profile.events_done}</div>
+            <div className="ats-label">Events Done</div>
+            <span className="ats-shine" aria-hidden />
           </div>
-          <div className="card card-pad text-center">
-            <div className="font-serif fs-20 fw-700">{profile.experience_years || 8} yrs</div>
-            <div className="text-muted fs-11 mt-4">Experience</div>
+
+          <div className="ats-card ats-exp" data-testid="stat-experience">
+            <div className="ats-icon">🏆</div>
+            <div className="ats-value font-serif">
+              {profile.experience_years || 8}
+              <span className="ats-value-unit">yrs</span>
+            </div>
+            <div className="ats-label">On&nbsp;Stage</div>
+            <span className="ats-shine" aria-hidden />
           </div>
         </div>
 

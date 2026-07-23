@@ -27,12 +27,18 @@ export default function CustomerDashboard() {
   }, [user]);
 
   const refresh = async () => {
-    const [b, a] = await Promise.all([
-      api.get("/bookings/mine"),
-      api.get("/analytics/me"),
-    ]);
-    setBookings(b.data);
-    setAnalytics(a.data);
+    try {
+      const [b, a] = await Promise.all([
+        api.get("/bookings/mine"),
+        api.get("/analytics/me"),
+      ]);
+      setBookings(b.data);
+      setAnalytics(a.data);
+    } catch (e) {
+      // 401 during a stale-session race is expected — auth.jsx will redirect
+      // once /auth/me settles. Anything else, surface it.
+      if (e?.response?.status !== 401) toast(formatApiError(e), "error");
+    }
   };
 
   const doAction = async (bid, action) => {
@@ -423,7 +429,7 @@ function CustReviews() {
 
 function Messages() {
   const [convos, setConvos] = useState([]);
-  useEffect(() => { api.get("/conversations").then((r) => setConvos(r.data)); }, []);
+  useEffect(() => { api.get("/conversations").then((r) => setConvos(r.data)).catch(() => setConvos([])); }, []);
   return (
     <div className="card" data-testid="messages-tab">
       <div className="card-head"><div className="card-title">💬 Conversations</div></div>

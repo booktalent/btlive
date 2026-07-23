@@ -941,6 +941,168 @@ textarea:-webkit-autofill {
   gap: 18px;
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+   Iter 51 · Artist Trust Belt — replaces the old 4-generic-card row.
+   Each stat gets its own accent (gold / emerald / violet / bronze),
+   a serif hero number, and a subtle gold shimmer bar that animates on
+   hover to make the row feel alive without shouting.
+   Layout: hero rating card is 1.4fr, the other three share 1fr each.
+   ────────────────────────────────────────────────────────────────────── */
+.artist-trust-belt {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+.ats-card {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.005) 100%);
+  border: 1px solid rgba(255,255,255,0.07);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: transform 220ms cubic-bezier(.2,.8,.2,1),
+              border-color 220ms ease,
+              box-shadow 220ms ease;
+  isolation: isolate;
+}
+
+.ats-card::before {
+  /* Left accent bar — colour is set per card below. */
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 14px 0 0 14px;
+  background: var(--gold, #d4af37);
+  opacity: 0.55;
+  transition: opacity 220ms ease, width 220ms ease;
+}
+
+.ats-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255,255,255,0.14);
+  box-shadow: 0 14px 40px -18px rgba(0,0,0,0.6);
+}
+.ats-card:hover::before { opacity: 1; width: 4px; }
+
+.ats-card .ats-shine {
+  position: absolute;
+  inset: -40% -60% auto auto;
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(closest-side, rgba(212,175,55,0.16), rgba(212,175,55,0) 70%);
+  transform: translateX(20%);
+  transition: transform 500ms cubic-bezier(.2,.8,.2,1), opacity 500ms ease;
+  opacity: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.ats-card:hover .ats-shine { transform: translateX(-10%); opacity: 1; }
+
+.ats-icon {
+  font-size: 20px;
+  line-height: 1;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+.ats-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  color: var(--white, #f5f5f5);
+  position: relative;
+  z-index: 1;
+}
+.ats-value-unit {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--white-muted, #9a9a9a);
+  margin-left: 4px;
+  letter-spacing: 0;
+}
+
+.ats-label {
+  margin-top: 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--white-muted, #9a9a9a);
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ats-tier {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(212,175,55,0.22), rgba(212,175,55,0.08));
+  border: 1px solid rgba(212,175,55,0.35);
+  color: #f0dd8a;
+  font-weight: 600;
+}
+
+/* ── Rating card (hero) ── */
+.ats-rating::before { background: linear-gradient(180deg, #f6d366 0%, #b48429 100%); }
+.ats-rating .ats-value { color: #f6d366; }
+.ats-star-row {
+  display: inline-flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  position: relative;
+  z-index: 1;
+}
+.ats-star {
+  font-size: 16px;
+  color: rgba(255,255,255,0.14);
+  transition: color 320ms ease;
+}
+.ats-star.on {
+  color: #f6d366;
+  text-shadow: 0 0 12px rgba(246,211,102,0.35);
+}
+
+/* ── Reviews card ── emerald accent */
+.ats-reviews::before { background: linear-gradient(180deg, #6ee7a8 0%, #1c9b5b 100%); }
+.ats-reviews .ats-icon { background: rgba(110,231,168,0.09); border-color: rgba(110,231,168,0.22); }
+
+/* ── Events card ── violet accent */
+.ats-events::before { background: linear-gradient(180deg, #b294ff 0%, #6c4bd9 100%); }
+.ats-events .ats-icon { background: rgba(178,148,255,0.09); border-color: rgba(178,148,255,0.22); }
+
+/* ── Experience card ── bronze accent */
+.ats-exp::before { background: linear-gradient(180deg, #e9a774 0%, #8a4a1e 100%); }
+.ats-exp .ats-icon { background: rgba(233,167,116,0.09); border-color: rgba(233,167,116,0.22); }
+
+@media (max-width: 900px) {
+  .artist-trust-belt { grid-template-columns: 1fr 1fr; }
+  .ats-card { padding: 16px; }
+  .ats-value { font-size: 26px; }
+}
+@media (max-width: 480px) {
+  .artist-trust-belt { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ats-rating { grid-column: 1 / -1; }
+  .ats-value { font-size: 24px; }
+}
+
 .profile-main-grid {
   display: grid;
   grid-template-columns: 1fr 360px;
