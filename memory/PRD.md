@@ -1,6 +1,14 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔒 Iter 53 — Artist Payment Gating (2026-02-23)
+- **Business-rule enforcement**: Artists must never see platform-side money lines. Backend `GET /api/bookings/mine` + `/api/bookings/{id}` now strip `pricing.platform_fee / gst / total / token_amount / balance_due / coupon_discount` from artist-role payloads via a new `_redact_pricing_for_artist()` helper. Artists retain only `pricing.package_fee`, `pricing.addons_total`, `pricing.artist_fee` (their own earnings).
+- **Contact-info gate**: When `amount_paid == 0`, artist view redacts `customer_phone`, `customer_email` on both list & detail endpoints AND `customer.phone/email` on the joined `customer` object. `_contact_locked=true` + `contact_unlocked=false` marker returned so UI can render lock state.
+- **Invoice download**: `GET /api/bookings/{id}/invoice` now returns 403 for artist role with message "Platform invoices are issued only to the customer" (contains platform fee + GST — must not leak to artist).
+- **Frontend BookingsTable** (shared component): role-aware column swap — artists see `Package` (package_name + package_fee) instead of `Amount` (grand total). Invoice button is hidden for artists (`role !== "artist"` gate on `dl-invoice-*`). Chat button remains locked (`🔒 Pay to Unlock Chat`, disabled) for unpaid pending_payment rows.
+- **Testing**: testing_agent_v3_fork iteration_53.json → **9/9 backend pytest green** + frontend UI verified (194 pkg-cells, 0 dl-invoice buttons on artist dashboard; 59 dl-invoice + Amount column intact on customer dashboard regression). Test file at `/app/backend/tests/test_iter53_artist_gating.py`.
+
+
 ## 🧾 Iter 52.9 — Admin Subscription Management (2026-02-19)
 - **7 new endpoints**: `GET/POST/PATCH/DELETE /api/admin/subscriptions`, `GET /admin/subscriptions/summary`, `GET /admin/subscriptions/{sid}`, `POST /admin/subscriptions/sweep-expired`. Filters by status/plan/role + name/email/phone/company search. Manual grants create `admin_grant` records with an audit note. Extend/reduce validity by ±N days OR set explicit expiry. Cancel cascades to `artist_profiles.premium_badge`.
 - **Auto-expiry cron piggy-backed** on the existing 15-min booking-expiry loop — flips `active → expired` past ETA, downgrades `premium_badge`, and sends 7-day + 1-day expiry warning notifications (idempotent via `expiry_warn_7d_sent` marker).

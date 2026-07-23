@@ -243,8 +243,8 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                 <td className="fs-12">{b.event_date}<br/><span className="text-muted">{b.event_time}</span></td>
                 {role === "artist" ? (
                   <td data-testid={`pkg-cell-${b.id}`}>
-                    <div className="fw-600 fs-13">{b.package_name || "—"}</div>
-                    <div className="text-gold font-serif fs-16 fw-700">{fmtINRFull(b.pricing?.package_fee || 0)}</div>
+                    <div className="fw-600 fs-13">{b.package_name || b.event_type || "Package"}</div>
+                    <div className="text-gold font-serif fs-16 fw-700">{fmtINRFull(b.pricing?.package_fee ?? b.pricing?.base ?? b.pricing?.artist_fee ?? 0)}</div>
                   </td>
                 ) : (
                   <td className="text-gold font-serif fs-18 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>
