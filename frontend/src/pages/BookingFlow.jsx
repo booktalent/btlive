@@ -43,11 +43,12 @@ export default function BookingFlow() {
     package_id: params.get("pkg") || "",
     addons: [],
     addon_selections: [],  // Sprint 3: [{addon_id, quantity}]
-    event_date: "",
-    event_time: "",
-    event_type: "Wedding / Sangeet",
-    venue: "",
-    city: "",
+    // Iter 44 — pre-fill from URL for "Add another artist to this event" flow
+    event_date: params.get("date") || "",
+    event_time: params.get("time") || "",
+    event_type: params.get("event_type") || "Wedding / Sangeet",
+    venue: params.get("venue") || "",
+    city: params.get("city") || "",
     guests: "300-600",
     language_pref: "Hindi (Bollywood)",
     notes: "",
@@ -60,6 +61,11 @@ export default function BookingFlow() {
   const [successData, setSuccessData] = useState(null);
   const [paymentConfig, setPaymentConfig] = useState({ razorpay_enabled: false });
   const [alternatives, setAlternatives] = useState(null);
+  // Iter 44 — Multi-Artist Event: if we came in from another booking's
+  // "Add another artist" strip, pre-fill event basics and thread the
+  // event_id through so the new booking joins the same umbrella.
+  const eventIdParam = params.get("event_id") || "";
+  const [suggested, setSuggested] = useState([]);  // shown on success screen
 
   useEffect(() => {
     if (!user) { nav("/login"); return; }
@@ -84,6 +90,19 @@ export default function BookingFlow() {
     // would refetch on every form key-stroke; adding `nav`/`user` would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Iter 44 — Load complementary artists once the booking is confirmed so we
+  // can show the "Complete your event" strip on the success screen.
+  useEffect(() => {
+    if (step !== 6 || !successData?.booking?.artist_id) return;
+    const params = new URLSearchParams();
+    if (successData.booking.event_date) params.set("date_str", successData.booking.event_date);
+    params.set("limit", "6");
+    api
+      .get(`/artists/${successData.booking.artist_id}/suggested?${params.toString()}`)
+      .then((r) => setSuggested(Array.isArray(r.data) ? r.data : (r.data?.artists || [])))
+      .catch(() => setSuggested([]));
+  }, [step, successData]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const toggleAddon = (a) => set("addons", form.addons.includes(a) ? form.addons.filter(x => x !== a) : [...form.addons, a]);
@@ -156,10 +175,14 @@ export default function BookingFlow() {
     setBusy(true);
     setAlternatives(null);
     try {
-      // 1. Create booking
+      // 1. Create booking (join existing event umbrella if provided)
       let r;
       try {
-        r = await api.post("/bookings", { artist_id: id, ...form });
+        r = await api.post("/bookings", {
+          artist_id: id,
+          ...form,
+          ...(eventIdParam ? { event_id: eventIdParam } : {}),
+        });
       } catch (e) {
         const detail = e?.response?.data?.detail;
         if (typeof detail === "object" && detail?.alternatives) {
@@ -200,7 +223,7 @@ export default function BookingFlow() {
                 razorpay_payment_id: resp.razorpay_payment_id,
                 razorpay_signature: resp.razorpay_signature,
               });
-              setSuccessData({ booking, ref: verR.data.booking_ref });
+              setSuccessData({ booking, ref: verR.data.booking_ref, event_id: booking.event_id });
               setStep(6);
             } catch (e) {
               toast(formatApiError(e), "error");
@@ -230,7 +253,7 @@ export default function BookingFlow() {
         payment_id: initR.data.payment_id,
         mock_otp: "123456",
       });
-      setSuccessData({ booking, ref: verR.data.booking_ref });
+      setSuccessData({ booking, ref: verR.data.booking_ref, event_id: booking.event_id });
       setStep(6);
     } catch (e) {
       toast(formatApiError(e), "error");
@@ -676,6 +699,13 @@ export default function BookingFlow() {
                 </div>
                 <div className="flex gap-12 justify-center" style={{ flexWrap: "wrap" }}>
                   <button className="btn btn-gold" onClick={() => nav("/customer")} data-testid="success-go-dashboard">📊 Go to Dashboard</button>
+                  {successData.event_id && (
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => window.open(`/recap/${successData.event_id}`, "_blank", "noopener")}
+                      data-testid="success-share-recap"
+                    >💬 Share Event Recap</button>
+                  )}
                   <button
                     className="btn btn-ghost"
                     onClick={async () => {
@@ -691,6 +721,45 @@ export default function BookingFlow() {
                   >🧾 Download Invoice</button>
                   <button className="btn btn-ghost" onClick={() => nav("/")} data-testid="success-go-home">🏠 Home</button>
                 </div>
+
+                {/* Iter 44 — Complete-your-event suggestion strip */}
+                {suggested.length > 0 && successData.event_id && (
+                  <div className="event-strip" data-testid="event-strip">
+                    <div className="event-strip-head">
+                      <div>
+                        <div className="event-strip-title">Complete your event 🎉</div>
+                        <div className="event-strip-sub">Same date, same city — add another artist and it joins this event automatically.</div>
+                      </div>
+                    </div>
+                    <div className="event-strip-scroll">
+                      {suggested.map((s) => {
+                        const qs = new URLSearchParams({
+                          event_id: successData.event_id,
+                          date: form.event_date,
+                          time: form.event_time,
+                          city: form.city,
+                          venue: form.venue,
+                          event_type: form.event_type,
+                        }).toString();
+                        return (
+                          <a
+                            key={s.user_id}
+                            href={`/book/${s.user_id}?${qs}`}
+                            className="event-strip-card"
+                            data-testid={`event-suggest-${s.user_id}`}
+                          >
+                            <div className="event-strip-thumb">
+                              <span>{s.emoji || "🎤"}</span>
+                            </div>
+                            <div className="event-strip-name">{s.stage_name || s.name}</div>
+                            <div className="event-strip-cat">{s.category}{s.city ? ` · ${s.city}` : ""}</div>
+                            <div className="event-strip-add">+ Add to event</div>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

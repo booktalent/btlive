@@ -366,6 +366,11 @@ class BookingCreate(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_email: Optional[str] = None
+    # Iter 44 — Multi-Artist Event support. If provided, the new booking is
+    # attached to an existing event umbrella so a single "Booking Recap" page
+    # can render every artist the customer hired for that event. Ownership is
+    # enforced: the event_id must belong to another booking of the same user.
+    event_id: Optional[str] = None
 
 
 class BookingStatusUpdate(BaseModel):
@@ -1359,11 +1364,24 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
 
     pricing = calc_booking_pricing(float(pkg["price"]), addon_total, coupon_discount)
 
+    # Iter 44 — Resolve or generate the event umbrella. If the customer passed
+    # an event_id we validate they already own another booking under it; else
+    # we mint a fresh event_id so future artists can be added to this event.
+    event_id_final: Optional[str] = None
+    if body.event_id:
+        owned = await db.bookings.find_one({"event_id": body.event_id, "customer_id": user["id"]})
+        if not owned:
+            raise HTTPException(400, "event_id does not belong to you")
+        event_id_final = body.event_id
+    else:
+        event_id_final = new_id()
+
     bid = new_id()
     ref = booking_ref()
     doc = {
         "id": bid,
         "ref": ref,
+        "event_id": event_id_final,
         "customer_id": user["id"],
         "artist_id": body.artist_id,
         "package_id": body.package_id,
@@ -1442,6 +1460,329 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
     })
 
     return clean(doc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Iter 44 — Multi-Artist Cart Batch Booking
+# ─────────────────────────────────────────────────────────────────────────────
+class BookingBatchCreate(BaseModel):
+    items: List[BookingCreate]
+    event_id: Optional[str] = None  # shared event umbrella (auto-generated if omitted)
+
+
+@api.post("/bookings/batch")
+async def create_booking_batch(body: BookingBatchCreate, user: dict = Depends(get_current_user)):
+    """Create N bookings in one shot, all sharing a single event_id so the
+    customer can see them together on the Booking Recap page and pay for all
+    Platform Service Fees in a single Razorpay checkout. Each booking still
+    has its own 24-hour Artist Confirmation window, its own contract, and its
+    own pending_artist → confirmed lifecycle."""
+    if user["role"] not in ("customer", "corporate", "agency"):
+        raise HTTPException(403, "Only customers can create bookings")
+    if not body.items:
+        raise HTTPException(400, "At least one booking item is required")
+    if len(body.items) > 6:
+        raise HTTPException(400, "Cannot batch more than 6 artists per event")
+
+    # Resolve umbrella event_id (validate ownership if provided).
+    event_id_final: Optional[str]
+    if body.event_id:
+        owned = await db.bookings.find_one({"event_id": body.event_id, "customer_id": user["id"]})
+        if not owned:
+            raise HTTPException(400, "event_id does not belong to you")
+        event_id_final = body.event_id
+    else:
+        event_id_final = None  # first item will mint it, then we stamp the rest
+
+    created_ids: List[str] = []
+    created_refs: List[str] = []
+    total_platform_fee = 0.0
+    total_gst = 0.0
+    total_token = 0.0
+    # Each item shares the umbrella event_id — we simply forward-call the
+    # single-booking creator to reuse ALL the availability, coupon,
+    # outstation, snapshot and notification logic. The FIRST item mints
+    # the event_id when caller didn't provide one; every subsequent item
+    # attaches to it. Any 400 short-circuits the entire batch (best-effort
+    # — no cross-doc transaction).
+    for idx, item in enumerate(body.items):
+        # Only pass event_id once we have one that already belongs to the
+        # customer — otherwise create_booking's ownership gate rejects it.
+        item.event_id = event_id_final if event_id_final else None
+        doc = await create_booking(item, user)  # returns cleaned booking dict
+        if event_id_final is None:
+            event_id_final = doc.get("event_id")
+        created_ids.append(doc["id"])
+        created_refs.append(doc["ref"])
+        p = doc.get("pricing", {})
+        total_platform_fee += float(p.get("platform_fee", 0) or 0)
+        total_gst += float(p.get("gst", 0) or 0)
+        total_token += float(p.get("token_amount", p.get("total", 0)) or 0)
+
+    return {
+        "event_id": event_id_final,
+        "booking_ids": created_ids,
+        "booking_refs": created_refs,
+        "pricing_total": {
+            "platform_fee": round(total_platform_fee, 2),
+            "gst": round(total_gst, 2),
+            "token_amount": round(total_token, 2),
+        },
+    }
+
+
+class BatchPaymentInit(BaseModel):
+    booking_ids: List[str]
+    method: Literal["card", "upi", "netbanking"]
+
+
+@api.post("/payments/batch/init")
+async def payment_batch_init(body: BatchPaymentInit, user: dict = Depends(get_current_user)):
+    """Initialise a single Razorpay order for many bookings so the customer
+    checks out once and BookTalent collects the combined Platform Service Fee
+    + GST for every artist in the event."""
+    if not body.booking_ids:
+        raise HTTPException(400, "booking_ids required")
+    docs = await db.bookings.find({"id": {"$in": body.booking_ids}}).to_list(20)
+    if len(docs) != len(body.booking_ids):
+        raise HTTPException(404, "Some bookings not found")
+    for d in docs:
+        if d["customer_id"] != user["id"]:
+            raise HTTPException(403, "Not your booking")
+    total_amount = round(sum(float((d.get("pricing") or {}).get("token_amount", 0) or 0) for d in docs), 2)
+    pid = new_id()
+
+    pay_doc = {
+        "id": pid,
+        "booking_ids": body.booking_ids,
+        "user_id": user["id"],
+        "amount": total_amount,
+        "method": body.method,
+        "status": "pending",
+        "created_at": utcnow(),
+        "batch": True,
+    }
+
+    if RAZORPAY_ENABLED:
+        amount_paise = int(round(total_amount * 100))
+        receipt = f"BT-BATCH-{pid[:10]}"
+        try:
+            order = razorpay_client.order.create({
+                "amount": amount_paise,
+                "currency": "INR",
+                "receipt": receipt,
+                "payment_capture": 1,
+                "notes": {
+                    "customer_id": user["id"],
+                    "batch": "true",
+                    "count": str(len(docs)),
+                    "event_id": docs[0].get("event_id", ""),
+                },
+            })
+        except Exception as e:
+            log.error(f"Razorpay batch order error: {e}")
+            raise HTTPException(502, f"Payment gateway error: {e}")
+        pay_doc.update({
+            "gateway": "razorpay",
+            "razorpay_order_id": order["id"],
+            "amount_paise": amount_paise,
+        })
+        await db.payments.insert_one(pay_doc)
+        return {
+            "payment_id": pid,
+            "amount": total_amount,
+            "amount_paise": amount_paise,
+            "gateway": "razorpay",
+            "count": len(docs),
+            "razorpay": {
+                "order_id": order["id"],
+                "key_id": RAZORPAY_KEY_ID,
+                "currency": "INR",
+                "name": "BookTalent",
+                "description": f"Multi-Artist Event · {len(docs)} bookings",
+                "notes": {"batch": "true", "count": str(len(docs))},
+            },
+        }
+
+    pay_doc["gateway"] = "razorpay_mock"
+    await db.payments.insert_one(pay_doc)
+    return {"payment_id": pid, "amount": total_amount, "count": len(docs), "gateway": "razorpay_mock"}
+
+
+class BatchPaymentVerify(BaseModel):
+    payment_id: str
+    booking_ids: List[str]
+    mock_otp: Optional[str] = "123456"
+    razorpay_order_id: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
+
+
+@api.post("/payments/batch/verify")
+async def payment_batch_verify(body: BatchPaymentVerify, user: dict = Depends(get_current_user)):
+    pay = await db.payments.find_one({"id": body.payment_id})
+    if not pay or pay["user_id"] != user["id"]:
+        raise HTTPException(404, "Payment not found")
+    docs = await db.bookings.find({"id": {"$in": body.booking_ids}}).to_list(20)
+    if len(docs) != len(body.booking_ids):
+        raise HTTPException(404, "Some bookings not found")
+    for d in docs:
+        if d["customer_id"] != user["id"]:
+            raise HTTPException(403, "Not your booking")
+
+    is_live = pay.get("gateway") == "razorpay"
+    if is_live:
+        if not (body.razorpay_order_id and body.razorpay_payment_id and body.razorpay_signature):
+            raise HTTPException(400, "Missing Razorpay verification params")
+        try:
+            razorpay_client.utility.verify_payment_signature({
+                "razorpay_order_id": body.razorpay_order_id,
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_signature": body.razorpay_signature,
+            })
+        except razorpay.errors.SignatureVerificationError:
+            await db.payments.update_one({"id": body.payment_id}, {"$set": {"status": "failed", "failure_reason": "signature_mismatch"}})
+            raise HTTPException(400, "Signature verification failed")
+        await db.payments.update_one(
+            {"id": body.payment_id},
+            {"$set": {"status": "completed", "razorpay_payment_id": body.razorpay_payment_id,
+                      "razorpay_signature": body.razorpay_signature, "verified_at": utcnow()}},
+        )
+    else:
+        if body.mock_otp != "123456":
+            raise HTTPException(400, "Invalid OTP (use 123456 in test mode)")
+        await db.payments.update_one(
+            {"id": body.payment_id}, {"$set": {"status": "completed", "verified_at": utcnow()}},
+        )
+
+    from datetime import timedelta as _td
+    _confirm_hours = int(os.environ.get("BOOKING_CONFIRM_WINDOW_HOURS", "24"))
+    expires_at_iso = (datetime.now(timezone.utc) + _td(hours=_confirm_hours)).isoformat()
+
+    for d in docs:
+        # Skip bookings that are no longer awaiting payment — never
+        # regress a `confirmed`/`cancelled` booking back to `pending_artist`.
+        if d.get("status") != "pending_payment":
+            continue
+        share = float((d.get("pricing") or {}).get("token_amount", 0) or 0)
+        await db.bookings.update_one(
+            {"id": d["id"]},
+            {"$set": {"payment_status": "token_paid", "amount_paid": share,
+                      "status": "pending_artist",
+                      "expires_at": expires_at_iso,
+                      "confirmation_deadline_hours": _confirm_hours},
+             "$push": {"history": {"at": utcnow(), "action": "paid_token_batch", "by": user["id"],
+                                   "amount": share, "payment_id": body.payment_id,
+                                   "gateway": pay.get("gateway")}}},
+        )
+        await db.transactions.insert_one({
+            "id": new_id(), "user_id": user["id"], "type": "payment",
+            "amount": -share, "status": "completed",
+            "description": f"Token paid for booking {d['ref']} (batch)",
+            "booking_id": d["id"], "gateway": pay.get("gateway"),
+            "created_at": utcnow(),
+        })
+        await db.notifications.insert_one({
+            "id": new_id(), "user_id": d["artist_id"], "type": "booking_request",
+            "title": "New paid booking request",
+            "body": f"Token received for booking {d['ref']}",
+            "read": False, "created_at": utcnow(),
+            "link": f"/dashboard/bookings/{d['id']}",
+        })
+    return {
+        "ok": True,
+        "count": len(docs),
+        "booking_refs": [d["ref"] for d in docs],
+        "event_id": docs[0].get("event_id"),
+    }
+
+
+# ─────────────────────────── Public Booking Recap ────────────────────────────
+@api.get("/events/{event_id}/recap")
+async def event_recap(event_id: str):
+    """Public shareable recap for an event. No auth — returns only artist-side
+    and event-side info, never customer contact or payment details. Used by the
+    /recap/:event_id share page."""
+    docs = await db.bookings.find(
+        {"event_id": event_id, "status": {"$in": ["pending_artist", "confirmed", "started", "completed", "reviewed"]}},
+    ).to_list(20)
+    if not docs:
+        # Backward-compat: any legacy single-artist booking is shareable via
+        # its own booking id (before the event_id column was introduced).
+        legacy = await db.bookings.find_one({"id": event_id})
+        if legacy and legacy.get("status") in ("pending_artist", "confirmed", "started", "completed", "reviewed"):
+            docs = [legacy]
+    if not docs:
+        raise HTTPException(404, "Event not found")
+    # Sort by event_date, artist_id for stability
+    docs.sort(key=lambda d: (d.get("event_date", ""), d.get("artist_id", "")))
+    artists: List[dict] = []
+    seen = set()
+    for d in docs:
+        aid = d["artist_id"]
+        if aid in seen:
+            continue
+        seen.add(aid)
+        artist = await db.users.find_one({"id": aid}) or {}
+        profile = await db.artist_profiles.find_one({"user_id": aid}) or {}
+        artists.append({
+            "user_id": aid,
+            "stage_name": profile.get("stage_name") or f"{artist.get('first_name','')} {artist.get('last_name','')}".strip() or "Artist",
+            "category": profile.get("category"),
+            "city": profile.get("city"),
+            "emoji": profile.get("emoji") or "🎤",
+            "featured_media_id": profile.get("featured_media_id"),
+            "rating_avg": profile.get("rating_avg", 0),
+            "profile_url": f"/artist/{aid}",
+            "booking_ref": d["ref"],
+            "booking_status": d["status"],
+        })
+
+    # Event details taken from the first booking (they should all match, but
+    # if the customer edited between adds we surface the earliest).
+    head = docs[0]
+    # Only first name for the host, to keep the recap semi-anonymous.
+    host = await db.users.find_one({"id": head["customer_id"]}) or {}
+    host_name = (head.get("customer_name") or host.get("first_name") or "").split(" ")[0] or "The Host"
+
+    return {
+        "event_id": event_id,
+        "event_date": head.get("event_date"),
+        "event_time": head.get("event_time"),
+        "event_type": head.get("event_type"),
+        "venue": head.get("venue"),
+        "city": head.get("city"),
+        "host_first_name": host_name,
+        "artist_count": len(artists),
+        "artists": artists,
+        "booked_via": "BookTalent",
+    }
+
+
+@api.get("/events/{event_id}/summary")
+async def event_summary(event_id: str, user: dict = Depends(get_current_user)):
+    """Authenticated event summary for the customer — includes payment
+    aggregates and per-booking status. Used by the Customer Dashboard event
+    view + the Share button."""
+    docs = await db.bookings.find({"event_id": event_id}).to_list(20)
+    if not docs:
+        raise HTTPException(404, "Event not found")
+    if user["role"] != "admin" and docs[0]["customer_id"] != user["id"]:
+        raise HTTPException(403, "Not your event")
+    total_platform_fee = sum(float(d.get("pricing", {}).get("platform_fee", 0)) for d in docs)
+    total_gst = sum(float(d.get("pricing", {}).get("gst", 0)) for d in docs)
+    total_paid = sum(float(d.get("amount_paid", 0)) for d in docs)
+    return {
+        "event_id": event_id,
+        "bookings": [clean(d) for d in docs],
+        "aggregate": {
+            "platform_fee": round(total_platform_fee, 2),
+            "gst": round(total_gst, 2),
+            "amount_paid": round(total_paid, 2),
+            "count": len(docs),
+        },
+    }
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 @api.get("/bookings/mine")

@@ -269,6 +269,14 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                         title="Download Invoice PDF"
                       >🧾 Invoice</button>
                     )}
+                    {role === "customer" && ["pending_artist", "confirmed", "started", "completed", "reviewed"].includes(b.status) && (
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => window.open(`/recap/${b.event_id || b.id}`, "_blank", "noopener")}
+                        data-testid={`share-recap-${b.id}`}
+                        title="Share a beautiful recap of this event"
+                      >💬 Share Recap</button>
+                    )}
                     {(() => {
                       // Chat is locked ONLY for fresh, unpaid booking requests
                       // (status === "pending_payment" + payment_status === "unpaid").
