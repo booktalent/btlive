@@ -55,6 +55,7 @@ export default function ArtistDashboard() {
   const [data, setData] = useState({ bookings: [], packages: [], media: [], analytics: {}, reviews: [] });
   const [showWizard, setShowWizard] = useState(false);
   const [completion, setCompletion] = useState(null); // Iter 56 — onboarding nudge
+  const [wizardStartSection, setWizardStartSection] = useState(null); // Iter 57 — deep-link
 
   // Iter 56 — Pull questionnaire completion so we can show a nudge banner
   // when the artist is missing more than 3 sections of their rider.
@@ -143,7 +144,13 @@ export default function ArtistDashboard() {
 
           {tab === "overview" && (
             <>
-              <QuestionnaireNudge completion={completion} onOpen={() => setTab("questionnaire")} />
+              <QuestionnaireNudge
+                completion={completion}
+                onOpen={(section) => {
+                  if (section) setWizardStartSection(section);
+                  setTab("questionnaire");
+                }}
+              />
               <Overview data={data} doAction={doAction} refresh={refresh} setTab={setTab} />
             </>
           )}
@@ -151,7 +158,8 @@ export default function ArtistDashboard() {
           {tab === "questionnaire" && (
             <QuestionnaireWizard
               category={data.profile?.category}
-              onComplete={() => { toast("Questionnaire saved 🎉"); refresh(); }}
+              startSection={wizardStartSection}
+              onComplete={() => { toast("Questionnaire saved 🎉"); setWizardStartSection(null); refresh(); }}
             />
           )}
           {tab === "packages" && <Packages data={data} refresh={refresh} toast={toast} />}
@@ -2029,7 +2037,8 @@ function BarRow({ label, value, max }) {
 function QuestionnaireNudge({ completion, onOpen }) {
   const [dismissed, setDismissed] = useState(false);
   if (!completion || dismissed) return null;
-  const missing = (completion.sections_missing || []).length;
+  const missingArr = completion.sections_missing || [];
+  const missing = missingArr.length;
   if (missing <= 3) return null;
 
   const pct = completion.questions_total
@@ -2053,14 +2062,41 @@ function QuestionnaireNudge({ completion, onOpen }) {
         </div>
         <div style={{ fontSize: 13, color: "var(--white-muted)" }}>
           You've answered {completion.questions_answered} of {completion.questions_total} questions ({pct}%).
-          Still missing: <b>{missing}</b> section{missing === 1 ? "" : "s"} — {(completion.sections_missing || []).slice(0, 3).join(" · ")}{missing > 3 ? "…" : ""}.
+        </div>
+        <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+          <span className="text-muted fs-12" style={{ marginRight: 4 }}>Still missing:</span>
+          {missingArr.map((sec) => (
+            <button
+              key={sec}
+              type="button"
+              onClick={() => onOpen?.(sec)}
+              data-testid={`qn-missing-${sec.toLowerCase().replace(/\s+/g,'-')}`}
+              className="qn-missing-chip"
+              style={{
+                background: "rgba(246,211,102,0.12)",
+                border: "1px solid rgba(246,211,102,0.3)",
+                color: "#f6d366",
+                padding: "3px 10px",
+                borderRadius: 999,
+                fontSize: 11.5,
+                fontWeight: 500,
+                cursor: "pointer",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(246,211,102,0.24)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(246,211,102,0.12)"; }}
+              title={`Jump to ${sec}`}
+            >
+              {sec} →
+            </button>
+          ))}
         </div>
         <div style={{ marginTop: 10, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
           <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, #f6d366, #b284ff)", transition: "width 0.4s ease" }} />
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button className="btn btn-gold btn-sm" onClick={onOpen} data-testid="qn-nudge-cta">
+        <button className="btn btn-gold btn-sm" onClick={() => onOpen?.()} data-testid="qn-nudge-cta">
           Finish Questionnaire →
         </button>
         <button

@@ -753,22 +753,26 @@ function QuestionnairePanel({ about, onMediaClick }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
             {mediaAnswers.map((a) => {
               const m = matchByQid[a.id];
+              const isMissing = !m;
               return (
                 <button
                   key={a.id}
                   type="button"
                   onClick={onMediaClick}
-                  data-testid={`qa-media-chip-${a.id}`}
-                  className="qa-media-chip"
+                  data-testid={isMissing ? `qa-media-missing-${a.id}` : `qa-media-chip-${a.id}`}
+                  className={`qa-media-chip ${isMissing ? "qa-media-chip-missing" : ""}`}
+                  title={isMissing ? "Not uploaded — ask the artist to add this to their gallery" : `View ${a.question} in the artist's gallery`}
                   style={{
                     display: "flex", gap: 10, alignItems: "center",
-                    background: "var(--glass)", border: "1px solid var(--glass-border)",
+                    background: isMissing ? "rgba(255,255,255,0.02)" : "var(--glass)",
+                    border: `1px ${isMissing ? "dashed" : "solid"} ${isMissing ? "rgba(255,255,255,0.15)" : "var(--glass-border)"}`,
                     borderRadius: 10, padding: 8, cursor: "pointer",
                     color: "inherit", textAlign: "left", font: "inherit",
                     transition: "transform 0.15s, border-color 0.2s",
+                    opacity: isMissing ? 0.85 : 1,
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(246,211,102,0.5)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--glass-border)"; e.currentTarget.style.transform = "translateY(0)"; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = isMissing ? "rgba(246,211,102,0.4)" : "rgba(246,211,102,0.5)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = isMissing ? "rgba(255,255,255,0.15)" : "var(--glass-border)"; e.currentTarget.style.transform = "translateY(0)"; }}
                 >
                   {m ? (
                     m.mime && m.mime.startsWith("video") ? (
@@ -782,12 +786,17 @@ function QuestionnairePanel({ about, onMediaClick }) {
                       />
                     )
                   ) : (
-                    <div style={{ width: 56, height: 56, borderRadius: 8, background: "rgba(246,211,102,0.08)", display: "grid", placeItems: "center", flexShrink: 0, fontSize: 22 }}>📸</div>
+                    <div style={{
+                      width: 56, height: 56, borderRadius: 8,
+                      background: "repeating-linear-gradient(45deg, rgba(255,255,255,0.03), rgba(255,255,255,0.03) 4px, rgba(255,255,255,0.06) 4px, rgba(255,255,255,0.06) 8px)",
+                      display: "grid", placeItems: "center", flexShrink: 0,
+                      fontSize: 22, color: "rgba(255,255,255,0.4)",
+                    }}>❓</div>
                   )}
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div className="fs-12 fw-600" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.question}</div>
-                    <div className="text-muted fs-11" style={{ marginTop: 2 }}>
-                      {m ? `View in gallery →` : "Not uploaded yet"}
+                    <div style={{ marginTop: 2, fontSize: 11, color: isMissing ? "rgba(246,211,102,0.85)" : "var(--white-muted)" }}>
+                      {isMissing ? "Ask artist for this →" : "View in gallery →"}
                     </div>
                   </div>
                 </button>

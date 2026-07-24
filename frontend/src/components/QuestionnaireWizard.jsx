@@ -8,7 +8,7 @@ import api from "../lib/api";
  * Saves after every section so the artist never loses progress.
  * Emits `onComplete(answers)` when the last section is submitted.
  */
-export default function QuestionnaireWizard({ category, onComplete, initialAnswers = null }) {
+export default function QuestionnaireWizard({ category, onComplete, initialAnswers = null, startSection = null }) {
   const [layer1, setLayer1] = useState([]);
   const [layer2, setLayer2] = useState([]);
   const [answers, setAnswers] = useState(initialAnswers || {});
@@ -16,6 +16,10 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  // Iter 57 — Once we've applied a deep-link, don't keep re-applying it if
+  // sections list mutates (e.g. category picker changes layer 2). This is a
+  // one-shot jump.
+  const [deepLinkApplied, setDeepLinkApplied] = useState(false);
 
   // Live category — starts from prop, follows the answer if the user picks one
   const liveCategory = answers.category || category;
@@ -84,6 +88,18 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
   const current = sections[stepIdx];
   const isLast = stepIdx === totalSteps - 1;
 
+  // Iter 57 — Deep-link support: when a startSection prop is provided (e.g.
+  // from the onboarding nudge), jump to that section on first render as soon
+  // as the sections list is ready. Case-insensitive match, falls back to
+  // step 0 when the section can't be found.
+  useEffect(() => {
+    if (!startSection || deepLinkApplied || loading || sections.length === 0) return;
+    const target = startSection.toLowerCase();
+    const idx = sections.findIndex((s) => (s.section || "").toLowerCase() === target);
+    if (idx >= 0) setStepIdx(idx);
+    setDeepLinkApplied(true);
+  }, [startSection, deepLinkApplied, loading, sections]);
+
   const setAns = (id, val) => setAnswers((a) => ({ ...a, [id]: val }));
 
   // Validate required fields in the current section
@@ -130,8 +146,9 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
           <div
             key={s.section}
             className={`q-progress-step ${i === stepIdx ? "current" : ""} ${i < stepIdx ? "done" : ""}`}
-            onClick={() => i <= stepIdx && setStepIdx(i)}
+            onClick={() => setStepIdx(i)}
             data-testid={`q-step-${i}`}
+            title={s.section}
           >
             <div className="q-progress-dot">{i < stepIdx ? "✓" : i + 1}</div>
             <div className="q-progress-label">{s.section}</div>

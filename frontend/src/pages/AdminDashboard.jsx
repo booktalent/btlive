@@ -15,31 +15,34 @@ import AdminQuestionEditor from "./admin/AdminQuestionEditor";
 import AdminSubscriptions from "./admin/AdminSubscriptions";
 import AdminAdmins from "./admin/AdminAdmins";
 
+// Iter 57 — Sidebar → required permission. If the current admin lacks the
+// permission, the item is hidden from the sidebar entirely. `null` means
+// "any admin can see this" (overview is always shown as an empty state).
 const SIDEBAR = [
-  { id: "overview", label: "📊 Overview" },
-  { id: "artists", label: "🎤 Artists" },
-  { id: "bookings", label: "📋 Bookings" },
-  { id: "concierge", label: "🎩 Concierge" },
-  { id: "kyc", label: "🪪 KYC Queue" },
-  { id: "refunds", label: "↩️ Refunds" },
-  { id: "coupons", label: "🎫 Coupons" },
-  { id: "subscriptions", label: "💳 Subscriptions" },
-  { id: "users", label: "👥 Users" },
-  { id: "disputes", label: "⚖️ Disputes" },
-  { id: "master", label: "🗂️ Master Data" },
-  { id: "questionnaire", label: "📝 Questionnaire" },
-  { id: "boost", label: "🚀 Boost Manager" },
-  { id: "outstation-report", label: "📍 Outstation Report" },
-  { id: "templates", label: "📧 Templates" },
-  { id: "faqs", label: "❓ FAQs" },
-  { id: "cms", label: "📄 CMS Pages" },
-  { id: "blogs", label: "📝 Blogs" },
-  { id: "broadcast", label: "📢 Broadcast" },
-  { id: "reports", label: "📈 Reports" },
-  { id: "reviews-mod", label: "🛡️ Reviews Moderation" },
-  { id: "providers", label: "🔌 Providers" },
-  { id: "settings", label: "⚙️ Settings" },
-  { id: "admins", label: "🛡️ Admin Team" },
+  { id: "overview",         label: "📊 Overview",              perm: null },
+  { id: "artists",          label: "🎤 Artists",               perm: "artists.moderate" },
+  { id: "bookings",         label: "📋 Bookings",              perm: "bookings.view" },
+  { id: "concierge",        label: "🎩 Concierge",             perm: "bookings.view" },
+  { id: "kyc",              label: "🪪 KYC Queue",             perm: "artists.moderate" },
+  { id: "refunds",          label: "↩️ Refunds",               perm: "payments.refund" },
+  { id: "coupons",          label: "🎫 Coupons",               perm: "cms.manage" },
+  { id: "subscriptions",    label: "💳 Subscriptions",         perm: "subscriptions.manage" },
+  { id: "users",            label: "👥 Users",                 perm: "users.view" },
+  { id: "disputes",         label: "⚖️ Disputes",              perm: "bookings.override" },
+  { id: "master",           label: "🗂️ Master Data",           perm: "settings.manage" },
+  { id: "questionnaire",    label: "📝 Questionnaire",         perm: "cms.manage" },
+  { id: "boost",            label: "🚀 Boost Manager",         perm: "artists.moderate" },
+  { id: "outstation-report",label: "📍 Outstation Report",     perm: "analytics.view" },
+  { id: "templates",        label: "📧 Templates",             perm: "cms.manage" },
+  { id: "faqs",             label: "❓ FAQs",                  perm: "cms.manage" },
+  { id: "cms",              label: "📄 CMS Pages",             perm: "cms.manage" },
+  { id: "blogs",            label: "📝 Blogs",                 perm: "cms.manage" },
+  { id: "broadcast",        label: "📢 Broadcast",             perm: "notifications.send" },
+  { id: "reports",          label: "📈 Reports",               perm: "analytics.view" },
+  { id: "reviews-mod",      label: "🛡️ Reviews Moderation",    perm: "artists.moderate" },
+  { id: "providers",        label: "🔌 Providers",             perm: "settings.manage" },
+  { id: "settings",         label: "⚙️ Settings",              perm: "settings.manage" },
+  { id: "admins",           label: "🛡️ Admin Team",           perm: "admins.manage" },
   { id: "audit", label: "🛡️ Audit Logs" },
 ];
 
@@ -49,24 +52,40 @@ export default function AdminDashboard() {
   const nav = useNavigate();
   const [tab, setTab] = useState("overview");
   const [stats, setStats] = useState({});
+  // Iter 57 — Read the caller's RBAC permissions so we can HIDE sidebar
+  // modules they lack the permission for. Backend still enforces access —
+  // this is a UX polish so admins don't stare at empty error states for
+  // sections they can't touch. `null` while loading = show nothing to be safe.
+  const [myPerms, setMyPerms] = useState(null);
 
   useEffect(() => {
     if (!user) { nav("/login"); return; }
     if (user.role !== "admin") { nav("/"); return; }
+    // Stats endpoint requires analytics.view — silently fall back to {} if 403.
     api.get("/admin/stats").then(r => setStats(r.data)).catch(() => {});
-    // `nav` from react-router is stable; only re-run when `user` changes.
+    api.get("/admin/rbac/me")
+      .then((r) => setMyPerms(new Set(r.data.admin_permissions || [])))
+      .catch(() => setMyPerms(new Set()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   if (!user || user.role !== "admin") return null;
+
+  const visibleSidebar = SIDEBAR.filter((x) => !x.perm || (myPerms && myPerms.has(x.perm)));
+  const canSee = (perm) => !perm || (myPerms && myPerms.has(perm));
+
+  // If the currently-selected tab isn't visible anymore (e.g. permissions
+  // narrowed since login), fall back to Overview so we don't render a
+  // hidden section's content.
+  const effectiveTab = visibleSidebar.some((x) => x.id === tab) ? tab : "overview";
 
   return (
     <div className="dash-wrap" data-testid="admin-dashboard">
       <aside className="sidebar">
         <Link to="/" className="logo mb-20"><div className="logo-mark">B</div><span style={{ fontSize: 18 }}>Book<span className="gold">Talent</span></span></Link>
         <div className="sb-section">Admin Panel</div>
-        {SIDEBAR.map((x) => (
-          <div key={x.id} className={`sb-item ${tab === x.id ? "active" : ""}`} onClick={() => setTab(x.id)} data-testid={`sb-${x.id}`}>
+        {visibleSidebar.map((x) => (
+          <div key={x.id} className={`sb-item ${effectiveTab === x.id ? "active" : ""}`} onClick={() => setTab(x.id)} data-testid={`sb-${x.id}`}>
             {x.label}
           </div>
         ))}
@@ -75,7 +94,7 @@ export default function AdminDashboard() {
       <main className="dash-content">
         <Nav />
         <div style={{ marginTop: 18 }}>
-          {tab === "overview" && (
+          {effectiveTab === "overview" && (
             <>
               <div className="dash-head">
                 <div><h1>Platform Overview</h1><p>All systems operational</p></div>
@@ -104,31 +123,31 @@ export default function AdminDashboard() {
             </>
           )}
 
-          {tab === "overview" && <OverviewAdmin stats={stats} />}
-          {tab === "artists" && <AdminArtists toast={toast} />}
-          {tab === "bookings" && <AdminBookings />}
-          {tab === "concierge" && <AdminConcierge toast={toast} />}
-          {tab === "outstation-report" && <AdminOutstationReport toast={toast} />}
-          {tab === "kyc" && <AdminKYC toast={toast} />}
-          {tab === "refunds" && <AdminRefunds toast={toast} />}
-          {tab === "coupons" && <AdminCoupons toast={toast} />}
-          {tab === "subscriptions" && <AdminSubscriptions toast={toast} />}
-          {tab === "admins" && <AdminAdmins toast={toast} />}
-          {tab === "users" && <AdminUsers toast={toast} />}
-          {tab === "disputes" && <AdminDisputes toast={toast} />}
-          {tab === "master" && <AdminMaster toast={toast} />}
-          {tab === "questionnaire" && <AdminQuestionEditor />}
-          {tab === "boost" && <AdminBoost toast={toast} />}
-          {tab === "templates" && <AdminTemplates toast={toast} />}
-          {tab === "faqs" && <AdminFAQs toast={toast} />}
-          {tab === "cms" && <AdminCMS toast={toast} />}
-          {tab === "blogs" && <AdminBlogs toast={toast} />}
-          {tab === "broadcast" && <AdminBroadcast toast={toast} />}
-          {tab === "reports" && <AdminReports />}
-          {tab === "reviews-mod" && <AdminReviewsModeration toast={toast} />}
-          {tab === "providers" && <AdminProviders toast={toast} />}
-          {tab === "settings" && <AdminSettings toast={toast} />}
-          {tab === "audit" && <AdminAudit />}
+          {effectiveTab === "overview" && <OverviewAdmin stats={stats} />}
+          {effectiveTab === "artists" && <AdminArtists toast={toast} />}
+          {effectiveTab === "bookings" && <AdminBookings />}
+          {effectiveTab === "concierge" && <AdminConcierge toast={toast} />}
+          {effectiveTab === "outstation-report" && <AdminOutstationReport toast={toast} />}
+          {effectiveTab === "kyc" && <AdminKYC toast={toast} />}
+          {effectiveTab === "refunds" && <AdminRefunds toast={toast} />}
+          {effectiveTab === "coupons" && <AdminCoupons toast={toast} />}
+          {effectiveTab === "subscriptions" && <AdminSubscriptions toast={toast} />}
+          {effectiveTab === "admins" && <AdminAdmins toast={toast} />}
+          {effectiveTab === "users" && <AdminUsers toast={toast} />}
+          {effectiveTab === "disputes" && <AdminDisputes toast={toast} />}
+          {effectiveTab === "master" && <AdminMaster toast={toast} />}
+          {effectiveTab === "questionnaire" && <AdminQuestionEditor />}
+          {effectiveTab === "boost" && <AdminBoost toast={toast} />}
+          {effectiveTab === "templates" && <AdminTemplates toast={toast} />}
+          {effectiveTab === "faqs" && <AdminFAQs toast={toast} />}
+          {effectiveTab === "cms" && <AdminCMS toast={toast} />}
+          {effectiveTab === "blogs" && <AdminBlogs toast={toast} />}
+          {effectiveTab === "broadcast" && <AdminBroadcast toast={toast} />}
+          {effectiveTab === "reports" && <AdminReports />}
+          {effectiveTab === "reviews-mod" && <AdminReviewsModeration toast={toast} />}
+          {effectiveTab === "providers" && <AdminProviders toast={toast} />}
+          {effectiveTab === "settings" && <AdminSettings toast={toast} />}
+          {effectiveTab === "audit" && <AdminAudit />}
         </div>
       </main>
     </div>
