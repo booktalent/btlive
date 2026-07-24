@@ -1,6 +1,15 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 56 — Media Chips, DB-backed Roles, Audit Log & Onboarding Nudge (2026-02-24)
+- **Media-linked Answers**: `/api/artists/{id}/about` now returns a `media_matches` array pairing each media-type answer with the newest matching media doc (heuristic map: `profile_photo→profile`, `intro_video→clip`, `gallery→gallery`, etc.). Frontend `QuestionnairePanel` renders clickable thumbnail chips that jump to the Media tab. Single Mongo query batches all media types for perf.
+- **Role Presets in DB**: New `admin_roles` collection seeded on boot with the 6 defaults. Endpoints: `GET/POST/PATCH/DELETE /api/admin/roles` (admins.manage). Safety: `super_admin` role is protected (edit/delete → 400); a role cannot be deleted while any admin still holds it; `custom` id is reserved. `get_role_presets()` helper reads DB with fallback to seed dict.
+- **RBAC Audit Log**: New `admin_audit_log` collection + `audit_log()` helper called from every admin create/update/suspend/reactivate/delete/password_reset AND role.create/update/delete. `GET /api/admin/audit-log?action=&actor_id=&limit=` returns entries with actor, target, meta and timestamp. Audit failures never break the primary action (wrapped try/except).
+- **Onboarding Nudge**: New `GET /api/questionnaire/completion/mine` returns section + question counts. Artist Dashboard Overview shows a golden banner (`data-testid=qn-nudge`) with progress bar and CTA when `sections_missing > 3`. Session-dismissable via `qn-nudge-dismiss`.
+- **Frontend**: `AdminAdmins` page rewritten with three sub-tabs (Admins / Role Presets / Audit Log). New `RoleModal` for role CRUD.
+- **Testing**: testing_agent_v3_fork iteration_56.json → **18/18 backend pytest + full frontend flows green**. Test file: `/app/backend/tests/test_iter56_roles_audit_nudge.py`.
+
+
 ## 🛡️ Iter 55 — RBAC, Agency Nav Fix & Artist About (2026-02-24)
 - **BUGFIX Agency Left Nav**: Under React Router 7's wildcard route (`path="/agency/*"`), NavLink relative `to="artists"` was resolving against the current URL, producing compound paths like `/agency/overview/artists`. Fixed by switching all NAV entries to absolute paths (`/agency/{module}`) and adding `end` prop for accurate active-state matching.
 - **Admin RBAC (Multi-Admin + Permissions)**: New `admin_role` + `admin_permissions` columns on the users doc. 15 named permissions (`admins.manage`, `users.view/edit/suspend/delete`, `artists.moderate`, `bookings.view/override`, `payments.view/refund`, `cms.manage`, `settings.manage`, `analytics.view`, `notifications.send`, `subscriptions.manage`) + 6 preset roles (super_admin, operations, finance, content, support, viewer) + a "custom" mode where the super admin picks individual permissions. Endpoints: `GET /api/admin/rbac/roles`, `GET /api/admin/rbac/me`, `GET/POST/PATCH/DELETE /api/admin/admins`. All sensitive admin endpoints migrated from `admin_only` to `require_permission(...)`. Safety guards: cannot deactivate/demote/delete self; cannot delete last super_admin.

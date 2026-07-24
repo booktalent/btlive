@@ -440,23 +440,30 @@ def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, cl
 
         media_matches: List[Dict[str, Any]] = []
         media_qs = [a for a in universal_rendered + category_rendered if (a["type"] or "").lower() in MEDIA_QTYPES]
-        for a in media_qs:
-            wanted = _match_media_types(a["id"])
-            # Newest first among the wanted media types.
-            m = await db.media.find_one(
-                {"user_id": artist_id, "type": {"$in": wanted}},
+        if media_qs:
+            # Iter 56 perf polish — Instead of one Mongo query per media
+            # question, fetch the artist's newest few media docs across all
+            # relevant types in a single call and match in Python.
+            wanted_types = set()
+            for a in media_qs:
+                wanted_types.update(_match_media_types(a["id"]))
+            media_docs = await db.media.find(
+                {"user_id": artist_id, "type": {"$in": list(wanted_types)}},
                 projection={"data": 0},
                 sort=[("created_at", -1)],
-            )
-            if m:
-                media_matches.append({
-                    "question_id": a["id"],
-                    "question": a["question"],
-                    "media_id": m["id"],
-                    "media_type": m.get("type"),
-                    "mime": m.get("mime"),
-                    "title": m.get("title"),
-                })
+            ).to_list(200)
+            for a in media_qs:
+                wanted = _match_media_types(a["id"])
+                m = next((d for d in media_docs if d.get("type") in wanted), None)
+                if m:
+                    media_matches.append({
+                        "question_id": a["id"],
+                        "question": a["question"],
+                        "media_id": m["id"],
+                        "media_type": m.get("type"),
+                        "mime": m.get("mime"),
+                        "title": m.get("title"),
+                    })
 
         # ── Iter 56 — Completion stats for the onboarding nudge ────────────
         # Count DISTINCT sections in the union of universal+category
