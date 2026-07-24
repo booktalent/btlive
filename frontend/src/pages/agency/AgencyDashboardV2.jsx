@@ -25,17 +25,17 @@ import Documents from "./modules/Documents";
 import NotificationsView from "./modules/NotificationsView";
 
 const NAV = [
-  { to: "overview",     label: "Overview",       icon: "M3 12h4l3-9 4 18 3-9h4" },
-  { to: "artists",      label: "Artists",        icon: "M12 2 15 8l6 1-4.5 4 1 6L12 16l-5.5 3 1-6L3 9l6-1z" },
-  { to: "bookings",     label: "Bookings",       icon: "M4 4h16v16H4zM4 10h16" },
-  { to: "clients",      label: "Clients (CRM)",  icon: "M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
-  { to: "events",       label: "Events",         icon: "M8 2v4M16 2v4M3 10h18M5 6h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" },
-  { to: "calendar",     label: "Calendar",       icon: "M8 2v4M16 2v4M3 10h18M5 6h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" },
-  { to: "finance",      label: "Finance",        icon: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" },
-  { to: "staff",        label: "Staff",          icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" },
-  { to: "reports",      label: "Reports",        icon: "M3 3v18h18M7 15l3-4 4 3 5-6" },
-  { to: "documents",    label: "Documents",      icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 18v-6M9 15h6" },
-  { to: "notifications",label: "Notifications",  icon: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" },
+  { to: "/agency/overview",     label: "Overview",       icon: "M3 12h4l3-9 4 18 3-9h4" },
+  { to: "/agency/artists",      label: "Artists",        icon: "M12 2 15 8l6 1-4.5 4 1 6L12 16l-5.5 3 1-6L3 9l6-1z" },
+  { to: "/agency/bookings",     label: "Bookings",       icon: "M4 4h16v16H4zM4 10h16" },
+  { to: "/agency/clients",      label: "Clients (CRM)",  icon: "M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" },
+  { to: "/agency/events",       label: "Events",         icon: "M8 2v4M16 2v4M3 10h18M5 6h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" },
+  { to: "/agency/calendar",     label: "Calendar",       icon: "M8 2v4M16 2v4M3 10h18M5 6h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" },
+  { to: "/agency/finance",      label: "Finance",        icon: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" },
+  { to: "/agency/staff",        label: "Staff",          icon: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" },
+  { to: "/agency/reports",      label: "Reports",        icon: "M3 3v18h18M7 15l3-4 4 3 5-6" },
+  { to: "/agency/documents",    label: "Documents",      icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 18v-6M9 15h6" },
+  { to: "/agency/notifications",label: "Notifications",  icon: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0" },
 ];
 
 function KPIStrip() {
@@ -97,8 +97,9 @@ export default function AgencyDashboardV2() {
               <NavLink
                 key={n.to}
                 to={n.to}
+                end
                 className={({ isActive }) => `ag-nav-item ${isActive ? "active" : ""}`}
-                data-testid={`agency-nav-${n.to}`}
+                data-testid={`agency-nav-${n.to.split('/').pop()}`}
                 title={collapsed ? n.label : undefined}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">

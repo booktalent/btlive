@@ -13,6 +13,7 @@ import AdminConcierge from "./admin/AdminConcierge";
 import AdminOutstationReport from "./admin/AdminOutstationReport";
 import AdminQuestionEditor from "./admin/AdminQuestionEditor";
 import AdminSubscriptions from "./admin/AdminSubscriptions";
+import AdminAdmins from "./admin/AdminAdmins";
 
 const SIDEBAR = [
   { id: "overview", label: "📊 Overview" },
@@ -38,6 +39,7 @@ const SIDEBAR = [
   { id: "reviews-mod", label: "🛡️ Reviews Moderation" },
   { id: "providers", label: "🔌 Providers" },
   { id: "settings", label: "⚙️ Settings" },
+  { id: "admins", label: "🛡️ Admin Team" },
   { id: "audit", label: "🛡️ Audit Logs" },
 ];
 
@@ -111,6 +113,7 @@ export default function AdminDashboard() {
           {tab === "refunds" && <AdminRefunds toast={toast} />}
           {tab === "coupons" && <AdminCoupons toast={toast} />}
           {tab === "subscriptions" && <AdminSubscriptions toast={toast} />}
+          {tab === "admins" && <AdminAdmins toast={toast} />}
           {tab === "users" && <AdminUsers toast={toast} />}
           {tab === "disputes" && <AdminDisputes toast={toast} />}
           {tab === "master" && <AdminMaster toast={toast} />}

@@ -239,6 +239,64 @@ async def admin_only(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+# ─── Iter 55 — RBAC helpers ────────────────────────────────────────────────
+# Available admin permissions. A super_admin implicitly has all of them.
+ADMIN_PERMISSIONS = [
+    "admins.manage",       # Create/edit/delete other admins (super admin only)
+    "users.view",
+    "users.edit",
+    "users.suspend",
+    "users.delete",
+    "artists.moderate",    # verify / feature / suspend artist profiles
+    "bookings.view",
+    "bookings.override",   # extend/force-accept/reject/refund bookings
+    "payments.view",
+    "payments.refund",
+    "cms.manage",          # blogs, pages, CTAs
+    "settings.manage",     # site settings, pricing rules
+    "analytics.view",
+    "notifications.send",
+    "subscriptions.manage",
+]
+
+# Preset roles bundled with the seed data. Custom roles can be created via
+# the admin UI which just stores a permission array on the user document.
+ADMIN_ROLE_PRESETS = {
+    "super_admin":    ADMIN_PERMISSIONS,                                # everything
+    "operations":     ["users.view", "users.edit", "artists.moderate", "bookings.view",
+                       "bookings.override", "payments.view", "analytics.view"],
+    "finance":        ["users.view", "bookings.view", "payments.view", "payments.refund",
+                       "subscriptions.manage", "analytics.view"],
+    "content":        ["users.view", "cms.manage", "notifications.send", "analytics.view"],
+    "support":        ["users.view", "bookings.view", "artists.moderate", "notifications.send"],
+    "viewer":         ["users.view", "bookings.view", "payments.view", "analytics.view"],
+}
+
+
+def admin_has_permission(admin: dict, permission: str) -> bool:
+    """Return True if the admin user has the given permission.
+    Super admins (or admins without an explicit permission list — legacy seed)
+    are treated as having all permissions."""
+    if admin.get("admin_role") == "super_admin":
+        return True
+    perms = admin.get("admin_permissions")
+    # Legacy admins created before RBAC have no admin_permissions field →
+    # keep them full-access so we don't break existing installs.
+    if perms is None:
+        return True
+    return permission in perms
+
+
+def require_permission(permission: str):
+    """Dependency factory: `admin: dict = Depends(require_permission('bookings.override'))`.
+    Bakes the admin_only check in so route decorators stay one-liner."""
+    async def _dep(admin: dict = Depends(admin_only)) -> dict:
+        if not admin_has_permission(admin, permission):
+            raise HTTPException(403, f"Missing permission: {permission}")
+        return admin
+    return _dep
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Pydantic Models
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2631,7 +2689,7 @@ async def conversation_messages(cid: str, user: dict = Depends(get_current_user)
 # ADMIN
 # ─────────────────────────────────────────────────────────────────────────────
 @api.get("/admin/stats")
-async def admin_stats(_: dict = Depends(admin_only)):
+async def admin_stats(_: dict = Depends(require_permission("analytics.view"))):
     # BookTalent is a lead-generation marketplace. We surface the marketplace
     # volume (artist fees — informational) and, most importantly, what the
     # platform actually collects: Platform Service Fee + GST.
@@ -2803,7 +2861,7 @@ async def admin_booking_manual_refund(bid: str, body: _BookingOverride, admin: d
 
 
 @api.get("/admin/users")
-async def admin_users(role: Optional[str] = None, include_deleted: bool = False, _: dict = Depends(admin_only)):
+async def admin_users(role: Optional[str] = None, include_deleted: bool = False, _: dict = Depends(require_permission("users.view"))):
     q: dict = {} if not role else {"role": role}
     if not include_deleted:
         q["deleted"] = {"$ne": True}
@@ -2811,11 +2869,167 @@ async def admin_users(role: Optional[str] = None, include_deleted: bool = False,
     return [clean(d) for d in docs]
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Iter 55 — Admin RBAC: multiple admins with per-permission access control
+# ═══════════════════════════════════════════════════════════════════════════
+class AdminCreateBody(BaseModel):
+    email: EmailStr
+    password: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    admin_role: str = "viewer"          # one of ADMIN_ROLE_PRESETS or "custom"
+    admin_permissions: Optional[List[str]] = None  # required when admin_role == "custom"
+
+
+class AdminUpdateBody(BaseModel):
+    admin_role: Optional[str] = None
+    admin_permissions: Optional[List[str]] = None
+    active: Optional[bool] = None
+    password: Optional[str] = None      # super-admin can reset another admin's password
+
+
+@api.get("/admin/rbac/roles")
+async def admin_rbac_roles(_: dict = Depends(admin_only)):
+    """List all available permissions + preset roles. Any admin can read this
+    so the UI can render permission checklists — write endpoints are still gated."""
+    return {
+        "permissions": ADMIN_PERMISSIONS,
+        "role_presets": ADMIN_ROLE_PRESETS,
+    }
+
+
+@api.get("/admin/rbac/me")
+async def admin_rbac_me(admin: dict = Depends(admin_only)):
+    """Return the caller's own RBAC permissions so the frontend can hide
+    modules the current admin doesn't have access to."""
+    if admin.get("admin_role") == "super_admin":
+        perms = ADMIN_PERMISSIONS
+    else:
+        perms = admin.get("admin_permissions") or ADMIN_PERMISSIONS
+    return {
+        "admin_role": admin.get("admin_role", "super_admin"),
+        "admin_permissions": perms,
+    }
+
+
+@api.get("/admin/admins")
+async def admin_list_admins(_: dict = Depends(require_permission("admins.manage"))):
+    docs = await db.users.find({"role": "admin", "deleted": {"$ne": True}}).sort("created_at", 1).to_list(200)
+    return [{
+        "id": d["id"],
+        "email": d["email"],
+        "first_name": d.get("first_name"),
+        "last_name": d.get("last_name"),
+        "admin_role": d.get("admin_role") or "super_admin",  # legacy = super
+        "admin_permissions": d.get("admin_permissions") or ADMIN_PERMISSIONS,
+        "active": not d.get("suspended", False),
+        "created_at": d.get("created_at"),
+    } for d in docs]
+
+
+@api.post("/admin/admins")
+async def admin_create_admin(body: AdminCreateBody, super_admin: dict = Depends(require_permission("admins.manage"))):
+    email = body.email.lower().strip()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(400, "Email already in use")
+
+    # Resolve permission set: preset role OR explicit permission list.
+    if body.admin_role == "custom":
+        if not body.admin_permissions:
+            raise HTTPException(400, "admin_permissions required for custom role")
+        permissions = [p for p in body.admin_permissions if p in ADMIN_PERMISSIONS]
+    elif body.admin_role in ADMIN_ROLE_PRESETS:
+        permissions = ADMIN_ROLE_PRESETS[body.admin_role]
+    else:
+        raise HTTPException(400, f"Unknown role '{body.admin_role}'")
+
+    # Only super_admin can mint another super_admin (belt-and-braces beyond
+    # the require_permission gate — 'admins.manage' is the same key).
+    if body.admin_role == "super_admin" and super_admin.get("admin_role") != "super_admin":
+        raise HTTPException(403, "Only a super admin can create another super admin")
+
+    doc = {
+        "id": new_id(),
+        "email": email,
+        "password_hash": hash_password(body.password),
+        "first_name": (body.first_name or "").strip() or "Admin",
+        "last_name": (body.last_name or "").strip() or "",
+        "role": "admin",
+        "admin_role": body.admin_role,
+        "admin_permissions": permissions,
+        "kyc_status": "approved",
+        "verified": True,
+        "created_by_admin_id": super_admin["id"],
+        "created_at": utcnow(),
+        "updated_at": utcnow(),
+    }
+    await db.users.insert_one(doc)
+    return {
+        "id": doc["id"], "email": doc["email"], "admin_role": doc["admin_role"],
+        "admin_permissions": doc["admin_permissions"], "active": True,
+    }
+
+
+@api.patch("/admin/admins/{uid}")
+async def admin_update_admin(uid: str, body: AdminUpdateBody, super_admin: dict = Depends(require_permission("admins.manage"))):
+    target = await db.users.find_one({"id": uid, "role": "admin"})
+    if not target:
+        raise HTTPException(404, "Admin not found")
+    if uid == super_admin["id"] and body.admin_role and body.admin_role != "super_admin":
+        raise HTTPException(400, "You cannot demote yourself. Ask another super admin to do it.")
+
+    updates: Dict[str, Any] = {"updated_at": utcnow()}
+    if body.admin_role is not None:
+        if body.admin_role == "custom":
+            if body.admin_permissions is None:
+                raise HTTPException(400, "admin_permissions required for custom role")
+        elif body.admin_role in ADMIN_ROLE_PRESETS:
+            updates["admin_permissions"] = ADMIN_ROLE_PRESETS[body.admin_role]
+        elif body.admin_role == "super_admin":
+            if super_admin.get("admin_role") != "super_admin":
+                raise HTTPException(403, "Only a super admin can grant super_admin")
+            updates["admin_permissions"] = ADMIN_PERMISSIONS
+        else:
+            raise HTTPException(400, f"Unknown role '{body.admin_role}'")
+        updates["admin_role"] = body.admin_role
+
+    if body.admin_permissions is not None:
+        updates["admin_permissions"] = [p for p in body.admin_permissions if p in ADMIN_PERMISSIONS]
+
+    if body.active is not None:
+        # Prevent locking yourself out of the last super_admin seat.
+        if not body.active and uid == super_admin["id"]:
+            raise HTTPException(400, "You cannot deactivate yourself")
+        updates["suspended"] = not body.active
+
+    if body.password:
+        updates["password_hash"] = hash_password(body.password)
+
+    await db.users.update_one({"id": uid}, {"$set": updates})
+    return {"ok": True}
+
+
+@api.delete("/admin/admins/{uid}")
+async def admin_delete_admin(uid: str, super_admin: dict = Depends(require_permission("admins.manage"))):
+    if uid == super_admin["id"]:
+        raise HTTPException(400, "You cannot delete yourself")
+    target = await db.users.find_one({"id": uid, "role": "admin"})
+    if not target:
+        raise HTTPException(404, "Admin not found")
+    # Guard the last super admin — refuse to delete if it's the only one.
+    if target.get("admin_role") == "super_admin":
+        remaining = await db.users.count_documents({"role": "admin", "admin_role": "super_admin", "id": {"$ne": uid}, "deleted": {"$ne": True}})
+        if remaining == 0:
+            raise HTTPException(400, "Cannot delete the last super admin. Promote another admin first.")
+    await db.users.update_one({"id": uid}, {"$set": {"deleted": True, "suspended": True, "updated_at": utcnow()}})
+    return {"ok": True}
+
+
 # /admin/kyc and /admin/kyc/decide moved to routes/kyc.py (Iter 13)
 
 
 @api.post("/admin/artists/{user_id}/feature")
-async def admin_feature(user_id: str, _: dict = Depends(admin_only)):
+async def admin_feature(user_id: str, _: dict = Depends(require_permission("artists.moderate"))):
     a = await db.artist_profiles.find_one({"user_id": user_id})
     if not a:
         raise HTTPException(404, "Not found")
@@ -2824,7 +3038,7 @@ async def admin_feature(user_id: str, _: dict = Depends(admin_only)):
 
 
 @api.post("/admin/artists/{user_id}/suspend")
-async def admin_suspend(user_id: str, _: dict = Depends(admin_only)):
+async def admin_suspend(user_id: str, _: dict = Depends(require_permission("users.suspend"))):
     u = await db.users.find_one({"id": user_id})
     if not u:
         raise HTTPException(404, "Not found")
@@ -2855,7 +3069,7 @@ class AdminUserEditBody(BaseModel):
 
 
 @api.put("/admin/users/{user_id}")
-async def admin_edit_user(user_id: str, body: AdminUserEditBody, _: dict = Depends(admin_only)):
+async def admin_edit_user(user_id: str, body: AdminUserEditBody, _: dict = Depends(require_permission("users.edit"))):
     u = await db.users.find_one({"id": user_id})
     if not u:
         raise HTTPException(404, "User not found")
@@ -2895,7 +3109,7 @@ async def admin_edit_user(user_id: str, body: AdminUserEditBody, _: dict = Depen
 
 
 @api.delete("/admin/users/{user_id}")
-async def admin_delete_user(user_id: str, hard: bool = False, admin: dict = Depends(admin_only)):
+async def admin_delete_user(user_id: str, hard: bool = False, admin: dict = Depends(require_permission("users.delete"))):
     """
     Delete a user account.
       • hard=false  → soft delete: mark deleted + anonymise email, keep history
@@ -3191,11 +3405,22 @@ async def startup():
             "id": new_id(), "email": admin_email,
             "password_hash": hash_password(admin_password),
             "first_name": "Super", "last_name": "Admin",
-            "role": "admin", "kyc_status": "approved", "verified": True,
+            "role": "admin",
+            "admin_role": "super_admin",
+            "admin_permissions": ADMIN_PERMISSIONS,
+            "kyc_status": "approved", "verified": True,
             "created_at": utcnow(), "updated_at": utcnow(),
         })
-    elif not verify_password(admin_password, existing.get("password_hash", "")):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+    else:
+        upd = {}
+        if not verify_password(admin_password, existing.get("password_hash", "")):
+            upd["password_hash"] = hash_password(admin_password)
+        # Backfill RBAC fields for the legacy seed admin so it becomes the super admin.
+        if not existing.get("admin_role"):
+            upd["admin_role"] = "super_admin"
+            upd["admin_permissions"] = ADMIN_PERMISSIONS
+        if upd:
+            await db.users.update_one({"email": admin_email}, {"$set": upd})
 
     # seed demo data only once
     seed_marker = await db.meta.find_one({"_id": "seed_v3"})

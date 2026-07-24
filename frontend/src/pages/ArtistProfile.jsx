@@ -13,6 +13,7 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export default function ArtistProfile() {
   const { id } = useParams();
   const [data, setData] = useState(null);
+  const [about, setAbout] = useState(null); // Iter 55 — questionnaire answers
   const [tab, setTab] = useState("about");
   const [selectedPkg, setSelectedPkg] = useState(null);
   const [artistId, setArtistId] = useState(id);
@@ -44,6 +45,12 @@ export default function ArtistProfile() {
         setData(r.data);
         const pop = r.data.packages.find((p) => p.is_popular) || r.data.packages[0];
         if (pop) setSelectedPkg(pop);
+        // Iter 55 — Pull the artist's questionnaire answers so the About
+        // tab can render every declared detail (travel, hospitality,
+        // technical rider, availability windows, category-specific
+        // preferences…). This endpoint is public — same access rules as
+        // the profile itself.
+        api.get(`/artists/${uid}/about`).then((ar) => setAbout(ar.data)).catch(() => setAbout(null));
       } catch (_) { setData({ notFound: true }); }
     };
     load();
@@ -305,6 +312,8 @@ export default function ArtistProfile() {
                     <div className="fs-13">{profile.travel_range || "Pan India"}</div>
                   </div>
                 </div>
+                {/* Iter 55 — Questionnaire-driven details, grouped by section. */}
+                <QuestionnairePanel about={about} onMediaClick={() => setTab("media")} />
               </div>
             )}
 
@@ -658,6 +667,97 @@ function MediaCarousel({ lightbox, onClose, onChange }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Iter 55 — QuestionnairePanel
+// Renders every non-empty answer from the artist's onboarding questionnaire
+// in a customer-friendly way, grouped by the "section" hint the question
+// declared (Travel, Hospitality, Sound, etc.). Photo / video question
+// answers are NOT rendered inline — instead we surface a "See gallery" chip
+// that switches to the Media tab, so uploads always live in one place.
+// ─────────────────────────────────────────────────────────────────────────
+const MEDIA_TYPES = new Set(["photo", "photos", "video", "videos", "media", "attachment", "file", "image"]);
+
+function formatAnswer(a) {
+  const v = a.answer;
+  if (a.type === "toggle" || typeof v === "boolean") return v ? "Yes" : "No";
+  if (Array.isArray(v)) return v.length === 0 ? "—" : v.join(" · ");
+  if (typeof v === "object" && v !== null) {
+    return Object.entries(v)
+      .filter(([, val]) => val !== null && val !== "" && val !== false)
+      .map(([k, val]) => `${k}: ${Array.isArray(val) ? val.join(", ") : val}`)
+      .join(" · ");
+  }
+  return String(v);
+}
+
+function QuestionnairePanel({ about, onMediaClick }) {
+  if (!about) return null;
+  const all = [...(about.universal || []), ...(about.category || [])];
+  if (all.length === 0) return null;
+
+  // Split media-type answers so we can point customers to the Media tab.
+  const mediaAnswers = all.filter((a) => MEDIA_TYPES.has((a.type || "").toLowerCase()));
+  const nonMedia = all.filter((a) => !MEDIA_TYPES.has((a.type || "").toLowerCase()));
+
+  // Group by section (fall back to "Details").
+  const bySection = {};
+  for (const a of nonMedia) {
+    const s = a.section || "Details";
+    (bySection[s] = bySection[s] || []).push(a);
+  }
+  // Preserve a sensible ordering: Travel, Hospitality, Sound, Technical,
+  // Availability, then everything else alphabetically.
+  const ORDER = ["Travel", "Hospitality", "Sound", "Technical", "Availability", "Preferences", "Performance", "Details"];
+  const sections = Object.keys(bySection).sort((a, b) => {
+    const ai = ORDER.indexOf(a), bi = ORDER.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  return (
+    <div className="qa-panel" data-testid="qa-panel" style={{ marginTop: 26 }}>
+      <div className="divider" style={{ margin: "6px 0 20px" }} />
+      <h3 className="card-title mb-16" style={{ fontSize: 18 }}>Rider &amp; Preferences</h3>
+      <div style={{ fontSize: 12, color: "var(--white-muted)", marginBottom: 14 }}>
+        Auto-generated from {about.universal.length + about.category.length} questionnaire answers this artist submitted.
+      </div>
+
+      {sections.map((s) => (
+        <div key={s} className="qa-section" data-testid={`qa-section-${s.toLowerCase()}`} style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, letterSpacing: ".16em", color: "var(--gold-light)", textTransform: "uppercase", marginBottom: 10 }}>{s}</div>
+          <div className="grid grid-2" style={{ gap: 10 }}>
+            {bySection[s].map((a) => (
+              <div key={a.id} style={{ background: "var(--glass)", borderRadius: 10, padding: "12px 14px", border: "1px solid var(--glass-border)" }} data-testid={`qa-item-${a.id}`}>
+                <div className="text-muted fs-11 mb-4">{a.question.toUpperCase()}</div>
+                <div className="fs-13" style={{ lineHeight: 1.5 }}>{formatAnswer(a)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {mediaAnswers.length > 0 && (
+        <div className="qa-media-hint" data-testid="qa-media-hint" style={{
+          marginTop: 14, padding: "12px 14px", borderRadius: 10,
+          background: "rgba(246,211,102,0.06)", border: "1px dashed rgba(246,211,102,0.25)",
+          display: "flex", alignItems: "center", gap: 10, fontSize: 13,
+        }}>
+          <span style={{ fontSize: 18 }}>📸</span>
+          <div style={{ flex: 1 }}>
+            {mediaAnswers.length} media attachment{mediaAnswers.length === 1 ? "" : "s"} referenced in this artist's questionnaire.
+          </div>
+          <button className="btn btn-ghost btn-xs" onClick={onMediaClick} data-testid="qa-goto-media">
+            See gallery →
+          </button>
+        </div>
+      )}
     </div>
   );
 }

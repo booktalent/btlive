@@ -265,11 +265,25 @@ function FieldRenderer({ q, value, onChange }) {
         </div>
       );
     case "file":
+    case "photo":
+    case "photos":
+    case "video":
+    case "videos":
+    case "media":
+    case "attachment":
+    case "image":
+      // Iter 55 — Photo / video / media questions must NEVER open a separate
+      // upload dialog. Every artist upload flows through the Media & Photos
+      // module so all assets live in one gallery + CDN pipeline.
       return (
         <div className="field">
           {label}
-          <div className="q-file-hint">
-            Upload happens on the dedicated Media & Photos screen in your dashboard. Skip for now — we'll take you there after onboarding.
+          <div className="q-file-hint" data-testid={`q-media-hint-${q.id}`}>
+            <span style={{ fontSize: 18, marginRight: 8 }}>📸</span>
+            <span>
+              Upload happens on the <b>Media &amp; Photos</b> tab of your dashboard, so all your assets live in one gallery.
+              Skip this here — we'll take you there right after you finish the questionnaire.
+            </span>
           </div>
         </div>
       );

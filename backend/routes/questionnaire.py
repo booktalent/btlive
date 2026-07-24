@@ -334,6 +334,81 @@ def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, cl
         prof = await db.artist_profiles.find_one({"user_id": user["id"]}) or {}
         return prof.get("answers", {})
 
+    # ── Iter 55: Public artist profile "About" data ──────────────────────
+    # Renders the artist's questionnaire answers as ordered {question,
+    # answer, type} triples grouped by universal / category so the profile
+    # page can display everything the artist declared without hunting through
+    # a raw JSON blob.
+    @r.get("/artists/{artist_id}/about")
+    async def artist_about(artist_id: str) -> Dict[str, Any]:
+        prof = await db.artist_profiles.find_one({"user_id": artist_id}) or {}
+        if prof.get("suspended"):
+            raise HTTPException(404, "Artist not found")
+        answers = prof.get("answers") or {}
+        # Layer 1 — universal questions
+        uni_override = await db.questionnaire_meta.find_one({"id": "universal"})
+        universal = (uni_override or {}).get("questions") or UNIVERSAL_QUESTIONS
+        universal = sorted(universal, key=lambda q: q.get("order", 999))
+        # Layer 2 — questions for the artist's category (if any).
+        category_slug = None
+        category = []
+        cat_raw = (prof.get("category") or "").strip()
+        if cat_raw:
+            # Category matching is fuzzy on purpose: the seed dict uses labels
+            # like "Singer" / "DJ" / "Band" while profiles may store richer
+            # labels ("Bollywood Vocalist"). Match on exact key, then on
+            # substring (case-insensitive).
+            candidate_slug = cat_raw.lower().replace(" ", "-").replace("/", "-")
+
+            async def _find_qs():
+                # 1) DB override by slug.
+                m = await db.questionnaire_meta.find_one({"id": f"cat:{candidate_slug}"})
+                if m and m.get("questions"):
+                    return candidate_slug, m["questions"]
+                # 2) Exact dict key.
+                if cat_raw in CATEGORY_QUESTIONS and CATEGORY_QUESTIONS[cat_raw]:
+                    return cat_raw, CATEGORY_QUESTIONS[cat_raw]
+                # 3) Fuzzy substring against dict keys.
+                cat_lo = cat_raw.lower()
+                # Aliases for common human-readable categories.
+                _ALIASES = {"vocalist": "Singer", "singer": "Singer", "dj": "DJ",
+                            "band": "Band", "dancer": "Dancer", "comedian": "Stand-up Comedian",
+                            "emcee": "Anchor / Emcee", "anchor": "Anchor / Emcee",
+                            "host": "Anchor / Emcee"}
+                for alias, target in _ALIASES.items():
+                    if alias in cat_lo and target in CATEGORY_QUESTIONS and CATEGORY_QUESTIONS[target]:
+                        return target, CATEGORY_QUESTIONS[target]
+                return None, []
+
+            category_slug, category = await _find_qs()
+            category = sorted(category, key=lambda q: q.get("order", 999))
+
+        def _render(qs):
+            out = []
+            for q in qs:
+                key = q.get("id") or q.get("key")
+                if not key:
+                    continue
+                val = answers.get(key)
+                if val is None or val == "" or val == []:
+                    continue
+                out.append({
+                    "id": key,
+                    "question": q.get("label") or q.get("question") or key,
+                    "type": q.get("type", "text"),
+                    "answer": val,
+                    "section": q.get("section"),
+                    "options": q.get("options"),
+                })
+            return out
+
+        return {
+            "universal": _render(universal),
+            "category": _render(category),
+            "category_slug": category_slug,
+            "raw_answers_count": len(answers),
+        }
+
     # ── Admin CRUD for question metadata (rename/reorder/add/remove) ─────
     class _MetaBody(BaseModel):
         questions: List[Dict[str, Any]]
