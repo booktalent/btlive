@@ -43,7 +43,7 @@ const SIDEBAR = [
   { id: "providers",        label: "🔌 Providers",             perm: "settings.manage" },
   { id: "settings",         label: "⚙️ Settings",              perm: "settings.manage" },
   { id: "admins",           label: "🛡️ Admin Team",           perm: "admins.manage" },
-  { id: "audit", label: "🛡️ Audit Logs" },
+  { id: "audit", label: "🛡️ Audit Logs", perm: "admins.manage" },
 ];
 
 export default function AdminDashboard() {

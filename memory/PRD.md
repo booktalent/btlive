@@ -1,6 +1,13 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎨 Iter 57 — RBAC Guardrails, Nudge Deep-link & Media Fallback (2026-02-25)
+- **RBAC UI Guardrails**: `AdminDashboard` reads `/admin/rbac/me` on mount and hides sidebar entries whose `perm` field isn't in the caller's permission set. `effectiveTab` fallback re-routes to Overview if the selected tab becomes hidden. All 25 sidebar entries mapped to their required permission (null = always shown). Backend belt-and-braces: `/admin/artists` now uses `require_permission('artists.moderate')`, `/admin/refunds` uses `require_permission('payments.view')`, `audit` sidebar entry gated by `admins.manage`.
+- **Nudge Sections Explorer**: Onboarding banner renders each missing section as a golden clickable chip (`qn-missing-{slug}`). Clicking sets `wizardStartSection` state → tab flips to questionnaire → `QuestionnaireWizard`'s new `startSection` prop deep-links to matching step on first render (case-insensitive match, one-shot, falls back to step 0). Step-nav click restriction relaxed so users can jump freely.
+- **Media Chip Fallback**: `QuestionnairePanel` on the customer-facing About tab now shows a distinct **dashed-border chip with a ❓ tile and 'Ask artist for this →' label** (`qa-media-missing-{qid}`) whenever a media-type answer has no matching upload. Signals to customers that something is expected but not yet delivered — turns a silent gap into a light nudge.
+- **Testing**: testing_agent_v3_fork iteration_57.json → 16/18 backend + full frontend flows green; both flagged gaps fixed in follow-up (audit sidebar perm, /admin/artists + /admin/refunds require_permission).
+
+
 ## 🎯 Iter 56 — Media Chips, DB-backed Roles, Audit Log & Onboarding Nudge (2026-02-24)
 - **Media-linked Answers**: `/api/artists/{id}/about` now returns a `media_matches` array pairing each media-type answer with the newest matching media doc (heuristic map: `profile_photo→profile`, `intro_video→clip`, `gallery→gallery`, etc.). Frontend `QuestionnairePanel` renders clickable thumbnail chips that jump to the Media tab. Single Mongo query batches all media types for perf.
 - **Role Presets in DB**: New `admin_roles` collection seeded on boot with the 6 defaults. Endpoints: `GET/POST/PATCH/DELETE /api/admin/roles` (admins.manage). Safety: `super_admin` role is protected (edit/delete → 400); a role cannot be deleted while any admin still holds it; `custom` id is reserved. `get_role_presets()` helper reads DB with fallback to seed dict.

@@ -2778,7 +2778,7 @@ async def admin_stats(_: dict = Depends(require_permission("analytics.view"))):
 
 
 @api.get("/admin/artists")
-async def admin_list_artists(status: Optional[str] = None, _: dict = Depends(admin_only)):
+async def admin_list_artists(status: Optional[str] = None, _: dict = Depends(require_permission("artists.moderate"))):
     q: dict = {}
     if status == "pending":
         q["kyc_status"] = "pending"
@@ -3277,7 +3277,7 @@ async def admin_delete_user(user_id: str, hard: bool = False, admin: dict = Depe
 
 
 @api.get("/admin/refunds")
-async def admin_refunds(_: dict = Depends(admin_only)):
+async def admin_refunds(_: dict = Depends(require_permission("payments.view"))):
     """Payments flagged for refund (booking cancelled/rejected). Admin
     processes the actual Razorpay refund via /payments/{id}/refund."""
     docs = await db.payments.find({"refund_pending": True, "status": "completed"}).sort("refund_flagged_at", -1).to_list(500)
