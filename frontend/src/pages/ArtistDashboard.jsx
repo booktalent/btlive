@@ -54,6 +54,16 @@ export default function ArtistDashboard() {
   const [tab, setTab] = useState("overview");
   const [data, setData] = useState({ bookings: [], packages: [], media: [], analytics: {}, reviews: [] });
   const [showWizard, setShowWizard] = useState(false);
+  const [completion, setCompletion] = useState(null); // Iter 56 — onboarding nudge
+
+  // Iter 56 — Pull questionnaire completion so we can show a nudge banner
+  // when the artist is missing more than 3 sections of their rider.
+  useEffect(() => {
+    if (!user || user.role !== "artist") return;
+    api.get("/questionnaire/completion/mine")
+      .then((r) => setCompletion(r.data))
+      .catch(() => setCompletion(null));
+  }, [user, showWizard]);
 
   // Auto-show wizard if onboarding required (test-unblocking scaffold)
   useEffect(() => {
@@ -131,7 +141,12 @@ export default function ArtistDashboard() {
             );
           })()}
 
-          {tab === "overview" && <Overview data={data} doAction={doAction} refresh={refresh} setTab={setTab} />}
+          {tab === "overview" && (
+            <>
+              <QuestionnaireNudge completion={completion} onOpen={() => setTab("questionnaire")} />
+              <Overview data={data} doAction={doAction} refresh={refresh} setTab={setTab} />
+            </>
+          )}
           {tab === "profile" && <ProfileEditor user={user} refreshMe={refreshMe} toast={toast} />}
           {tab === "questionnaire" && (
             <QuestionnaireWizard
@@ -2003,3 +2018,61 @@ function BarRow({ label, value, max }) {
   );
 }
 
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Iter 56 — QuestionnaireNudge
+// Persuasive banner shown on the Overview tab when the artist is missing
+// more than 3 of the questionnaire sections. Hides when they finish, and
+// can be dismissed for the session so it doesn't nag over one visit.
+// ─────────────────────────────────────────────────────────────────────────
+function QuestionnaireNudge({ completion, onOpen }) {
+  const [dismissed, setDismissed] = useState(false);
+  if (!completion || dismissed) return null;
+  const missing = (completion.sections_missing || []).length;
+  if (missing <= 3) return null;
+
+  const pct = completion.questions_total
+    ? Math.round((completion.questions_answered / completion.questions_total) * 100)
+    : 0;
+
+  return (
+    <div className="qn-nudge" data-testid="qn-nudge" style={{
+      position: "relative",
+      marginBottom: 20,
+      padding: "18px 22px",
+      borderRadius: 14,
+      background: "linear-gradient(115deg, rgba(246,211,102,0.14), rgba(178,132,255,0.08))",
+      border: "1px solid rgba(246,211,102,0.28)",
+      display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
+    }}>
+      <div style={{ fontSize: 32, lineHeight: 1 }}>🎯</div>
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+          Complete your rider so customers book with confidence
+        </div>
+        <div style={{ fontSize: 13, color: "var(--white-muted)" }}>
+          You've answered {completion.questions_answered} of {completion.questions_total} questions ({pct}%).
+          Still missing: <b>{missing}</b> section{missing === 1 ? "" : "s"} — {(completion.sections_missing || []).slice(0, 3).join(" · ")}{missing > 3 ? "…" : ""}.
+        </div>
+        <div style={{ marginTop: 10, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: "linear-gradient(90deg, #f6d366, #b284ff)", transition: "width 0.4s ease" }} />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button className="btn btn-gold btn-sm" onClick={onOpen} data-testid="qn-nudge-cta">
+          Finish Questionnaire →
+        </button>
+        <button
+          className="btn btn-ghost btn-xs"
+          onClick={() => setDismissed(true)}
+          title="Hide for now"
+          data-testid="qn-nudge-dismiss"
+          style={{ padding: "4px 8px" }}
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}

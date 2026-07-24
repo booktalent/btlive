@@ -259,10 +259,12 @@ ADMIN_PERMISSIONS = [
     "subscriptions.manage",
 ]
 
-# Preset roles bundled with the seed data. Custom roles can be created via
-# the admin UI which just stores a permission array on the user document.
-ADMIN_ROLE_PRESETS = {
-    "super_admin":    ADMIN_PERMISSIONS,                                # everything
+# Iter 56 — Presets are now DB-backed. This dict is the SEED that gets
+# inserted into `admin_roles` on first boot; after that ops can create /
+# edit / delete presets from the UI. `super_admin` is protected — always
+# reset to the full permission list to prevent lockouts.
+DEFAULT_ADMIN_ROLE_PRESETS = {
+    "super_admin":    ADMIN_PERMISSIONS,
     "operations":     ["users.view", "users.edit", "artists.moderate", "bookings.view",
                        "bookings.override", "payments.view", "analytics.view"],
     "finance":        ["users.view", "bookings.view", "payments.view", "payments.refund",
@@ -271,6 +273,36 @@ ADMIN_ROLE_PRESETS = {
     "support":        ["users.view", "bookings.view", "artists.moderate", "notifications.send"],
     "viewer":         ["users.view", "bookings.view", "payments.view", "analytics.view"],
 }
+
+
+async def get_role_presets() -> Dict[str, List[str]]:
+    """Load role → permissions map from Mongo. Falls back to the seed dict
+    if the collection is empty (fresh install, migration in progress)."""
+    docs = await db.admin_roles.find({}, {"_id": 0, "id": 1, "permissions": 1}).to_list(200)
+    if not docs:
+        return dict(DEFAULT_ADMIN_ROLE_PRESETS)
+    return {d["id"]: d.get("permissions", []) for d in docs}
+
+
+async def audit_log(actor: dict, action: str, target: Optional[dict] = None, meta: Optional[dict] = None) -> None:
+    """Iter 56 — Write a single audit entry. Never raises."""
+    try:
+        entry = {
+            "id": new_id(),
+            "action": action,
+            "actor_id": actor.get("id"),
+            "actor_email": actor.get("email"),
+            "actor_role": actor.get("admin_role"),
+            "target_id": (target or {}).get("id"),
+            "target_email": (target or {}).get("email"),
+            "target_role": (target or {}).get("admin_role"),
+            "meta": meta or {},
+            "created_at": utcnow(),
+        }
+        await db.admin_audit_log.insert_one(entry)
+    except Exception:
+        # Auditing failure must never break the underlying action.
+        pass
 
 
 def admin_has_permission(admin: dict, permission: str) -> bool:
@@ -2894,7 +2926,7 @@ async def admin_rbac_roles(_: dict = Depends(admin_only)):
     so the UI can render permission checklists — write endpoints are still gated."""
     return {
         "permissions": ADMIN_PERMISSIONS,
-        "role_presets": ADMIN_ROLE_PRESETS,
+        "role_presets": await get_role_presets(),
     }
 
 
@@ -2910,6 +2942,79 @@ async def admin_rbac_me(admin: dict = Depends(admin_only)):
         "admin_role": admin.get("admin_role", "super_admin"),
         "admin_permissions": perms,
     }
+
+
+# ══════════════ Iter 56 — DB-backed role preset CRUD ══════════════════════
+class RolePresetBody(BaseModel):
+    id: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9_-]+$")
+    permissions: List[str]
+
+
+@api.get("/admin/roles")
+async def admin_list_roles(_: dict = Depends(require_permission("admins.manage"))):
+    presets = await get_role_presets()
+    return [{"id": rid, "permissions": perms, "readonly": rid == "super_admin"}
+            for rid, perms in presets.items()]
+
+
+@api.post("/admin/roles")
+async def admin_create_role(body: RolePresetBody, admin: dict = Depends(require_permission("admins.manage"))):
+    if body.id == "custom":
+        raise HTTPException(400, "'custom' is a reserved role id")
+    if await db.admin_roles.find_one({"id": body.id}):
+        raise HTTPException(400, "Role id already exists")
+    perms = [p for p in body.permissions if p in ADMIN_PERMISSIONS]
+    await db.admin_roles.insert_one({"id": body.id, "permissions": perms, "created_at": utcnow()})
+    await audit_log(admin, "role.create", meta={"role_id": body.id, "permissions": perms})
+    return {"ok": True, "id": body.id, "permissions": perms}
+
+
+@api.patch("/admin/roles/{rid}")
+async def admin_update_role(rid: str, body: RolePresetBody, admin: dict = Depends(require_permission("admins.manage"))):
+    if rid == "super_admin":
+        raise HTTPException(400, "super_admin permissions are hard-coded and cannot be edited")
+    if rid != body.id:
+        raise HTTPException(400, "Role id in URL and body must match")
+    perms = [p for p in body.permissions if p in ADMIN_PERMISSIONS]
+    result = await db.admin_roles.update_one(
+        {"id": rid},
+        {"$set": {"permissions": perms, "updated_at": utcnow()}},
+        upsert=True,
+    )
+    await audit_log(admin, "role.update", meta={"role_id": rid, "permissions": perms})
+    return {"ok": True, "permissions": perms, "upserted": bool(result.upserted_id)}
+
+
+@api.delete("/admin/roles/{rid}")
+async def admin_delete_role(rid: str, admin: dict = Depends(require_permission("admins.manage"))):
+    if rid == "super_admin":
+        raise HTTPException(400, "super_admin role is protected")
+    # If any admin still holds this role, refuse — force reassignment first.
+    in_use = await db.users.count_documents({"role": "admin", "admin_role": rid, "deleted": {"$ne": True}})
+    if in_use:
+        raise HTTPException(400, f"{in_use} admin(s) still hold this role. Reassign them first.")
+    result = await db.admin_roles.delete_one({"id": rid})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "Role not found")
+    await audit_log(admin, "role.delete", meta={"role_id": rid})
+    return {"ok": True}
+
+
+# ══════════════ Iter 56 — Audit log endpoint ══════════════════════════════
+@api.get("/admin/audit-log")
+async def admin_audit_log_list(
+    action: Optional[str] = None,
+    actor_id: Optional[str] = None,
+    limit: int = 200,
+    _: dict = Depends(require_permission("admins.manage")),
+):
+    q: dict = {}
+    if action:
+        q["action"] = action
+    if actor_id:
+        q["actor_id"] = actor_id
+    docs = await db.admin_audit_log.find(q).sort("created_at", -1).limit(min(limit, 500)).to_list(500)
+    return [clean(d) for d in docs]
 
 
 @api.get("/admin/admins")
@@ -2933,13 +3038,14 @@ async def admin_create_admin(body: AdminCreateBody, super_admin: dict = Depends(
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already in use")
 
+    presets = await get_role_presets()
     # Resolve permission set: preset role OR explicit permission list.
     if body.admin_role == "custom":
         if not body.admin_permissions:
             raise HTTPException(400, "admin_permissions required for custom role")
         permissions = [p for p in body.admin_permissions if p in ADMIN_PERMISSIONS]
-    elif body.admin_role in ADMIN_ROLE_PRESETS:
-        permissions = ADMIN_ROLE_PRESETS[body.admin_role]
+    elif body.admin_role in presets:
+        permissions = presets[body.admin_role]
     else:
         raise HTTPException(400, f"Unknown role '{body.admin_role}'")
 
@@ -2964,6 +3070,9 @@ async def admin_create_admin(body: AdminCreateBody, super_admin: dict = Depends(
         "updated_at": utcnow(),
     }
     await db.users.insert_one(doc)
+    await audit_log(super_admin, "admin.create",
+                    target={"id": doc["id"], "email": doc["email"], "admin_role": doc["admin_role"]},
+                    meta={"permissions": permissions})
     return {
         "id": doc["id"], "email": doc["email"], "admin_role": doc["admin_role"],
         "admin_permissions": doc["admin_permissions"], "active": True,
@@ -2978,13 +3087,16 @@ async def admin_update_admin(uid: str, body: AdminUpdateBody, super_admin: dict 
     if uid == super_admin["id"] and body.admin_role and body.admin_role != "super_admin":
         raise HTTPException(400, "You cannot demote yourself. Ask another super admin to do it.")
 
+    presets = await get_role_presets()
     updates: Dict[str, Any] = {"updated_at": utcnow()}
+    audit_meta: dict = {}
+    audit_action = "admin.update"
     if body.admin_role is not None:
         if body.admin_role == "custom":
             if body.admin_permissions is None:
                 raise HTTPException(400, "admin_permissions required for custom role")
-        elif body.admin_role in ADMIN_ROLE_PRESETS:
-            updates["admin_permissions"] = ADMIN_ROLE_PRESETS[body.admin_role]
+        elif body.admin_role in presets:
+            updates["admin_permissions"] = presets[body.admin_role]
         elif body.admin_role == "super_admin":
             if super_admin.get("admin_role") != "super_admin":
                 raise HTTPException(403, "Only a super admin can grant super_admin")
@@ -2992,20 +3104,31 @@ async def admin_update_admin(uid: str, body: AdminUpdateBody, super_admin: dict 
         else:
             raise HTTPException(400, f"Unknown role '{body.admin_role}'")
         updates["admin_role"] = body.admin_role
+        audit_meta["role_from"] = target.get("admin_role")
+        audit_meta["role_to"] = body.admin_role
 
     if body.admin_permissions is not None:
         updates["admin_permissions"] = [p for p in body.admin_permissions if p in ADMIN_PERMISSIONS]
+        audit_meta["permissions"] = updates["admin_permissions"]
 
     if body.active is not None:
         # Prevent locking yourself out of the last super_admin seat.
         if not body.active and uid == super_admin["id"]:
             raise HTTPException(400, "You cannot deactivate yourself")
         updates["suspended"] = not body.active
+        audit_action = "admin.reactivate" if body.active else "admin.suspend"
 
     if body.password:
         updates["password_hash"] = hash_password(body.password)
+        # Password resets deserve their own audit action for compliance.
+        await audit_log(super_admin, "admin.password_reset",
+                        target={"id": target["id"], "email": target["email"], "admin_role": target.get("admin_role")})
 
     await db.users.update_one({"id": uid}, {"$set": updates})
+    if audit_meta or body.active is not None:
+        await audit_log(super_admin, audit_action,
+                        target={"id": target["id"], "email": target["email"], "admin_role": target.get("admin_role")},
+                        meta=audit_meta)
     return {"ok": True}
 
 
@@ -3022,6 +3145,8 @@ async def admin_delete_admin(uid: str, super_admin: dict = Depends(require_permi
         if remaining == 0:
             raise HTTPException(400, "Cannot delete the last super admin. Promote another admin first.")
     await db.users.update_one({"id": uid}, {"$set": {"deleted": True, "suspended": True, "updated_at": utcnow()}})
+    await audit_log(super_admin, "admin.delete",
+                    target={"id": target["id"], "email": target["email"], "admin_role": target.get("admin_role")})
     return {"ok": True}
 
 
@@ -3421,6 +3546,20 @@ async def startup():
             upd["admin_permissions"] = ADMIN_PERMISSIONS
         if upd:
             await db.users.update_one({"email": admin_email}, {"$set": upd})
+
+    # Iter 56 — Seed default role presets into `admin_roles` on fresh install.
+    for rid, perms in DEFAULT_ADMIN_ROLE_PRESETS.items():
+        if not await db.admin_roles.find_one({"id": rid}):
+            await db.admin_roles.insert_one({
+                "id": rid, "permissions": perms,
+                "created_at": utcnow(), "seeded": True,
+            })
+    # Always overwrite super_admin permissions with the code list so a
+    # code-level addition to ADMIN_PERMISSIONS auto-propagates.
+    await db.admin_roles.update_one(
+        {"id": "super_admin"},
+        {"$set": {"permissions": ADMIN_PERMISSIONS, "updated_at": utcnow()}},
+    )
 
     # seed demo data only once
     seed_marker = await db.meta.find_one({"_id": "seed_v3"})

@@ -5,7 +5,7 @@ import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import TravelRiderCard from "../components/TravelRiderCard";
-import api, { fmtINRFull, mediaUrl } from "../lib/api";
+import api, { fmtINRFull, mediaUrl, thumbUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -703,6 +703,10 @@ function QuestionnairePanel({ about, onMediaClick }) {
   // Split media-type answers so we can point customers to the Media tab.
   const mediaAnswers = all.filter((a) => MEDIA_TYPES.has((a.type || "").toLowerCase()));
   const nonMedia = all.filter((a) => !MEDIA_TYPES.has((a.type || "").toLowerCase()));
+  // Iter 56 — Backend attaches the newest matching media asset per media-type
+  // answer so we can render thumbnail chips instead of a generic hint.
+  const mediaMatches = about.media_matches || [];
+  const matchByQid = Object.fromEntries(mediaMatches.map((m) => [m.question_id, m]));
 
   // Group by section (fall back to "Details").
   const bySection = {};
@@ -744,18 +748,52 @@ function QuestionnairePanel({ about, onMediaClick }) {
       ))}
 
       {mediaAnswers.length > 0 && (
-        <div className="qa-media-hint" data-testid="qa-media-hint" style={{
-          marginTop: 14, padding: "12px 14px", borderRadius: 10,
-          background: "rgba(246,211,102,0.06)", border: "1px dashed rgba(246,211,102,0.25)",
-          display: "flex", alignItems: "center", gap: 10, fontSize: 13,
-        }}>
-          <span style={{ fontSize: 18 }}>📸</span>
-          <div style={{ flex: 1 }}>
-            {mediaAnswers.length} media attachment{mediaAnswers.length === 1 ? "" : "s"} referenced in this artist's questionnaire.
+        <div className="qa-media-section" data-testid="qa-media-section" style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, letterSpacing: ".16em", color: "var(--gold-light)", textTransform: "uppercase", marginBottom: 10 }}>Media Attachments</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+            {mediaAnswers.map((a) => {
+              const m = matchByQid[a.id];
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={onMediaClick}
+                  data-testid={`qa-media-chip-${a.id}`}
+                  className="qa-media-chip"
+                  style={{
+                    display: "flex", gap: 10, alignItems: "center",
+                    background: "var(--glass)", border: "1px solid var(--glass-border)",
+                    borderRadius: 10, padding: 8, cursor: "pointer",
+                    color: "inherit", textAlign: "left", font: "inherit",
+                    transition: "transform 0.15s, border-color 0.2s",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(246,211,102,0.5)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--glass-border)"; e.currentTarget.style.transform = "translateY(0)"; }}
+                >
+                  {m ? (
+                    m.mime && m.mime.startsWith("video") ? (
+                      <div style={{ width: 56, height: 56, borderRadius: 8, background: "rgba(0,0,0,0.5)", display: "grid", placeItems: "center", flexShrink: 0, fontSize: 22 }}>▶️</div>
+                    ) : (
+                      <img
+                        src={thumbUrl(m.media_id)}
+                        alt=""
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        style={{ width: 56, height: 56, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}
+                      />
+                    )
+                  ) : (
+                    <div style={{ width: 56, height: 56, borderRadius: 8, background: "rgba(246,211,102,0.08)", display: "grid", placeItems: "center", flexShrink: 0, fontSize: 22 }}>📸</div>
+                  )}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="fs-12 fw-600" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.question}</div>
+                    <div className="text-muted fs-11" style={{ marginTop: 2 }}>
+                      {m ? `View in gallery →` : "Not uploaded yet"}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-          <button className="btn btn-ghost btn-xs" onClick={onMediaClick} data-testid="qa-goto-media">
-            See gallery →
-          </button>
         </div>
       )}
     </div>

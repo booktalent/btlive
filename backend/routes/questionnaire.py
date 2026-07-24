@@ -404,12 +404,100 @@ def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, cl
                 })
             return out
 
+        universal_rendered = _render(universal)
+        category_rendered = _render(category)
+
+        # ── Iter 56 — Media-linked answers ────────────────────────────────
+        # For every media-type question the artist answered, attach the
+        # newest matching media asset so the About tab renders thumbnail
+        # chips instead of a generic hint. Mapping is heuristic — we match
+        # by the question id hinting a specific media 'type' (see the
+        # mongo `media.type` values: profile/cover/gallery/clip/press_kit
+        # /brand_deck/audio/document).
+        MEDIA_QTYPES = {"file", "photo", "photos", "video", "videos", "media", "attachment", "image"}
+        _QID_TO_MTYPE = [
+            ("profile_photo", ["profile"]),
+            ("cover_photo",   ["cover"]),
+            ("cover",         ["cover"]),
+            ("gallery",       ["gallery"]),
+            ("photo",         ["gallery", "profile"]),
+            ("image",         ["gallery"]),
+            ("intro_video",   ["clip"]),
+            ("performance_video", ["clip"]),
+            ("video",         ["clip"]),
+            ("press_kit",     ["press_kit"]),
+            ("brand_deck",    ["brand_deck"]),
+            ("audio",         ["audio"]),
+            ("demo",          ["audio", "clip"]),
+        ]
+
+        def _match_media_types(qid: str):
+            qid_lo = qid.lower()
+            for token, mtypes in _QID_TO_MTYPE:
+                if token in qid_lo:
+                    return mtypes
+            return ["gallery"]
+
+        media_matches: List[Dict[str, Any]] = []
+        media_qs = [a for a in universal_rendered + category_rendered if (a["type"] or "").lower() in MEDIA_QTYPES]
+        for a in media_qs:
+            wanted = _match_media_types(a["id"])
+            # Newest first among the wanted media types.
+            m = await db.media.find_one(
+                {"user_id": artist_id, "type": {"$in": wanted}},
+                projection={"data": 0},
+                sort=[("created_at", -1)],
+            )
+            if m:
+                media_matches.append({
+                    "question_id": a["id"],
+                    "question": a["question"],
+                    "media_id": m["id"],
+                    "media_type": m.get("type"),
+                    "mime": m.get("mime"),
+                    "title": m.get("title"),
+                })
+
+        # ── Iter 56 — Completion stats for the onboarding nudge ────────────
+        # Count DISTINCT sections in the union of universal+category
+        # questions and how many have at least one answer.
+        def _sections_of(qs):
+            return {q.get("section") or "Details" for q in qs if q.get("id") or q.get("key")}
+
+        sections_available = _sections_of(universal) | _sections_of(category)
+        sections_answered = {a["section"] or "Details" for a in universal_rendered + category_rendered}
+
         return {
-            "universal": _render(universal),
-            "category": _render(category),
+            "universal": universal_rendered,
+            "category": category_rendered,
             "category_slug": category_slug,
             "raw_answers_count": len(answers),
+            "media_matches": media_matches,
+            "completion": {
+                "sections_total": len(sections_available),
+                "sections_answered": len(sections_answered),
+                "sections_missing": sorted(sections_available - sections_answered),
+                "questions_total": len([q for q in universal + category if q.get("id") or q.get("key")]),
+                "questions_answered": len(universal_rendered) + len(category_rendered),
+            },
         }
+
+    # ── Iter 56 — Completion nudge for the artist dashboard ─────────────
+    # Returns just the completion block from the About endpoint so the
+    # dashboard banner can render without pulling every answer.
+    @r.get("/questionnaire/completion/mine")
+    async def my_completion(user: dict = Depends(get_current_user)) -> Dict[str, Any]:
+        if user["role"] != "artist":
+            raise HTTPException(403, "Artist only")
+        # Delegate to the public endpoint's logic to avoid drift.
+        try:
+            about = await artist_about(user["id"])  # type: ignore
+        except HTTPException as e:
+            if e.status_code == 404:
+                return {"sections_total": 0, "sections_answered": 0,
+                        "sections_missing": [], "questions_total": 0, "questions_answered": 0}
+            raise
+        return about["completion"]
 
     # ── Admin CRUD for question metadata (rename/reorder/add/remove) ─────
     class _MetaBody(BaseModel):
