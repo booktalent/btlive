@@ -2874,7 +2874,7 @@ async def admin_users(role: Optional[str] = None, include_deleted: bool = False,
 # ═══════════════════════════════════════════════════════════════════════════
 class AdminCreateBody(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8)
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     admin_role: str = "viewer"          # one of ADMIN_ROLE_PRESETS or "custom"
@@ -2885,7 +2885,7 @@ class AdminUpdateBody(BaseModel):
     admin_role: Optional[str] = None
     admin_permissions: Optional[List[str]] = None
     active: Optional[bool] = None
-    password: Optional[str] = None      # super-admin can reset another admin's password
+    password: Optional[str] = Field(default=None, min_length=8)      # super-admin can reset another admin's password
 
 
 @api.get("/admin/rbac/roles")

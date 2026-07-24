@@ -341,8 +341,10 @@ def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, cl
     # a raw JSON blob.
     @r.get("/artists/{artist_id}/about")
     async def artist_about(artist_id: str) -> Dict[str, Any]:
-        prof = await db.artist_profiles.find_one({"user_id": artist_id}) or {}
-        if prof.get("suspended"):
+        prof = await db.artist_profiles.find_one({"user_id": artist_id})
+        # Return 404 for unknown OR suspended profiles — same as the main
+        # artist detail endpoint.
+        if not prof or prof.get("suspended"):
             raise HTTPException(404, "Artist not found")
         answers = prof.get("answers") or {}
         # Layer 1 — universal questions
