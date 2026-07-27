@@ -310,6 +310,10 @@ export default function BookingFlow() {
                 setSuccessData({
                   batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
                   ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
+                  // Iter 60 — Snapshot the cart BEFORE clearCart() so the
+                  // success screen can list every artist in the batch, not
+                  // just the primary.
+                  items: cartItems.map((c) => ({ ...c })),
                 });
                 try { localStorage.removeItem(`bt_event_cart_${id}`); } catch { /* ignore */ }
                 clearCart();
@@ -329,6 +333,9 @@ export default function BookingFlow() {
         setSuccessData({
           batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
           ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
+          // Iter 60 — Snapshot cart items before clearCart() so batch
+          // success can render every artist, not just the primary.
+          items: cartItems.map((c) => ({ ...c })),
         });
         try { localStorage.removeItem(`bt_event_cart_${id}`); } catch { /* ignore */ }
         clearCart();

@@ -1,6 +1,19 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 60 (was 59.1) — Booking Payment BULLETPROOF Fix (2026-02-27)
+User reported P0 (3rd time): "clicking Pay randomly shows Login redirect / Not Authorized / T&C error". Definitive root-cause tree:
+- (a) axios interceptor hard-redirecting on background 401s → **REMOVED** (iter 58 v2)
+- (b) `...form` spread sending untyped fields → 422 from Pydantic (`customer_travel_allowance:""`, `guests: 150 as int`) → **REPLACED with explicit `commonFields` object**
+- (c) Batch flow missing `tnc_accepted` per item → **NOW FORCED to true** at submit time (user cannot reach step 5 without step-4 gate)
+- (d) `guests` schema mismatch (backend expects `Optional[str]`, frontend was sending int) → **coerced with `.toString()`**
+- (e) Silent session drop mid-flow → **pre-submit `/auth/me` refresh** with friendly toast fallback (NO auto-redirect)
+
+Batch success card now snapshots cartItems BEFORE `clearCart()` so all artists render on step 6, not just primary.
+
+**Testing**: testing_agent iter-60 → 100% frontend acceptance (single BT-260727-1EA740, batch BT-260727-C6E7A0 + BT-260727-C14A90, session-expiry graceful toast) + 9/9 backend pytest (5 iter-58 anchor + 4 iter-60 new regressions in `test_iter60_booking_hardening.py`).
+
+
 ## 🚨 Iter 59 — Multi-Artist Batch T&C + Interceptor Regression Rollback (2026-02-27)
 - **User-blocking bug**: Multi-artist checkout (2+ artists in cart) always failed at Pay with "⚠ Please accept the Terms & Conditions before proceeding" even though the customer had ticked the box on step 4. Root cause: the `items[]` array sent to `POST /api/bookings/batch` did NOT include `tnc_accepted` per item — the backend loops through each item and forwards to `create_booking()` which enforces per-item T&C (server.py:1534). Fix in `BookingFlow.jsx:232`: propagate `tnc_accepted` + coerce `customer_travel_allowance` to number on every item mapped from `cartItems`.
 - **Interceptor regression rollback**: The earlier iter-58-v1 axios 401 interceptor was hard-redirecting to `/login` on any 401 (including harmless background 401s). Removed the auto-redirect entirely in `lib/api.js`; interceptor now ONLY rewrites the FastAPI "Not authenticated" detail into a friendly string. Route-level `Protected` in `App.js` handles genuine anonymous access — no forced redirects from within the axios pipeline. Deleted the corresponding `bt:session-expired` listener from `auth.jsx`.
