@@ -35,6 +35,27 @@ export const AuthProvider = ({ children }) => {
       .finally(() => setLoading(false));
   }, []);
 
+  // Iter 58 — Global session-expiry handler. When axios sees a 401 anywhere
+  // (payment flow, booking submit, dashboard refresh…), it fires a
+  // `bt:session-expired` event. We flush local user state so useAuth
+  // consumers immediately treat the user as anonymous, then bounce to /login
+  // with a returnTo=… so the customer can resume exactly where they left off
+  // once they sign back in. This closes the "Not authenticated" black-hole
+  // that surfaced during the artist-booking payment step.
+  useEffect(() => {
+    const handler = (e) => {
+      setUser(null);
+      const rt = encodeURIComponent(e?.detail?.returnTo || "/");
+      // Skip redirect if we're already on the login page.
+      if (typeof window === "undefined") return;
+      if (window.location.pathname.startsWith("/login")) return;
+      // Small delay so the error toast has a moment to render.
+      setTimeout(() => { window.location.href = `/login?returnTo=${rt}`; }, 800);
+    };
+    window.addEventListener("bt:session-expired", handler);
+    return () => window.removeEventListener("bt:session-expired", handler);
+  }, []);
+
   const login = useCallback(async (email, password) => {
     const r = await api.post("/auth/login", { email, password });
     setUser(r.data.user);

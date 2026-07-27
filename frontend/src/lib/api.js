@@ -22,6 +22,46 @@ const client = axios.create({
   withCredentials: true,
 });
 
+// ─── Iter 58 — 401 handler ─────────────────────────────────────────────
+// When a request 401s (session expired mid-flow, cookie evicted by browser
+// third-party rules, etc.), we intercept it to (1) rewrite the error detail
+// into a customer-friendly line the UI can show, and (2) fire a one-off
+// `bt:session-expired` event that AuthProvider listens for. This turns the
+// old cryptic "Not authenticated" toast into a clear "Please sign in again"
+// call to action WITHOUT tight-coupling axios to react-router.
+let _sessionExpiredFired = false;
+client.interceptors.response.use(
+  (r) => r,
+  (error) => {
+    const status = error?.response?.status;
+    const url = error?.config?.url || "";
+    // Skip the /auth/me probe — a 401 there is the normal "you're anonymous"
+    // signal, not a session-expiry.
+    const isProbe = url.endsWith("/auth/me");
+    if (status === 401 && !isProbe) {
+      // Replace the generic FastAPI "Not authenticated" detail with a
+      // friendlier message the UI can display verbatim.
+      if (error.response && error.response.data && typeof error.response.data === "object") {
+        const d = error.response.data.detail;
+        if (!d || d === "Not authenticated" || d === "Token expired" || d === "Invalid token" || d === "User not found") {
+          error.response.data.detail = "Your session has expired. Please sign in again to continue.";
+        }
+      }
+      // Fire once per page-load so listeners can redirect the user to /login
+      // with the current URL as the returnTo target.
+      if (!_sessionExpiredFired && typeof window !== "undefined") {
+        _sessionExpiredFired = true;
+        try {
+          window.dispatchEvent(new CustomEvent("bt:session-expired", {
+            detail: { returnTo: window.location.pathname + window.location.search },
+          }));
+        } catch { /* SSR guard */ }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default client;
 
 export const formatApiError = (e) => {

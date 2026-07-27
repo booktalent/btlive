@@ -67,10 +67,13 @@ export default function Auth({ mode = "signin" }) {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  // Determine the post-login destination: (1) `?next=` param wins,
+  // Determine the post-login destination: (1) `?returnTo=` (session-expiry
+  // bounce from api.js interceptor) or `?next=` param wins,
   // (2) sessionStorage `bt_post_login_redirect` (set by cart flow), else
   // (3) fall back to the role-based dashboard.
   const resolveDest = (u) => {
+    const returnTo = params.get("returnTo");
+    if (returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")) return returnTo;
     const nextParam = params.get("next");
     if (nextParam) return nextParam;
     try {
