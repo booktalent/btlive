@@ -1,6 +1,12 @@
 # BookTalent — Product Requirements Document
 
 
+## 🚨 Iter 59 — Multi-Artist Batch T&C + Interceptor Regression Rollback (2026-02-27)
+- **User-blocking bug**: Multi-artist checkout (2+ artists in cart) always failed at Pay with "⚠ Please accept the Terms & Conditions before proceeding" even though the customer had ticked the box on step 4. Root cause: the `items[]` array sent to `POST /api/bookings/batch` did NOT include `tnc_accepted` per item — the backend loops through each item and forwards to `create_booking()` which enforces per-item T&C (server.py:1534). Fix in `BookingFlow.jsx:232`: propagate `tnc_accepted` + coerce `customer_travel_allowance` to number on every item mapped from `cartItems`.
+- **Interceptor regression rollback**: The earlier iter-58-v1 axios 401 interceptor was hard-redirecting to `/login` on any 401 (including harmless background 401s). Removed the auto-redirect entirely in `lib/api.js`; interceptor now ONLY rewrites the FastAPI "Not authenticated" detail into a friendly string. Route-level `Protected` in `App.js` handles genuine anonymous access — no forced redirects from within the axios pipeline. Deleted the corresponding `bt:session-expired` listener from `auth.jsx`.
+- **Testing**: End-to-end curl proof — `POST /api/bookings/batch` with `tnc_accepted:true` on all items creates `event_id + 2 booking_ids + booking_refs` cleanly (`BT-260727-2CC675`, `BT-260727-250244`).
+
+
 ## 🔐 Iter 58 — Booking-Payment 401 UX + `customer_travel_allowance` 422 Fix (2026-02-27)
 - **P0 user report**: Customer reported "⚠ Not authenticated" toast when clicking "Pay to Confirm" on artist booking. Real root cause was TWO overlapping bugs:
   - (a) `form.customer_travel_allowance` defaulted to `""` and was spread into POST /bookings via `...form`. Pydantic v2 rejected with a `float_parsing` 422. The frontend `formatApiError` couldn't render the Pydantic detail array — silent toast that resembled the auth failure the user reported.

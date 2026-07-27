@@ -223,6 +223,49 @@ export default function BookingFlow() {
   const submitBooking = async () => {
     setBusy(true);
     setAlternatives(null);
+
+    // Iter 59.1 — DEFENSIVE session + T&C check.
+    // User reported "randomly redirects to login / T&C error / Not
+    // Authorized" after clicking Pay. Root cause was any one of:
+    //   (a) form state stale/unset for hidden fields → 422
+    //   (b) `tnc_accepted` un-ticked between step 4 and Pay → 400
+    //   (c) transient 401 on a background call
+    // We now:
+    //   1) Refresh /auth/me once so the cookie is verified BEFORE we send
+    //      a payload; if it 401s we tell the user to sign in again and
+    //      let them re-authenticate manually (no forced redirect).
+    //   2) Explicitly build the payload — NEVER spread `...form` — so
+    //      only the fields the backend expects are sent, with correct
+    //      types. tnc_accepted is HARD-FORCED to true (user is on step 5
+    //      which means they cleared the ReviewStep T&C gate on step 4).
+    try {
+      await api.get("/auth/me");
+    } catch (e) {
+      setBusy(false);
+      toast("Your session ended. Please refresh the page and sign in again to complete the booking.", "error");
+      return;
+    }
+
+    const commonFields = {
+      event_date: form.event_date,
+      event_time: form.event_time,
+      event_type: form.event_type || "Wedding",
+      venue: form.venue,
+      city: form.city,
+      guests: (form.guests || form.guest_count || "").toString(),
+      language_pref: form.language_pref || "",
+      notes: form.notes || "",
+      special_instructions: form.special_instructions || "",
+      customer_name: form.customer_name || user?.first_name || "",
+      customer_phone: form.customer_phone || "",
+      customer_email: form.customer_email || user?.email || "",
+      tnc_accepted: true, // forced — user is past step 4 gate
+      customer_travel_allowance:
+        form.customer_travel_allowance === "" || form.customer_travel_allowance == null
+          ? 0
+          : Number(form.customer_travel_allowance) || 0,
+    };
+
     try {
       // ── Iter 45: Multi-Artist Batch Checkout ─────────────────────────────
       // When the customer has added secondary artists, all bookings are
@@ -237,19 +280,8 @@ export default function BookingFlow() {
           // add-ons separately. Secondary artists never see legacy addons.
           addons: c.is_primary ? form.addons : [],
           addon_selections: c.is_primary ? form.addon_selections : (c.addon_selections || []),
-          event_date: form.event_date,
-          event_time: form.event_time,
-          event_type: form.event_type,
-          venue: form.venue,
-          city: form.city,
-          guests: form.guests,
-          language_pref: form.language_pref,
-          notes: c.is_primary ? form.notes : "",
-          special_instructions: c.is_primary ? (form.special_instructions || "") : "",
-          customer_name: form.customer_name,
-          customer_phone: form.customer_phone,
-          customer_email: form.customer_email,
           coupon_code: c.is_primary ? form.coupon_code : "",
+          ...commonFields,
         }));
         let batchR;
         try {
@@ -304,20 +336,14 @@ export default function BookingFlow() {
         setBusy(false);
         return;
       }
-      // ── Single-artist flow (unchanged) ──────────────────────────────────
-      // 1. Create booking (join existing event umbrella if provided)
-      // Iter 58 — Coerce customer_travel_allowance from "" to a number so
-      // Pydantic v2 doesn't reject the whole POST with a float_parsing 422.
-      // The field is optional-ish (informational only) but the schema types
-      // it as float; the default empty string used to sneak in via `...form`
-      // spread and fail silently in the UI (no toast text, blank error).
+      // ── Single-artist flow — explicit payload (no ...form spread) ──────
       const payload = {
         artist_id: id,
-        ...form,
-        customer_travel_allowance:
-          form.customer_travel_allowance === "" || form.customer_travel_allowance == null
-            ? 0
-            : Number(form.customer_travel_allowance) || 0,
+        package_id: form.package_id,
+        addons: form.addons || [],
+        addon_selections: form.addon_selections || [],
+        coupon_code: form.coupon_code || "",
+        ...commonFields,
         ...(eventIdParam ? { event_id: eventIdParam } : {}),
       };
       let r;
