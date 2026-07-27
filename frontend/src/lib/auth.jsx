@@ -35,27 +35,11 @@ export const AuthProvider = ({ children }) => {
       .finally(() => setLoading(false));
   }, []);
 
-  // Iter 58 — Global session-expiry handler. When axios sees a 401 anywhere
-  // (payment flow, booking submit, dashboard refresh…), it fires a
-  // `bt:session-expired` event. We redirect to /login FIRST (so the URL
-  // reliably includes returnTo) before clearing user state — this avoids a
-  // brief URL flicker where `Protected` would push /login without the query.
-  useEffect(() => {
-    const handler = (e) => {
-      if (typeof window === "undefined") return;
-      // Skip redirect if we're already on the login page.
-      if (window.location.pathname.startsWith("/login")) { setUser(null); return; }
-      const rt = encodeURIComponent(e?.detail?.returnTo || "/");
-      // Immediate hard navigation so `Protected` never gets a chance to
-      // fire its own <Navigate to='/login'> without the returnTo hint.
-      window.location.href = `/login?returnTo=${rt}`;
-      // Clearing user state is best-effort; the hard navigation will
-      // unmount everything anyway.
-      setUser(null);
-    };
-    window.addEventListener("bt:session-expired", handler);
-    return () => window.removeEventListener("bt:session-expired", handler);
-  }, []);
+  // Iter 58 (v2) — Removed the aggressive `bt:session-expired` auto-redirect.
+  // It was yanking users off the booking page on ANY 401 (including transient
+  // ones from background polls). The Protected route in App.js already
+  // handles anonymous users at the route level; component-level catch blocks
+  // handle transient failures with a toast.
 
   const login = useCallback(async (email, password) => {
     const r = await api.post("/auth/login", { email, password });
