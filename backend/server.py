@@ -3689,8 +3689,25 @@ async def cities():
 # Reads token from DUMP_DOWNLOAD_TOKEN env var (no hardcoded secret).
 # Unset the env var (or delete this block) once your VPS restore is done.
 import hmac as _hmac
+import subprocess as _subprocess
 from fastapi.responses import FileResponse as _FileResponse
 _DUMP_PATH = "/app/booktalent-mongodb-dump.archive.gz"
+
+
+async def _regenerate_dump() -> None:
+    """Run mongodump synchronously into the archive path. Raises on failure."""
+    mongo_url = os.environ.get("MONGO_URL") or "mongodb://localhost:27017"
+    db_name = os.environ.get("DB_NAME") or "booktalent"
+    tmp_path = _DUMP_PATH + ".tmp"
+    proc = _subprocess.run(
+        ["mongodump", f"--uri={mongo_url}", f"--db={db_name}",
+         f"--archive={tmp_path}", "--gzip"],
+        capture_output=True, timeout=180,
+    )
+    if proc.returncode != 0:
+        raise HTTPException(500, f"mongodump failed: {proc.stderr.decode()[:400]}")
+    os.replace(tmp_path, _DUMP_PATH)
+
 
 @api.get("/ops/dump/{token}")
 async def dump_download(token: str):
@@ -3699,6 +3716,41 @@ async def dump_download(token: str):
         raise HTTPException(status_code=404, detail="Not found")
     if not os.path.exists(_DUMP_PATH):
         raise HTTPException(status_code=404, detail="Dump not available")
+    return _FileResponse(
+        _DUMP_PATH,
+        media_type="application/gzip",
+        filename="booktalent-mongodb-dump.archive.gz",
+    )
+
+
+@api.post("/admin/db-export")
+async def admin_db_export_refresh(admin: dict = Depends(admin_only)):
+    """Super-admin only: regenerate a fresh mongodump archive on disk.
+    Returns metadata (size, generated_at). Actual download is via GET below."""
+    if admin.get("admin_role") not in (None, "super_admin"):
+        # Only super_admin (or legacy admins with no role field) may export the DB.
+        raise HTTPException(403, "Super admin only")
+    await _regenerate_dump()
+    stat = os.stat(_DUMP_PATH)
+    await audit_log(admin, "db.export.refresh",
+                    meta={"size_bytes": stat.st_size})
+    return {
+        "ok": True,
+        "size_bytes": stat.st_size,
+        "generated_at": utcnow().isoformat(),
+        "download_url": f"/api/admin/db-export",
+    }
+
+
+@api.get("/admin/db-export")
+async def admin_db_export_download(admin: dict = Depends(admin_only)):
+    """Super-admin only: stream the latest mongodump archive."""
+    if admin.get("admin_role") not in (None, "super_admin"):
+        raise HTTPException(403, "Super admin only")
+    if not os.path.exists(_DUMP_PATH):
+        await _regenerate_dump()
+    await audit_log(admin, "db.export.download",
+                    meta={"size_bytes": os.stat(_DUMP_PATH).st_size})
     return _FileResponse(
         _DUMP_PATH,
         media_type="application/gzip",

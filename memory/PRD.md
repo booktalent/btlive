@@ -1189,3 +1189,25 @@ Singer (7), DJ (7), Band (5), Dancer (5), Stand-up Comedian (4), Anchor / Emcee 
 - Watches cron: run `_recheck` for every user hourly (background task in server.py alongside the 24-hr expiry loop)
 - Watches email: pipe watch_match notifications through Resend when the customer has email_opt_in
 
+
+---
+## Iter 61 (2026-02) — DB Dump Download
+
+**Delivered**: User asked "please give db link to download".
+- Generated fresh `mongodump --gzip` archive → `/app/booktalent-mongodb-dump.archive.gz` (33 MB, all 60+ collections).
+- Token-gated endpoint already existed at `GET /api/ops/dump/{token}` (uses `DUMP_DOWNLOAD_TOKEN` env). Verified: returns 200 + 33 MB valid gzip.
+- Added new super-admin endpoints:
+  - `POST /api/admin/db-export` — regenerates archive on demand (audit logged).
+  - `GET  /api/admin/db-export` — streams latest archive (audit logged, super_admin only).
+- Both require admin cookie + super_admin role; unauthenticated returns 401.
+
+**Download URL shared with user**:
+`https://booktalent-audit.preview.emergentagent.com/api/ops/dump/8zvZkCmIm1ZGJ4vn6h8DpE-CMe3HT-_cF7ZYLzeiGhDfNXmSKsUJ31RAEqG5W86o`
+
+**Restore command**: `mongorestore --uri="<TARGET>" --archive=booktalent-mongodb-dump.archive.gz --gzip`
+
+**Next up** (per backlog):
+- P0: Fix P0 security audit findings (OTP account-takeover paths, privilege escalation).
+- P1: Real Resend + Twilio confirmations.
+- P2: Refactor server.py / iter7_routes.py / BookingFlow.jsx.
+- P2: Trending Watches strip on landing hero.
