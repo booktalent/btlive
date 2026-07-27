@@ -306,16 +306,26 @@ export default function BookingFlow() {
       }
       // ── Single-artist flow (unchanged) ──────────────────────────────────
       // 1. Create booking (join existing event umbrella if provided)
+      // Iter 58 — Coerce customer_travel_allowance from "" to a number so
+      // Pydantic v2 doesn't reject the whole POST with a float_parsing 422.
+      // The field is optional-ish (informational only) but the schema types
+      // it as float; the default empty string used to sneak in via `...form`
+      // spread and fail silently in the UI (no toast text, blank error).
+      const payload = {
+        artist_id: id,
+        ...form,
+        customer_travel_allowance:
+          form.customer_travel_allowance === "" || form.customer_travel_allowance == null
+            ? 0
+            : Number(form.customer_travel_allowance) || 0,
+        ...(eventIdParam ? { event_id: eventIdParam } : {}),
+      };
       let r;
       try {
-        r = await api.post("/bookings", {
-          artist_id: id,
-          ...form,
-          ...(eventIdParam ? { event_id: eventIdParam } : {}),
-        });
+        r = await api.post("/bookings", payload);
       } catch (e) {
         const detail = e?.response?.data?.detail;
-        if (typeof detail === "object" && detail?.alternatives) {
+        if (typeof detail === "object" && !Array.isArray(detail) && detail?.alternatives) {
           setAlternatives({ message: detail.message, date: detail.date, list: detail.alternatives });
           setBusy(false);
           return;

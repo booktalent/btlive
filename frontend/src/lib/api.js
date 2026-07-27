@@ -68,7 +68,22 @@ export const formatApiError = (e) => {
   const d = e?.response?.data?.detail;
   if (!d) return e?.message || "Something went wrong";
   if (typeof d === "string") return d;
-  if (Array.isArray(d)) return d.map((x) => x?.msg || JSON.stringify(x)).join(" ");
+  if (Array.isArray(d)) {
+    // Pydantic v2 validation errors: [{loc:[…], msg, type, input?}, …].
+    // Turn each entry into "field: msg" so the toast shows the actual field
+    // instead of a JSON blob. Fallback to JSON when we can't recognise it.
+    const lines = d.map((x) => {
+      if (!x || typeof x !== "object") return String(x);
+      const field = Array.isArray(x.loc) ? x.loc.filter((s) => s !== "body").join(".") : "";
+      const msg = x.msg || x.message || x.type || "Invalid value";
+      return field ? `${field}: ${msg}` : msg;
+    }).filter(Boolean);
+    if (lines.length) return lines.join(" • ");
+  }
+  if (typeof d === "object") {
+    // Custom detail dicts (e.g. {message, alternatives}) — prefer `message`.
+    if (d.message) return d.message;
+  }
   return JSON.stringify(d);
 };
 

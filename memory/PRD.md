@@ -1,6 +1,16 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔐 Iter 58 — Booking-Payment 401 UX + `customer_travel_allowance` 422 Fix (2026-02-27)
+- **P0 user report**: Customer reported "⚠ Not authenticated" toast when clicking "Pay to Confirm" on artist booking. Real root cause was TWO overlapping bugs:
+  - (a) `form.customer_travel_allowance` defaulted to `""` and was spread into POST /bookings via `...form`. Pydantic v2 rejected with a `float_parsing` 422. The frontend `formatApiError` couldn't render the Pydantic detail array — silent toast that resembled the auth failure the user reported.
+  - (b) Legitimate session-expiry mid-flow (SameSite=Lax cookies + long browsing) surfaced as a cryptic "Not authenticated" with no recovery path.
+- **Fix (a)**: `BookingFlow.jsx` now explicitly builds the POST payload and coerces `customer_travel_allowance` (`""` → 0, otherwise `Number()`). Confirmed end-to-end via curl: `/bookings` → 200, `/payments/init` → 200, `/payments/verify` (mock_otp=123456) → 200 with `status=pending_artist`.
+- **Fix (b)**: Global axios response interceptor in `lib/api.js` rewrites any non-`/auth/me` 401 detail to "Your session has expired. Please sign in again to continue." and fires a `bt:session-expired` event. `AuthProvider` listens, hard-navigates to `/login?returnTo=<current-path>` (returnTo is validated: starts-with `/` and not `//` — protocol-relative URLs like `//evil.com` are rejected). `Auth.jsx` `resolveDest` respects `?returnTo` so users resume exactly where they left off.
+- **Formatter hardening**: `formatApiError` now unpacks Pydantic v2 validation arrays into `field: msg` lines so a 422 never looks like a silent failure. Custom detail dicts (`{message, alternatives}`) prefer the `message` key.
+- **Testing**: `testing_agent` iter 58 → 5/5 backend pytest + 6/6 iter-58 acceptance criteria green (friendly toast, auto-redirect, returnTo round-trip, protocol-relative rejection, /auth/me exemption). Uncovered the `customer_travel_allowance` 422 bug — now fixed and verified via curl.
+
+
 ## 🎨 Iter 57 — RBAC Guardrails, Nudge Deep-link & Media Fallback (2026-02-25)
 - **RBAC UI Guardrails**: `AdminDashboard` reads `/admin/rbac/me` on mount and hides sidebar entries whose `perm` field isn't in the caller's permission set. `effectiveTab` fallback re-routes to Overview if the selected tab becomes hidden. All 25 sidebar entries mapped to their required permission (null = always shown). Backend belt-and-braces: `/admin/artists` now uses `require_permission('artists.moderate')`, `/admin/refunds` uses `require_permission('payments.view')`, `audit` sidebar entry gated by `admins.manage`.
 - **Nudge Sections Explorer**: Onboarding banner renders each missing section as a golden clickable chip (`qn-missing-{slug}`). Clicking sets `wizardStartSection` state → tab flips to questionnaire → `QuestionnaireWizard`'s new `startSection` prop deep-links to matching step on first render (case-insensitive match, one-shot, falls back to step 0). Step-nav click restriction relaxed so users can jump freely.
