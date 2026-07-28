@@ -251,6 +251,20 @@ export default function BookingFlow() {
       console.warn("[booking] /auth/me probe failed, continuing anyway");
     }
 
+    // Iter 62 — Defensive mandatory-addon merge. The backend rejects a
+    // booking if any artist-defined `is_mandatory` add-on is missing. We
+    // auto-select these on mount, but a race condition or user's own
+    // deselect action could still leave them out at submit time — so re-
+    // merge them here as a belt-and-braces guarantee.
+    const mandatoryAddons = (artistAddons || []).filter((a) => a.is_mandatory && a.active !== false);
+    const currentSels = form.addon_selections || [];
+    const mergedSelections = [...currentSels];
+    for (const md of mandatoryAddons) {
+      if (!mergedSelections.some((x) => x.addon_id === md.id)) {
+        mergedSelections.push({ addon_id: md.id, quantity: 1 });
+      }
+    }
+
     const commonFields = {
       event_date: form.event_date,
       event_time: form.event_time,
@@ -284,7 +298,7 @@ export default function BookingFlow() {
           // Primary keeps its Step-1 legacy addon slugs AND Sprint-3 artist
           // add-ons separately. Secondary artists never see legacy addons.
           addons: c.is_primary ? form.addons : [],
-          addon_selections: c.is_primary ? form.addon_selections : (c.addon_selections || []),
+          addon_selections: c.is_primary ? mergedSelections : (c.addon_selections || []),
           coupon_code: c.is_primary ? form.coupon_code : "",
           ...commonFields,
         }));
@@ -361,7 +375,7 @@ export default function BookingFlow() {
         artist_id: id,
         package_id: form.package_id,
         addons: form.addons || [],
-        addon_selections: form.addon_selections || [],
+        addon_selections: mergedSelections,
         coupon_code: form.coupon_code || "",
         ...commonFields,
         ...(eventIdParam ? { event_id: eventIdParam } : {}),
