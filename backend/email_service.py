@@ -129,3 +129,83 @@ async def send_booking_confirmation_email(to_email: str, name: str, booking_ref:
         return {"sent": True, "mock": False, "id": result.get("id")}
     except Exception as e:
         return {"sent": False, "mock": False, "error": str(e)}
+
+
+def _payment_receipt_html(name: str, refs: list, amount: float, txnid: str,
+                          gateway: str, easepayid: str = "", artist_name: str = "",
+                          event_date: str = "") -> str:
+    ref_rows = "".join(
+        f'<tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Booking</td>'
+        f'<td style="padding:6px 0;text-align:right;"><code style="color:#F1D17A;background:rgba(212,175,55,0.12);padding:3px 9px;border-radius:6px;font-size:13px;">{r}</code></td></tr>'
+        for r in refs
+    )
+    easepay_row = (
+        f'<tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Gateway Ref</td>'
+        f'<td style="padding:6px 0;text-align:right;font-family:monospace;font-size:12px;color:#F0EEFF;">{easepayid}</td></tr>'
+        if easepayid else ""
+    )
+    artist_row = (
+        f'<tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Artist</td>'
+        f'<td style="padding:6px 0;text-align:right;color:#F0EEFF;font-size:13px;">{artist_name}</td></tr>'
+        if artist_name else ""
+    )
+    event_row = (
+        f'<tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Event Date</td>'
+        f'<td style="padding:6px 0;text-align:right;color:#F0EEFF;font-size:13px;">{event_date}</td></tr>'
+        if event_date else ""
+    )
+    return f"""<!doctype html><html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#F0EEFF;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#09090F;padding:32px 0;"><tr><td align="center">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#0F0F1B;border:1px solid rgba(255,255,255,0.08);border-radius:18px;overflow:hidden;">
+  <tr><td style="padding:32px 40px 8px;">
+    <div style="font-family:'Times New Roman',serif;font-size:22px;font-weight:700;color:#F0EEFF;">Book<span style="color:#D4AF37;">Talent</span></div>
+  </td></tr>
+  <tr><td style="padding:0 40px;"><div style="height:1px;background:linear-gradient(to right,transparent,#D4AF37,transparent);"></div></td></tr>
+  <tr><td style="padding:24px 40px 8px;">
+    <h1 style="font-family:'Times New Roman',serif;font-size:26px;color:#F0EEFF;margin:0 0 6px;">Payment <span style="color:#D4AF37;">Received</span></h1>
+    <p style="color:rgba(240,238,255,0.65);font-size:14px;line-height:1.6;margin:0 0 8px;">Hi {name or 'there'}, we've received your booking token. The artist has 24 hours to accept — you'll get another email the moment they confirm.</p>
+  </td></tr>
+  <tr><td style="padding:8px 40px 24px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:16px 20px;">
+      <tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Amount Paid</td>
+          <td style="padding:6px 0;text-align:right;color:#D4AF37;font-size:20px;font-weight:700;">₹{amount:,.2f}</td></tr>
+      <tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Transaction ID</td>
+          <td style="padding:6px 0;text-align:right;font-family:monospace;font-size:12px;color:#F0EEFF;">{txnid}</td></tr>
+      {easepay_row}
+      <tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Payment Gateway</td>
+          <td style="padding:6px 0;text-align:right;color:#F0EEFF;font-size:13px;">{gateway.title()}</td></tr>
+      {artist_row}
+      {event_row}
+      {ref_rows}
+    </table>
+  </td></tr>
+  <tr><td style="padding:0 40px 32px;">
+    <p style="color:rgba(240,238,255,0.5);font-size:12px;line-height:1.6;margin:0;">Keep this receipt for your records. Questions? Reply to this email and our concierge team will help.</p>
+  </td></tr>
+</table></td></tr></table></body></html>"""
+
+
+async def send_payment_receipt_email(
+    to_email: str, name: str, booking_refs: list, amount: float, txnid: str,
+    gateway: str, easepayid: str = "", artist_name: str = "", event_date: str = "",
+) -> dict:
+    """Sent the instant a payment is verified. Includes txnid, gateway ref,
+    amount and all booking references (single or batch)."""
+    if not to_email:
+        return {"sent": False, "mock": True, "error": "no_email"}
+    subject = f"Payment received — ₹{amount:,.2f} · {txnid}"
+    if not RESEND_ENABLED:
+        log.info("📧 [MOCK receipt] to=%s txnid=%s amount=%s refs=%s",
+                 to_email, txnid, amount, booking_refs)
+        return {"sent": True, "mock": True}
+    import resend
+    try:
+        result = await asyncio.to_thread(resend.Emails.send, {
+            "from": SENDER_EMAIL, "to": [to_email], "subject": subject,
+            "html": _payment_receipt_html(name, booking_refs, amount, txnid,
+                                          gateway, easepayid, artist_name, event_date),
+        })
+        return {"sent": True, "mock": False, "id": result.get("id")}
+    except Exception as e:
+        log.error("Receipt email failed: %s", e)
+        return {"sent": False, "mock": False, "error": str(e)}

@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from pdf_service import generate_contract_pdf, generate_invoice_pdf
 from email_service import (
     is_email_enabled, generate_otp, send_otp_email, send_booking_confirmation_email,
+    send_payment_receipt_email,
 )
 from image_service import compress_image, make_thumbnail
 from iter7_routes import make_router as make_iter7_router
@@ -53,6 +54,7 @@ from routes import city_aliases as routes_city_aliases
 from routes import outstation_report as routes_outstation_report
 from routes import cms_seo as routes_cms_seo
 from routes import questionnaire as routes_questionnaire
+from routes.easebuzz import make_easebuzz_router
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -1939,6 +1941,27 @@ async def payment_batch_verify(body: BatchPaymentVerify, user: dict = Depends(ge
             "read": False, "created_at": utcnow(),
             "link": f"/dashboard/bookings/{d['id']}",
         })
+    # Iter 62 — Batch payment receipt (single email listing every booking).
+    try:
+        first = docs[0] if docs else None
+        artist_name = ""
+        if first:
+            ap = await db.artist_profiles.find_one({"user_id": first["artist_id"]}) or {}
+            au = await db.users.find_one({"id": first["artist_id"]}) or {}
+            artist_name = ap.get("stage_name") or f"{au.get('first_name', '')} {au.get('last_name', '')}".strip()
+        await send_payment_receipt_email(
+            to_email=(first or {}).get("customer_email") or "",
+            name=(first or {}).get("customer_name") or "",
+            booking_refs=[d["ref"] for d in docs],
+            amount=float(pay.get("amount", 0) or 0),
+            txnid=body.razorpay_payment_id or pay.get("id", ""),
+            gateway=pay.get("gateway", "razorpay"),
+            easepayid=body.razorpay_payment_id or "",
+            artist_name=artist_name,
+            event_date=(first or {}).get("event_date", ""),
+        )
+    except Exception as _e:
+        log.warning("Batch receipt email failed: %s", _e)
     return {
         "ok": True,
         "count": len(docs),
@@ -2556,6 +2579,24 @@ async def payment_verify(body: PaymentVerifyBody, user: dict = Depends(get_curre
         "read": False, "created_at": utcnow(),
         "link": f"/dashboard/bookings/{booking['id']}",
     })
+    # Iter 62 — Payment receipt email (mock-safe when RESEND_API_KEY empty).
+    try:
+        artist_p = await db.artist_profiles.find_one({"user_id": booking["artist_id"]}) or {}
+        artist_u = await db.users.find_one({"id": booking["artist_id"]}) or {}
+        artist_name = artist_p.get("stage_name") or f"{artist_u.get('first_name', '')} {artist_u.get('last_name', '')}".strip()
+        await send_payment_receipt_email(
+            to_email=booking.get("customer_email") or "",
+            name=booking.get("customer_name") or "",
+            booking_refs=[booking.get("ref", "")],
+            amount=float(pay.get("amount", 0) or 0),
+            txnid=body.razorpay_payment_id or pay.get("id", ""),
+            gateway=pay.get("gateway", "razorpay"),
+            easepayid=body.razorpay_payment_id or "",
+            artist_name=artist_name,
+            event_date=booking.get("event_date", ""),
+        )
+    except Exception as _e:
+        log.warning("Receipt email failed: %s", _e)
     return {"ok": True, "status": "pending_artist", "booking_ref": booking["ref"], "gateway": pay.get("gateway")}
 
 
@@ -3866,6 +3907,16 @@ async def event_planner_best_fit(body: BestFitRequest):
 
 
 app.include_router(api)
+
+
+# Iter 61 — Easebuzz Payment Gateway (admin-configurable, DB-backed settings).
+app.include_router(
+    make_easebuzz_router(
+        db=db, get_current_user=get_current_user, admin_only=admin_only,
+        new_id=new_id, utcnow=utcnow,
+    ),
+    prefix="/api",
+)
 
 
 # Iteration 7 — Enterprise routes (Admin ERP, Boost, Notifications, Advanced Search)

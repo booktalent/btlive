@@ -1211,3 +1211,66 @@ Singer (7), DJ (7), Band (5), Dancer (5), Stand-up Comedian (4), Anchor / Emcee 
 - P1: Real Resend + Twilio confirmations.
 - P2: Refactor server.py / iter7_routes.py / BookingFlow.jsx.
 - P2: Trending Watches strip on landing hero.
+
+---
+## Iter 62 (2026-02) — Easebuzz Payment Gateway Integration
+
+**Delivered end-to-end** (user asked for Easebuzz sandbox integration):
+
+### Backend (`/app/backend/`)
+- `easebuzz_service.py` — SHA-512 hash helpers (initiate, response verify, retrieve), initiate + retrieve HTTP calls, amount normaliser, default settings seed. All URLs/keys from DB.
+- `routes/easebuzz.py` — full flow:
+  - `GET /api/admin/payment-settings` + `PUT /api/admin/payment-settings` (super_admin only, audit-safe).
+  - `GET /api/payment-gateway/public` (provider/enabled/env for frontend).
+  - `POST /api/payments/easebuzz/init` (auth) → creates txnid, calls initiateLink, returns `payment_url` for hosted checkout.
+  - `POST /api/payments/easebuzz/callback/{success|failure}` (public, form-urlencoded) → verifies response hash → re-verifies via retrieve API → flips bookings to `token_paid` → 303-redirects browser to frontend PaymentReturn.
+  - `POST /api/payments/easebuzz/webhook` (public JSON 200) — idempotent, same finalisation logic.
+  - `GET /api/payments/easebuzz/status/:txnid` — polled by PaymentReturn page.
+- New Mongo collections: `payment_gateway_settings` (single `_id="active"` doc), `payment_logs` (raw request/response, hash mismatch, retrieve response). Existing `payments` collection reused with `gateway="easebuzz"`.
+
+### Frontend (`/app/frontend/src/`)
+- `pages/admin/AdminPaymentGateway.jsx` — full settings UI (Sandbox & Live blocks, master switches, return URLs, webhook override, save button). Wired into `AdminDashboard` sidebar under `settings.manage` permission.
+- `pages/PaymentReturn.jsx` — post-checkout landing page that polls status endpoint until completed/failed, then shows success or failure UI.
+- Route `/booking/payment-return` registered in `App.js`.
+- `BookingFlow.jsx` — reads `/api/payment-gateway/public`; when active provider is Easebuzz, single + batch bookings redirect to hosted checkout instead of Razorpay.
+
+### Verified end-to-end
+- Direct hash test against `testpay.easebuzz.in` returned `status: 1` with real access_key.
+- Full API round-trip: login → create booking → `/payments/easebuzz/init` → `HTTP 200` with valid Easebuzz `payment_url`.
+- Admin `GET/PUT /admin/payment-settings` working, seed doc auto-created on first hit.
+- Admin UI screenshot verified — sidebar entry, status pills, sandbox/live blocks, credentials pre-filled from sandbox seed.
+
+### Gotchas surfaced & fixed
+1. `productinfo` must be ASCII — the `·` middle-dot broke Easebuzz with cryptic `GC0E01` "Something went wrong". Replaced with `-`.
+2. Phone must be plain 10-digit — `+91 987...` gave `Invalid value for phone`. Added digit-only normaliser.
+
+### Sandbox credentials seeded on first admin visit
+- Key: `1OCWIXWTP` · Salt: `ZPGNO0AHZ` · Base URL: `https://testpay.easebuzz.in`
+- Admin must fill Live keys manually before switching Environment → Live.
+
+### Nothing hardcoded
+- Zero credentials in source. All key/salt/URL/env loaded from `payment_gateway_settings` at request time. Flipping sandbox↔live is a single admin dropdown save.
+
+---
+## Iter 62.5 (2026-02) — Reconciliation Report + Payment Receipts
+
+**Delivered on the same day as Easebuzz launch:**
+
+### Payment Reconciliation Report (Item #2)
+- `GET /api/admin/payments?gateway=&status=&q=&page=&limit=` — paginated payment records with booking refs joined in.
+- `GET /api/admin/payment-logs?txnid=&kind=&page=&limit=` — every raw request/response/callback/hash-mismatch row.
+- `GET /api/admin/payments/summary` — top-line breakdown by gateway × status + hash-mismatch counter.
+- New admin page `AdminPaymentReconciliation.jsx` with KPI strip, tabbed Payments/Raw-Logs view, filters (gateway, status, txnid, kind, free-text search), pagination, and a side-drawer showing full payment details + "jump to logs for this txn" shortcut.
+- Sidebar entry `🧾 Payment Reconciliation` gated by `payments.view` permission (finance role sees it).
+
+### Payment Receipt Emails (Item #3)
+- New `send_payment_receipt_email()` in `email_service.py` — premium dark-luxury HTML template with Amount, Txn ID, Gateway Ref, Artist, Event Date, all Booking Refs.
+- Fires automatically from:
+  - `easebuzz._finalise_bookings_after_success` (single + batch, hosted-checkout callbacks).
+  - `server.py /payments/verify` (Razorpay + mock single-booking flow).
+  - `server.py /payments/batch/verify` (Razorpay + mock batch flow).
+- Mock-safe: when `RESEND_API_KEY` is empty, logs `[MOCK receipt]` to backend log — no crash, no `500`.
+- To turn on live sending: set `RESEND_API_KEY` in `/app/backend/.env` and restart backend. No code change needed.
+
+### Live Easebuzz Keys (Item #1)
+- No code needed. User action: Admin → Payment Gateway → Live block → paste Key/Salt → set Environment = Live → Save. Backend already reads live block dynamically.

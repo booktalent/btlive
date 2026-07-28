@@ -81,6 +81,7 @@ export default function BookingFlow() {
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);
   const [paymentConfig, setPaymentConfig] = useState({ razorpay_enabled: false });
+  const [gatewayInfo, setGatewayInfo] = useState({ provider: "easebuzz", enabled: true, environment: "sandbox" });
   const [alternatives, setAlternatives] = useState(null);
   // Iter 44 — Multi-Artist Event: if we came in from another booking's
   // "Add another artist" strip, pre-fill event basics and thread the
@@ -107,6 +108,8 @@ export default function BookingFlow() {
     }).catch(() => setArtistAddons([]));
     // Outstation policy strings — admin-editable via /admin/settings
     api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});    api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
+    // Iter 61 — Admin-configurable active payment gateway (Easebuzz vs Razorpay).
+    api.get("/payment-gateway/public").then((r) => setGatewayInfo(r.data)).catch(() => {});
     // Fetch only when the artist/package `id` changes. Adding `form.package_id`
     // would refetch on every form key-stroke; adding `nav`/`user` would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,6 +293,14 @@ export default function BookingFlow() {
           throw e;
         }
         const { event_id, booking_ids } = batchR.data;
+        // Iter 61 — Easebuzz active gateway → server-side initiate then
+        // full-page redirect to the hosted checkout. Success/failure comes
+        // back through /booking/payment-return.
+        if (gatewayInfo?.enabled && gatewayInfo?.provider === "easebuzz") {
+          const ebR = await api.post("/payments/easebuzz/init", { booking_ids, method: paymentMethod });
+          window.location.href = ebR.data.payment_url;
+          return;
+        }
         const initR = await api.post("/payments/batch/init", { booking_ids, method: paymentMethod });
         if (initR.data.gateway === "razorpay") {
           const loaded = await loadRazorpay();
@@ -366,6 +377,12 @@ export default function BookingFlow() {
         throw e;
       }
       const booking = r.data;
+      // Iter 61 — Easebuzz active gateway → hosted checkout redirect.
+      if (gatewayInfo?.enabled && gatewayInfo?.provider === "easebuzz") {
+        const ebR = await api.post("/payments/easebuzz/init", { booking_ids: [booking.id], method: paymentMethod });
+        window.location.href = ebR.data.payment_url;
+        return;
+      }
       const initR = await api.post("/payments/init", { booking_id: booking.id, method: paymentMethod });
 
       if (initR.data.gateway === "razorpay") {
