@@ -234,19 +234,21 @@ export default function BookingFlow() {
     //   (b) `tnc_accepted` un-ticked between step 4 and Pay → 400
     //   (c) transient 401 on a background call
     // We now:
-    //   1) Refresh /auth/me once so the cookie is verified BEFORE we send
-    //      a payload; if it 401s we tell the user to sign in again and
-    //      let them re-authenticate manually (no forced redirect).
+    //   1) Probe /auth/me — if it 401s we still let the flow continue so
+    //      /bookings can produce the authoritative error (the api.js
+    //      interceptor rewrites 401s to a friendly message). Previously we
+    //      short-circuited here with a "session ended" toast that fired
+    //      even when the real cookie was perfectly valid.
     //   2) Explicitly build the payload — NEVER spread `...form` — so
     //      only the fields the backend expects are sent, with correct
     //      types. tnc_accepted is HARD-FORCED to true (user is on step 5
     //      which means they cleared the ReviewStep T&C gate on step 4).
     try {
       await api.get("/auth/me");
-    } catch (e) {
-      setBusy(false);
-      toast("Your session ended. Please refresh the page and sign in again to complete the booking.", "error");
-      return;
+    } catch (_e) {
+      // Non-fatal — /bookings will re-check auth and produce a real error.
+      // eslint-disable-next-line no-console
+      console.warn("[booking] /auth/me probe failed, continuing anyway");
     }
 
     const commonFields = {
@@ -765,6 +767,7 @@ export default function BookingFlow() {
                 paymentMethod={paymentMethod}
                 setPaymentMethod={setPaymentMethod}
                 paymentConfig={paymentConfig}
+                gatewayInfo={gatewayInfo}
                 busy={busy}
                 token={token}
                 cartPricing={cartPricing}
