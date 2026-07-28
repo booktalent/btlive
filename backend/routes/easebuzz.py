@@ -127,7 +127,8 @@ async def _finalise_bookings_after_success(
     confirmation clock. Idempotent — bookings already past `pending_payment`
     are skipped. Also fires the payment receipt email (mock-safe)."""
     confirm_hours = int(os.environ.get("BOOKING_CONFIRM_WINDOW_HOURS", "24"))
-    expires_at = (utcnow() + timedelta(hours=confirm_hours)).isoformat()
+    # NB: server.py's `utcnow()` returns an ISO string. Use _now() for math.
+    expires_at = (_now() + timedelta(hours=confirm_hours)).isoformat()
 
     booking_ids = pay_doc.get("booking_ids") or ([pay_doc["booking_id"]] if pay_doc.get("booking_id") else [])
     docs = await db.bookings.find({"id": {"$in": booking_ids}}).to_list(50)
