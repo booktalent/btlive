@@ -63,9 +63,20 @@ export default function NotificationBell() {
       }
       reload();
     }
-    if (item.cta_url) {
-      if (item.cta_url.startsWith("http")) window.open(item.cta_url, "_blank", "noopener,noreferrer");
-      else nav(item.cta_url);
+    // Iter 63.5 — Rewrite notification links to routes that actually exist
+    // in the SPA. Older code wrote /dashboard/bookings/:id which is not a
+    // real route; nav here based on role.
+    let target = item.cta_url;
+    if (target && /^\/dashboard\/bookings\/[\w-]+/.test(target)) {
+      const role = user?.role;
+      if (role === "artist") target = "/artist?tab=bookings";
+      else if (role === "agency") target = "/agency/bookings";
+      else if (role === "admin") target = "/admin?tab=bookings";
+      else target = "/customer";
+    }
+    if (target) {
+      if (target.startsWith("http")) window.open(target, "_blank", "noopener,noreferrer");
+      else nav(target);
     }
   };
 
@@ -98,8 +109,27 @@ export default function NotificationBell() {
           border: "1px solid var(--glass-border)", borderRadius: 12,
           boxShadow: "0 20px 60px rgba(0,0,0,0.4)", padding: 8, zIndex: 100,
         }} data-testid="notification-dropdown">
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--glass-border)", fontFamily: "var(--font-serif)", fontWeight: 700 }}>
-            Notifications
+          <div style={{
+            padding: "8px 12px", borderBottom: "1px solid var(--glass-border)",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <span style={{ fontFamily: "var(--font-serif)", fontWeight: 700 }}>Notifications</span>
+            {unread > 0 && (
+              <button
+                onClick={async () => {
+                  await api.post("/notifications/read-all").catch(() => {});
+                  reload();
+                }}
+                data-testid="notification-mark-all-read"
+                style={{
+                  background: "transparent", border: "1px solid var(--glass-border)",
+                  color: "var(--gold-light)", padding: "3px 10px", borderRadius: 999,
+                  fontSize: 11, cursor: "pointer",
+                }}
+              >
+                Mark all read
+              </button>
+            )}
           </div>
           {items.length === 0 ? (
             <div style={{ padding: 24, textAlign: "center", color: "var(--white-muted)", fontSize: 13 }}>

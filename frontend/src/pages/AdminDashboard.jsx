@@ -54,7 +54,11 @@ export default function AdminDashboard() {
   const { user } = useAuth();
   const toast = useToast();
   const nav = useNavigate();
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState(() => {
+    // Iter 63.5 — read ?tab= from URL so notification click-through lands on the right tab.
+    const p = new URLSearchParams(window.location.search).get("tab");
+    return p || "overview";
+  });
   const [stats, setStats] = useState({});
   // Iter 57 — Read the caller's RBAC permissions so we can HIDE sidebar
   // modules they lack the permission for. Backend still enforces access —
