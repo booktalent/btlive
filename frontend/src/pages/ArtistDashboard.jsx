@@ -1447,13 +1447,16 @@ function Boost({ refresh, toast }) {
   useEffect(() => { load(); }, []);
 
   const purchase = async (pkg) => {
-    if (!window.confirm(`Purchase ${pkg.name} for ₹${pkg.price}? (Mock payment in test mode)`)) return;
+    const total = (pkg.price * (1 + (pkg.gst_pct || 18) / 100)).toFixed(2);
+    if (!window.confirm(`Continue to secure payment for ${pkg.name} — ₹${total} (incl. GST)?`)) return;
     setBusy(pkg.id);
     try {
-      await api.post("/boost/purchase", { package_id: pkg.id, payment_method: "mock" });
-      toast(`✓ Activated: ${pkg.name}`);
-      await load();
-      refresh && refresh();
+      const r = await api.post("/boost/easebuzz/init", { package_id: pkg.id });
+      if (r.data?.payment_url) {
+        window.location.href = r.data.payment_url;
+        return;
+      }
+      toast("Could not start payment. Please try again.", "error");
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(null);
   };
@@ -1729,12 +1732,26 @@ function Subscription({ toast, highlight, onHighlightConsumed }) {
   const subscribe = async (planCode) => {
     if (busy) return;
     if (planCode === current?.plan?.code) return;
-    if (planCode !== "free" && !window.confirm(`Upgrade to ${planCode.toUpperCase()}? (mock payment — no charge in demo)`)) return;
     setBusy(true);
     try {
-      await api.post("/subscriptions/subscribe", { plan: planCode, billing_cycle: cycle });
-      toast(planCode === "free" ? "Downgraded to Free" : `🎉 Welcome to ${planCode.toUpperCase()}!`);
-      refresh();
+      if (planCode === "free") {
+        // Direct downgrade — no payment involved.
+        if (!window.confirm("Downgrade to Free plan?")) { setBusy(false); return; }
+        await api.post("/subscriptions/subscribe", { plan: "free" });
+        toast("Downgraded to Free");
+        refresh();
+      } else {
+        // Iter 63.3 — Paid plans route through Easebuzz hosted checkout.
+        if (!window.confirm(`Continue to secure payment for ${planCode.toUpperCase()} (${cycle})?`)) {
+          setBusy(false); return;
+        }
+        const r = await api.post("/subscriptions/easebuzz/init", { plan: planCode, billing_cycle: cycle });
+        if (r.data?.payment_url) {
+          window.location.href = r.data.payment_url;
+          return;
+        }
+        toast("Could not start payment. Please try again.", "error");
+      }
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(false);
   };
@@ -1846,7 +1863,26 @@ function Concierge({ toast, setTab, setSubHighlight }) {
   const [subject, setSubject] = useState("General");
   const [firstMessage, setFirstMessage] = useState("");
   const [sending, setSending] = useState(false);
+  const [trialUsed, setTrialUsed] = useState(true); // default hide until we know
+  const [startingTrial, setStartingTrial] = useState(false);
   const listRef = useRef(null);
+
+  // Fetch trial eligibility upfront so the paywall knows whether to show it.
+  useEffect(() => {
+    api.get("/subscriptions/me").then((r) => setTrialUsed(!!r.data?.elite_trial_used)).catch(() => {});
+  }, []);
+
+  const startTrial = async () => {
+    setStartingTrial(true);
+    try {
+      await api.post("/subscriptions/trial/elite");
+      toast("🎩 Elite trial activated — 7 days on us. Concierge unlocked!");
+      setLocked(false);
+      setTrialUsed(true);
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setStartingTrial(false);
+  };
 
   const refresh = async () => {
     try {
@@ -1902,6 +1938,32 @@ function Concierge({ toast, setTab, setSubHighlight }) {
         <div style={{ fontSize: 42, marginBottom: 12 }}>🎩</div>
         <h2 className="font-serif fs-24 fw-700 mb-8">Elite Concierge</h2>
         <p className="text-muted mb-16">Priority support with a 2-6 hour SLA is a benefit reserved for <b>Platinum</b> and <b>Elite</b> plans.</p>
+
+        {!trialUsed && (
+          <div
+            style={{
+              background: "linear-gradient(135deg, rgba(212,175,55,0.15), rgba(124,58,237,0.15))",
+              border: "1px solid rgba(212,175,55,0.4)",
+              borderRadius: 14, padding: "18px 22px", margin: "0 auto 20px",
+              maxWidth: 480, display: "flex", flexDirection: "column", gap: 10,
+            }}
+            data-testid="concierge-trial-card"
+          >
+            <div style={{ fontWeight: 700, fontSize: 15 }}>✨ Try Elite free for 7 days</div>
+            <div className="text-muted fs-13" style={{ lineHeight: 1.5 }}>
+              Unlock the concierge chat right now with a one-time 7-day trial. No payment card required.
+            </div>
+            <button
+              className="btn btn-gold"
+              onClick={startTrial}
+              disabled={startingTrial}
+              data-testid="concierge-start-trial"
+            >
+              {startingTrial ? "Activating…" : "Start Free Trial 🎁"}
+            </button>
+          </div>
+        )}
+
         <button
           className="btn btn-gold"
           onClick={() => {

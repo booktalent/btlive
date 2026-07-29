@@ -432,6 +432,60 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         await audit(user, "boost_package.delete", "boost_package", pid)
         return {"ok": True}
 
+    async def _activate_boost(user_id: str, pkg: dict, price: float,
+                              payment_method: str = "easebuzz",
+                              payment_ref: Optional[str] = None) -> dict:
+        """Activate a boost package for a user. Called by /boost/purchase (mock)
+        AND by the Easebuzz callback finaliser after paid checkout completes."""
+        gst_amount = round(pkg["price"] * pkg.get("gst_pct", 18) / 100, 2)
+        commission = round(pkg["price"] * pkg.get("commission_pct", 0) / 100, 2)
+        total = round(pkg["price"] + gst_amount, 2)
+        starts_at = datetime.now(timezone.utc)
+        expires_at = starts_at + timedelta(days=pkg["duration_days"])
+        sub = {
+            "id": new_id(),
+            "artist_id": user_id,
+            "package_id": pkg["id"],
+            "package_snapshot": {"name": pkg["name"], "type": pkg["type"], "duration_days": pkg["duration_days"]},
+            "type": pkg["type"], "price": pkg["price"],
+            "gst_amount": gst_amount, "commission": commission, "total": total,
+            "payment_method": payment_method,
+            "payment_ref": payment_ref or f"AUTO-{new_id()[:8]}",
+            "status": "active",
+            "starts_at": starts_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "created_at": utcnow(),
+        }
+        await db.boost_subscriptions.insert_one(sub)
+        profile_updates: Dict[str, Any] = {"updated_at": utcnow()}
+        t = pkg["type"]
+        if t in ("featured_artist", "city_featured", "homepage_banner"):
+            profile_updates["is_featured"] = True
+        if t == "premium_badge": profile_updates["premium_badge"] = True
+        if t == "verified_badge": profile_updates["verified_badge"] = True
+        if t == "trending": profile_updates["is_trending"] = True
+        if t == "recommended": profile_updates["is_recommended"] = True
+        profile_updates["boost_rank"] = max(
+            (await db.artist_profiles.find_one({"user_id": user_id}) or {}).get("boost_rank", 0),
+            {"search_priority": 100, "category_top": 90, "homepage_banner": 80,
+             "featured_artist": 70, "trending": 60, "recommended": 50,
+             "city_featured": 40, "premium_badge": 20, "verified_badge": 10}.get(t, 5),
+        )
+        profile_updates["boost_expires_at"] = expires_at.isoformat()
+        await db.artist_profiles.update_one({"user_id": user_id}, {"$set": profile_updates})
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "first_name": 1})
+        await notify_dispatch(
+            db, user_id=user_id, event="boost.activated",
+            channels=["in_app", "email"],
+            ctx={"title": f"Boost activated: {pkg['name']}",
+                 "body": f"Your {pkg['name']} package is now active for {pkg['duration_days']} days.",
+                 "package": pkg["name"]},
+            email=(u or {}).get("email"),
+        )
+        return sub
+
+    r._activate_boost = _activate_boost  # type: ignore[attr-defined]
+
     @r.post("/boost/purchase")
     async def boost_purchase(body: BoostPurchaseBody, user: dict = Depends(get_current_user)):
         if user["role"] != "artist":
@@ -439,72 +493,20 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         pkg = await db.boost_packages.find_one({"id": body.package_id, "active": True})
         if not pkg:
             raise HTTPException(404, "Package not found or inactive")
+        # Paid boosts must go through Easebuzz — reject direct activation to
+        # prevent bypass. Frontend should call POST /api/boost/easebuzz/init.
+        if body.payment_method != "mock" and not body.payment_ref:
+            raise HTTPException(
+                402,
+                "Paid boosts require a completed payment. Use POST /api/boost/easebuzz/init.",
+            )
+        sub = await _activate_boost(user["id"], pkg, pkg["price"],
+                                    payment_method=body.payment_method,
+                                    payment_ref=body.payment_ref)
+        gst_amount = sub["gst_amount"]; commission = sub["commission"]; total = sub["total"]
+        expires_at = datetime.fromisoformat(sub["expires_at"])
 
-        gst_amount = round(pkg["price"] * pkg.get("gst_pct", 18) / 100, 2)
-        commission = round(pkg["price"] * pkg.get("commission_pct", 0) / 100, 2)
-        total = round(pkg["price"] + gst_amount, 2)
-
-        # In mock mode, treat as successful immediately
-        is_mock = body.payment_method == "mock" or not body.payment_ref
-        starts_at = datetime.now(timezone.utc)
-        expires_at = starts_at + timedelta(days=pkg["duration_days"])
-
-        sub = {
-            "id": new_id(),
-            "artist_id": user["id"],
-            "package_id": pkg["id"],
-            "package_snapshot": {"name": pkg["name"], "type": pkg["type"], "duration_days": pkg["duration_days"]},
-            "type": pkg["type"],
-            "price": pkg["price"],
-            "gst_amount": gst_amount,
-            "commission": commission,
-            "total": total,
-            "payment_method": body.payment_method,
-            "payment_ref": body.payment_ref or f"MOCK-{new_id()[:8]}",
-            "status": "active",
-            "starts_at": starts_at.isoformat(),
-            "expires_at": expires_at.isoformat(),
-            "created_at": utcnow(),
-        }
-        await db.boost_subscriptions.insert_one(sub)
-
-        # Update artist profile flags
-        profile_updates: Dict[str, Any] = {"updated_at": utcnow()}
-        t = pkg["type"]
-        if t in ("featured_artist", "city_featured", "homepage_banner"):
-            profile_updates["is_featured"] = True
-        if t == "premium_badge":
-            profile_updates["premium_badge"] = True
-        if t == "verified_badge":
-            profile_updates["verified_badge"] = True
-        if t == "trending":
-            profile_updates["is_trending"] = True
-        if t == "recommended":
-            profile_updates["is_recommended"] = True
-        # Search priority — store a rank boost score
-        profile_updates["boost_rank"] = max(
-            (await db.artist_profiles.find_one({"user_id": user["id"]}) or {}).get("boost_rank", 0),
-            {"search_priority": 100, "category_top": 90, "homepage_banner": 80, "featured_artist": 70, "trending": 60, "recommended": 50, "city_featured": 40, "premium_badge": 20, "verified_badge": 10}.get(t, 5),
-        )
-        profile_updates["boost_expires_at"] = expires_at.isoformat()
-        await db.artist_profiles.update_one({"user_id": user["id"]}, {"$set": profile_updates})
-
-        # Notification
-        await notify_dispatch(
-            db,
-            user_id=user["id"],
-            event="boost.activated",
-            channels=["in_app", "email"],
-            ctx={
-                "title": f"Boost activated: {pkg['name']}",
-                "body": f"Your {pkg['name']} package is now active for {pkg['duration_days']} days. Expires {expires_at.strftime('%d %b %Y')}.",
-                "package": pkg["name"],
-                "expires_at": expires_at.strftime("%d %b %Y"),
-            },
-            email=user.get("email"),
-        )
-
-        return {"ok": True, "subscription": clean(sub), "mock": is_mock}
+        return {"ok": True, "subscription": clean(sub), "mock": body.payment_method == "mock"}
 
     @r.get("/boost/mine")
     async def boost_mine(user: dict = Depends(get_current_user)):

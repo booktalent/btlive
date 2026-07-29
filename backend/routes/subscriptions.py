@@ -135,6 +135,51 @@ async def resolve_plan(db, user_id: str) -> dict:
 def make_router(*, db, get_current_user: Callable, admin_only: Callable, utcnow, new_id, clean) -> APIRouter:
     r = APIRouter()
 
+    async def _activate_plan(user_id: str, plan_code: str, billing_cycle: str,
+                             price: float, payment_method: str = "easebuzz",
+                             days_override: Optional[int] = None) -> dict:
+        """Activate (or renew) a plan for a user. Idempotent — cancels any
+        existing active subscription first. Called by both the direct
+        `/subscribe` endpoint (free plan) and by the Easebuzz callback
+        finaliser after a paid checkout completes."""
+        plan = PLANS[plan_code]
+        await db.artist_subscriptions.update_many(
+            {"artist_id": user_id, "status": "active"},
+            {"$set": {"status": "cancelled", "cancelled_at": utcnow()}},
+        )
+        days = days_override if days_override is not None else (365 if billing_cycle == "yearly" else 30)
+        expires = (_now() + timedelta(days=days)).isoformat()
+        sub = {
+            "id": new_id(),
+            "artist_id": user_id,
+            "plan": plan_code,
+            "billing_cycle": billing_cycle,
+            "price": price,
+            "status": "active",
+            "payment_method": payment_method,
+            "started_at": utcnow(),
+            "expires_at": expires,
+            "auto_renew": payment_method != "trial",
+            "is_trial": payment_method == "trial",
+        }
+        await db.artist_subscriptions.insert_one(sub)
+        await db.artist_profiles.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "premium_badge": plan["rank"] >= 2,
+                "plan_code": plan["code"],
+                "plan_rank": plan["rank"],
+            }},
+        )
+        await db.notifications.insert_one({
+            "id": new_id(), "user_id": user_id, "type": "subscription",
+            "title": f"Welcome to {plan['name']}!" if payment_method != "trial"
+                     else f"Elite trial activated — 7 days on us 🎩",
+            "body": f"Your {plan['name']} plan is active until {expires[:10]}.",
+            "read": False, "created_at": utcnow(),
+        })
+        return sub
+
     @r.get("/subscriptions/plans")
     async def list_plans():
         return list(PLANS.values())
@@ -143,7 +188,12 @@ def make_router(*, db, get_current_user: Callable, admin_only: Callable, utcnow,
     async def my_subscription(user: dict = Depends(get_current_user)):
         doc = await db.artist_subscriptions.find_one({"artist_id": user["id"], "status": "active"})
         plan = _plan_from_doc(doc)
-        return {"subscription": clean(doc) if doc else None, "plan": plan}
+        me = await db.users.find_one({"id": user["id"]}, {"elite_trial_used_at": 1})
+        return {
+            "subscription": clean(doc) if doc else None,
+            "plan": plan,
+            "elite_trial_used": bool(me and me.get("elite_trial_used_at")),
+        }
 
     @r.post("/subscriptions/subscribe")
     async def subscribe(body: SubscribeBody, user: dict = Depends(get_current_user)):
@@ -153,58 +203,45 @@ def make_router(*, db, get_current_user: Callable, admin_only: Callable, utcnow,
         if not plan:
             raise HTTPException(400, "Invalid plan")
 
-        # Cancel any existing active subscription (mock: immediate upgrade)
-        await db.artist_subscriptions.update_many(
-            {"artist_id": user["id"], "status": "active"},
-            {"$set": {"status": "cancelled", "cancelled_at": utcnow()}},
-        )
-
-        # For Free plan just mark cancellation and return
+        # For Free plan just cancel any active sub and bounce cached badge.
         if body.plan == "free":
-            # bounce cached premium_badge back to False
+            await db.artist_subscriptions.update_many(
+                {"artist_id": user["id"], "status": "active"},
+                {"$set": {"status": "cancelled", "cancelled_at": utcnow()}},
+            )
             await db.artist_profiles.update_one(
                 {"user_id": user["id"]},
                 {"$set": {"premium_badge": False, "plan_code": "free", "plan_rank": 0}},
             )
             return {"ok": True, "plan": plan, "downgraded": True}
 
-        price = plan["price_yearly"] if body.billing_cycle == "yearly" else plan["price_monthly"]
-        days = 365 if body.billing_cycle == "yearly" else 30
-        expires = (_now() + timedelta(days=days)).isoformat()
-
-        sub = {
-            "id": new_id(),
-            "artist_id": user["id"],
-            "plan": body.plan,
-            "billing_cycle": body.billing_cycle,
-            "price": price,
-            "status": "active",
-            "payment_method": body.payment_method,
-            "started_at": utcnow(),
-            "expires_at": expires,
-            "auto_renew": True,
-        }
-        await db.artist_subscriptions.insert_one(sub)
-
-        # Update the cached profile denorm so search + card renders in one query
-        await db.artist_profiles.update_one(
-            {"user_id": user["id"]},
-            {"$set": {
-                "premium_badge": plan["rank"] >= 2,
-                "plan_code": plan["code"],
-                "plan_rank": plan["rank"],
-            }},
+        # Iter 63.3 — Paid plans must go through Easebuzz. Reject direct
+        # activation to prevent bypass. Frontend calls /subscriptions/easebuzz/init.
+        raise HTTPException(
+            402,
+            "Paid plans require a completed payment. Use POST /api/subscriptions/easebuzz/init.",
         )
 
-        # in-app notification
-        await db.notifications.insert_one({
-            "id": new_id(), "user_id": user["id"], "type": "subscription",
-            "title": f"Welcome to {plan['name']}!",
-            "body": f"Your {plan['name']} plan is active until {expires[:10]}.",
-            "read": False, "created_at": utcnow(),
-        })
+    # Iter 63.3 — 7-day Elite free trial. One-time per user.
+    @r.post("/subscriptions/trial/elite")
+    async def start_elite_trial(user: dict = Depends(get_current_user)):
+        if user["role"] not in ("artist", "agency"):
+            raise HTTPException(403, "Only artists / agencies can start a trial")
+        me = await db.users.find_one({"id": user["id"]}, {"elite_trial_used_at": 1})
+        if me and me.get("elite_trial_used_at"):
+            raise HTTPException(400, "You've already used your Elite trial")
+        current = await db.artist_subscriptions.find_one({"artist_id": user["id"], "status": "active"})
+        if current and PLANS.get(current.get("plan", "free"), {}).get("rank", 0) >= 3:
+            raise HTTPException(400, "You already have Platinum or Elite access")
+        sub = await _activate_plan(
+            user_id=user["id"], plan_code="elite", billing_cycle="monthly",
+            price=0, payment_method="trial", days_override=7,
+        )
+        await db.users.update_one({"id": user["id"]}, {"$set": {"elite_trial_used_at": utcnow()}})
+        return {"ok": True, "trial": True, "subscription": clean(sub), "plan": PLANS["elite"]}
 
-        return {"ok": True, "subscription": clean(sub), "plan": plan}
+    # Expose the activator on the router so the Easebuzz callback can call it.
+    r._activate_plan = _activate_plan  # type: ignore[attr-defined]
 
     @r.post("/subscriptions/cancel")
     async def cancel(user: dict = Depends(get_current_user)):

@@ -62,6 +62,15 @@ class EasebuzzInitBody(BaseModel):
     method: Optional[str] = "upi"     # informational only, Easebuzz hosted page chooses
 
 
+class SubInitBody(BaseModel):
+    plan: str
+    billing_cycle: str = "monthly"
+
+
+class BoostInitBody(BaseModel):
+    package_id: str
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Helpers — settings + logging + booking finalisation
 # ────────────────────────────────────────────────────────────────────────────
@@ -209,8 +218,68 @@ async def _finalise_bookings_after_success(
 # ────────────────────────────────────────────────────────────────────────────
 # Router factory
 # ────────────────────────────────────────────────────────────────────────────
-def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow) -> APIRouter:
+def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
+                         activate_subscription=None, activate_boost=None) -> APIRouter:
+    """Args:
+        activate_subscription: async fn(user_id, plan_code, billing_cycle, price,
+                                        payment_method) -> None.
+        activate_boost:        async fn(user_id, pkg, price, payment_method,
+                                        payment_ref) -> None.
+        Injected from server.py so we don't hard-depend on their routers.
+    """
     r = APIRouter()
+
+    async def _notify_admins(kind: str, user_id: str, amount: float, meta: Dict[str, Any]):
+        """Iter 63.3 — Alert every admin the instant an artist completes a
+        subscription or boost payment."""
+        try:
+            u = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "first_name": 1, "last_name": 1}) or {}
+            display = (u.get("first_name") or "") + " " + (u.get("last_name") or "")
+            display = display.strip() or u.get("email", "an artist")
+            title = f"{'Subscription' if kind == 'subscription' else 'Boost'} payment received"
+            body = f"{display} paid ₹{amount:,.2f} — {meta.get('label', kind)}"
+            admin_cursor = db.users.find({"role": "admin"}, {"_id": 0, "id": 1})
+            async for a in admin_cursor:
+                await db.notifications.insert_one({
+                    "id": new_id(), "user_id": a["id"],
+                    "type": f"payment.{kind}",
+                    "title": title, "body": body,
+                    "link": "/admin?tab=payment-recon",
+                    "meta": {"user_id": user_id, "amount": amount, **meta},
+                    "read": False, "created_at": _now(),
+                })
+        except Exception:
+            log.warning("Admin notify failed", exc_info=True)
+
+    async def _finalise_payment(pay: Dict[str, Any], gateway_response: Dict[str, Any]):
+        """Dispatch on payment_kind."""
+        kind = pay.get("payment_kind") or "booking"
+        if kind == "subscription" and activate_subscription:
+            await activate_subscription(
+                user_id=pay["user_id"],
+                plan_code=pay["subscription_plan"],
+                billing_cycle=pay.get("subscription_cycle", "monthly"),
+                price=float(pay.get("amount", 0) or 0),
+                payment_method="easebuzz",
+            )
+            await _notify_admins("subscription", pay["user_id"], float(pay.get("amount", 0) or 0),
+                                 {"label": pay.get("subscription_plan", "").title() + " plan",
+                                  "txnid": pay.get("txnid"), "easepayid": gateway_response.get("easepayid")})
+            return
+        if kind == "boost" and activate_boost:
+            pkg = await db.boost_packages.find_one({"id": pay["boost_package_id"]}) or {}
+            await activate_boost(
+                user_id=pay["user_id"], pkg=pkg,
+                price=float(pay.get("amount", 0) or 0),
+                payment_method="easebuzz",
+                payment_ref=pay.get("easepayid") or pay.get("txnid"),
+            )
+            await _notify_admins("boost", pay["user_id"], float(pay.get("amount", 0) or 0),
+                                 {"label": pkg.get("name", "Boost package"),
+                                  "txnid": pay.get("txnid"), "easepayid": gateway_response.get("easepayid")})
+            return
+        # Default: booking flow.
+        await _finalise_bookings_after_success(db, pay, gateway_response, new_id, utcnow)
 
     # ───── Admin settings ────────────────────────────────────────────────
     @r.get("/admin/payment-settings")
@@ -465,6 +534,92 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow) ->
             "payment_url": payment_url,
         }
 
+    # ───── Init: SUBSCRIPTION checkout ───────────────────────────────────
+    async def _init_generic(user: dict, amount: float, productinfo: str,
+                            payment_kind: str, extra: Dict[str, Any]) -> Dict[str, Any]:
+        """Shared Easebuzz-init helper for non-booking payment kinds."""
+        # Iter 63.3 — Easebuzz rejects non-ASCII in productinfo with cryptic
+        # GC0E01. Strip anything outside plain ASCII printable range.
+        productinfo = "".join(ch for ch in (productinfo or "BookTalent") if 32 <= ord(ch) < 127).strip() or "BookTalent"
+        cfg = await _active_env(db)
+        amount_str = normalise_amount(amount)
+        txnid = _new_txnid()
+        payment_id = new_id()
+        firstname = (user.get("first_name") or "Customer").strip()
+        email = (user.get("email") or "no-reply@booktalent.com").strip()
+        raw_phone = (user.get("phone") or "").strip()
+        digits = "".join(ch for ch in raw_phone if ch.isdigit())
+        phone = digits[-10:] if len(digits) >= 10 else "9999999999"
+        backend_base = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
+        payload: Dict[str, Any] = {
+            "key": cfg["key"], "txnid": txnid, "amount": amount_str,
+            "productinfo": productinfo, "firstname": firstname,
+            "email": email, "phone": phone,
+            "surl": f"{backend_base}/api/payments/easebuzz/callback/success",
+            "furl": f"{backend_base}/api/payments/easebuzz/callback/failure",
+            "udf1": payment_id, "udf2": user["id"], "udf3": payment_kind,
+            **{f"udf{i}": "" for i in range(4, 11)},
+        }
+        payload["hash"] = build_initiate_hash(payload, cfg["salt"])
+        await _log(db, f"easebuzz.initiate.request.{payment_kind}", txnid,
+                   {k: v for k, v in payload.items() if k != "hash"})
+        try:
+            resp = await initiate_link(cfg["base_url"], payload)
+        except Exception as e:
+            raise HTTPException(502, f"Payment gateway error: {e}")
+        await _log(db, f"easebuzz.initiate.response.{payment_kind}", txnid, resp)
+        if not isinstance(resp, dict) or resp.get("status") != 1:
+            raise HTTPException(502, f"Easebuzz declined: {resp.get('data') if isinstance(resp, dict) else resp}")
+        access_key = resp.get("data")
+        payment_url = f"{cfg['base_url'].rstrip('/')}/pay/{access_key}"
+        pay_doc = {
+            "id": payment_id, "gateway": "easebuzz",
+            "environment": cfg["env"], "user_id": user["id"],
+            "amount": float(amount_str), "status": "pending",
+            "txnid": txnid, "access_key": access_key, "payment_url": payment_url,
+            "created_at": _now(), "payment_kind": payment_kind, **extra,
+        }
+        await db.payments.insert_one(pay_doc)
+        return {"payment_id": payment_id, "gateway": "easebuzz",
+                "environment": cfg["env"], "amount": float(amount_str),
+                "txnid": txnid, "access_key": access_key, "payment_url": payment_url}
+
+    @r.post("/subscriptions/easebuzz/init")
+    async def easebuzz_subscription_init(body: SubInitBody, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("artist", "agency"):
+            raise HTTPException(403, "Only artists / agencies can subscribe")
+        _PLAN_PRICES = {
+            "silver":   {"monthly": 499,  "yearly": 4990},
+            "gold":     {"monthly": 999,  "yearly": 9990},
+            "platinum": {"monthly": 2499, "yearly": 24990},
+            "elite":    {"monthly": 4999, "yearly": 49990},
+        }
+        plan_key = body.plan.lower()
+        if plan_key not in _PLAN_PRICES:
+            raise HTTPException(400, "Invalid plan (free is direct — no payment)")
+        cycle = "yearly" if body.billing_cycle == "yearly" else "monthly"
+        price = _PLAN_PRICES[plan_key][cycle]
+        productinfo = f"BookTalent {plan_key.title()} - {cycle}"
+        return await _init_generic(
+            user=user, amount=price, productinfo=productinfo,
+            payment_kind="subscription",
+            extra={"subscription_plan": plan_key, "subscription_cycle": cycle},
+        )
+
+    @r.post("/boost/easebuzz/init")
+    async def easebuzz_boost_init(body: BoostInitBody, user: dict = Depends(get_current_user)):
+        if user.get("role") != "artist":
+            raise HTTPException(403, "Only artists can buy boost packages")
+        pkg = await db.boost_packages.find_one({"id": body.package_id, "active": True})
+        if not pkg:
+            raise HTTPException(404, "Boost package not found or inactive")
+        gst = round(pkg["price"] * pkg.get("gst_pct", 18) / 100, 2)
+        total = round(pkg["price"] + gst, 2)
+        return await _init_generic(
+            user=user, amount=total, productinfo=f"BookTalent Boost - {pkg['name']}",
+            payment_kind="boost", extra={"boost_package_id": pkg["id"]},
+        )
+
     # ───── Callbacks ─────────────────────────────────────────────────────
     async def _handle_callback(request: Request, expected_status_hint: str) -> RedirectResponse:
         form = dict(await request.form())
@@ -554,7 +709,7 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow) ->
                     "verified_at": _now(),
                 }},
             )
-            await _finalise_bookings_after_success(db, pay, form, new_id, utcnow)
+            await _finalise_payment(pay, form)
             return RedirectResponse(
                 _frontend_return_url(cfg_settings, txnid, "success"),
                 status_code=303,
@@ -604,7 +759,7 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow) ->
                           "easepayid": form.get("easepayid"),
                           "verified_at": _now()}},
             )
-            await _finalise_bookings_after_success(db, pay, form, new_id, utcnow)
+            await _finalise_payment(pay, form)
             return {"ok": True, "status": "completed"}
         await db.payments.update_one(
             {"id": pay["id"]},

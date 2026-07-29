@@ -3910,13 +3910,9 @@ app.include_router(api)
 
 
 # Iter 61 — Easebuzz Payment Gateway (admin-configurable, DB-backed settings).
-app.include_router(
-    make_easebuzz_router(
-        db=db, get_current_user=get_current_user, admin_only=admin_only,
-        new_id=new_id, utcnow=utcnow,
-    ),
-    prefix="/api",
-)
+# Registered LATER (below iter7 and subscription routers) so the activator
+# helpers exposed on those routers are available.
+_easebuzz_registered = False
 
 
 # Iteration 7 — Enterprise routes (Admin ERP, Boost, Notifications, Advanced Search)
@@ -3987,12 +3983,10 @@ app.include_router(
     prefix="/api",
 )
 # Sprint 5 — premium subscription plans
-app.include_router(
-    routes_subscriptions.make_router(
-        get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
-    ),
-    prefix="/api",
+_subscriptions_router = routes_subscriptions.make_router(
+    get_current_user=get_current_user, admin_only=admin_only, **_common_deps,
 )
+app.include_router(_subscriptions_router, prefix="/api")
 # Sprint 5 — dynamic homepage sections (public)
 app.include_router(
     routes_homepage.make_router(get_current_user_optional=get_current_user_optional, **_common_deps),
@@ -4009,6 +4003,18 @@ app.include_router(
 # Booking Insights — artist self-service analytics
 app.include_router(
     routes_insights.make_router(get_current_user=get_current_user, **_common_deps),
+    prefix="/api",
+)
+
+# Iter 63.3 — Easebuzz router mounted here (after subscriptions + iter7 boost)
+# so we can inject the activation helpers exposed on those routers.
+app.include_router(
+    make_easebuzz_router(
+        db=db, get_current_user=get_current_user, admin_only=admin_only,
+        new_id=new_id, utcnow=utcnow,
+        activate_subscription=getattr(_subscriptions_router, "_activate_plan", None),
+        activate_boost=getattr(_iter7_router, "_activate_boost", None),
+    ),
     prefix="/api",
 )
 # City-alias admin management (Iter 35)
