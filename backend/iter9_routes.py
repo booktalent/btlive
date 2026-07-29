@@ -290,7 +290,17 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         if user["role"] != "artist":
             raise HTTPException(403, "Artists only")
         rows = await db.agency_roster.find({"artist_id": user["id"], "status": "pending"}).sort("created_at", -1).to_list(100)
-        return [clean(r) for r in rows]
+        # Iter 63 — enrich with agency name so the artist banner has context.
+        out = []
+        for row in rows:
+            row = clean(row)
+            u = await db.users.find_one(
+                {"id": row["agency_id"]},
+                {"_id": 0, "first_name": 1, "last_name": 1, "email": 1, "company_name": 1},
+            )
+            row["agency"] = u or {}
+            out.append(row)
+        return out
 
     @r.post("/agency/invite/{invite_id}/respond")
     async def agency_invite_respond(invite_id: str, body: AgencyRespond, user: dict = Depends(get_current_user)):

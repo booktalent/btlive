@@ -56,6 +56,28 @@ export default function ArtistDashboard() {
   const [showWizard, setShowWizard] = useState(false);
   const [completion, setCompletion] = useState(null); // Iter 56 — onboarding nudge
   const [wizardStartSection, setWizardStartSection] = useState(null); // Iter 57 — deep-link
+  const [agencyInvites, setAgencyInvites] = useState([]); // Iter 63 — roster invites
+  const [managingAgency, setManagingAgency] = useState(null); // Iter 63 — current agency
+
+  // Iter 63 — Roster invites (agency wants to manage this artist)
+  useEffect(() => {
+    if (!user || user.role !== "artist") return;
+    api.get("/agency/invites").then((r) => setAgencyInvites(r.data || [])).catch(() => {});
+    api.get("/roster/my-agency").then((r) => setManagingAgency(r.data?.active ? r.data : null)).catch(() => {});
+  }, [user]);
+
+  const handleInvite = async (inviteId, action) => {
+    try {
+      await api.post(`/agency/invite/${inviteId}/respond`, { accept: action === "accept" });
+      toast(action === "accept" ? "Invite accepted — the agency now manages your bookings." : "Invite declined", "success");
+      const [inv, agy] = await Promise.all([
+        api.get("/agency/invites").catch(() => ({ data: [] })),
+        api.get("/roster/my-agency").catch(() => ({ data: {} })),
+      ]);
+      setAgencyInvites(inv.data || []);
+      setManagingAgency(agy.data?.active ? agy.data : null);
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
 
   // Iter 56 — Pull questionnaire completion so we can show a nudge banner
   // when the artist is missing more than 3 sections of their rider.
@@ -127,6 +149,67 @@ export default function ArtistDashboard() {
               <p>{data.bookings.filter(b => b.status === "pending_artist").length} new requests · {data.analytics.profile_views || 0} profile views</p>
             </div>
           </div>
+
+          {/* Iter 63 — Agency invite banner (accept / decline). Sits at the
+              top so artists notice immediately on next login. */}
+          {agencyInvites.length > 0 && agencyInvites.map((inv) => (
+            <div
+              key={inv.id}
+              data-testid={`agency-invite-${inv.id}`}
+              style={{
+                background: "linear-gradient(135deg, rgba(212,175,55,0.14), rgba(124,58,237,0.14))",
+                border: "1px solid rgba(212,175,55,0.35)",
+                borderRadius: 14, padding: "16px 20px", marginBottom: 16,
+                display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
+              }}
+            >
+              <div style={{ fontSize: 30 }}>🎭</div>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>
+                  Agency Roster Invite — {inv.agency?.first_name || "An agency"}
+                </div>
+                <div className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>
+                  Wants to manage your bookings, calendar and payouts.
+                  Commission: <strong>{inv.commission_pct}%</strong>.
+                  {inv.note && <span> "{inv.note}"</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  className="btn btn-gold"
+                  onClick={() => handleInvite(inv.id, "accept")}
+                  data-testid={`accept-invite-${inv.id}`}
+                >Accept</button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => handleInvite(inv.id, "decline")}
+                  data-testid={`decline-invite-${inv.id}`}
+                >Decline</button>
+              </div>
+            </div>
+          ))}
+
+          {/* Iter 63 — Current agency badge (shown when managed). */}
+          {managingAgency && (
+            <div
+              data-testid="current-agency-badge"
+              style={{
+                background: "rgba(124,58,237,0.10)",
+                border: "1px solid rgba(124,58,237,0.30)",
+                borderRadius: 14, padding: "12px 18px", marginBottom: 16,
+                display: "flex", gap: 12, alignItems: "center", fontSize: 13,
+              }}
+            >
+              <span style={{ fontSize: 20 }}>🤝</span>
+              <span>
+                Managed by <strong>{managingAgency.agency?.first_name || "your agency"}</strong>
+                {" · "}Commission {managingAgency.commission_pct}%
+              </span>
+              <span className="text-muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+                Only your agency can release this link.
+              </span>
+            </div>
+          )}
 
           {(() => {
             const liveEarnings = (data.bookings || [])

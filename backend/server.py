@@ -3942,6 +3942,10 @@ app.include_router(_iter11_router, prefix="/api")
 from routes.agency_crm import make_agency_crm_router  # noqa: E402
 app.include_router(make_agency_crm_router(db, get_current_user), prefix="/api")
 
+# Iter 63 — Agency ↔ Artist roster (invite, accept, referral, release).
+from routes.agency_roster import make_roster_router  # noqa: E402
+app.include_router(make_roster_router(db, get_current_user), prefix="/api")
+
 # Iter13 — server.py modularisation. Domain routers split out for maintainability.
 _common_deps = dict(db=db, utcnow=utcnow, new_id=new_id, clean=clean)
 app.include_router(

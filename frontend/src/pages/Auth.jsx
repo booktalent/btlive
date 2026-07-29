@@ -108,6 +108,15 @@ export default function Auth({ mode = "signin" }) {
         company_name: form.company_name,
       };
       const u = await register(payload);
+      // Iter 63 — If ?ref=CODE is in the URL and role=artist, auto-join the
+      // referring agency (server-side rule: no accept step needed).
+      const ref = new URLSearchParams(window.location.search).get("ref");
+      if (ref && u.role === "artist") {
+        try {
+          await api.post("/auth/roster/consume-ref", { referral_code: ref });
+          toast("You've been added to the agency roster.", "success");
+        } catch (_e) { /* non-fatal */ }
+      }
       toast(`Welcome to BookTalent, ${u.first_name}!`);
       nav(resolveDest(u));
     } catch (e) { toast(formatApiError(e), "error"); }

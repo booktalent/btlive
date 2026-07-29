@@ -11,9 +11,22 @@ function OnlineRoster() {
   const [seedCity, setSeedCity] = useState("");
   const [showSeed, setShowSeed] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [referral, setReferral] = useState(null); // Iter 63
 
   const load = () => api.get("/agency/roster").then((r) => setRoster(r.data || [])).catch(() => setRoster([]));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // Iter 63 — Load the agency's stable referral link.
+    api.get("/agency/referral").then((r) => setReferral(r.data)).catch(() => setReferral(null));
+  }, []);
+
+  const copyReferral = async () => {
+    if (!referral?.link) return;
+    try {
+      await navigator.clipboard.writeText(referral.link);
+      setMsg({ ok: true, text: "Referral link copied — share with the artist." });
+    } catch { /* ignore */ }
+  };
 
   const invite = async () => {
     if (!inviteEmail) return;
@@ -49,6 +62,27 @@ function OnlineRoster() {
 
   return (
     <div>
+      {/* Iter 63 — Referral link card */}
+      {referral && (
+        <div className="ag-card" style={{ marginBottom: 16, background: "linear-gradient(135deg, rgba(212,175,55,0.08), rgba(124,58,237,0.08))", border: "1px solid rgba(212,175,55,0.25)" }} data-testid="ag-referral-card">
+          <h4 style={{ margin: "0 0 6px", fontSize: 14 }}>🔗 Your Referral Link</h4>
+          <div className="text-muted fs-12" style={{ marginBottom: 10 }}>{referral.note}</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              readOnly
+              value={referral.link}
+              onClick={(e) => e.target.select()}
+              style={{ flex: 1, minWidth: 260, background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.12)", color: "#fff", borderRadius: 6, padding: "8px 10px", fontSize: 12 }}
+              data-testid="ag-referral-link"
+            />
+            <button className="btn btn-gold btn-sm" onClick={copyReferral} data-testid="ag-referral-copy">Copy Link</button>
+          </div>
+          <div className="text-muted fs-11" style={{ marginTop: 8 }}>
+            Code: <code style={{ color: "#F1D17A" }}>{referral.code}</code>
+          </div>
+        </div>
+      )}
+
       <div className="ag-card" style={{ marginBottom: 16 }}>
         <h4 style={{ margin: "0 0 6px", fontSize: 14 }}>Add Artist to Roster</h4>
         <div className="text-muted fs-12" style={{ marginBottom: 12 }}>
