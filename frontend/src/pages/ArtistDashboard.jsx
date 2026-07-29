@@ -52,6 +52,7 @@ export default function ArtistDashboard() {
   const toast = useToast();
   const nav = useNavigate();
   const [tab, setTab] = useState("overview");
+  const [subHighlight, setSubHighlight] = useState(null); // Iter 63.1 — from concierge upgrade CTA
   const [data, setData] = useState({ bookings: [], packages: [], media: [], analytics: {}, reviews: [] });
   const [showWizard, setShowWizard] = useState(false);
   const [completion, setCompletion] = useState(null); // Iter 56 — onboarding nudge
@@ -253,8 +254,8 @@ export default function ArtistDashboard() {
           {tab === "insights" && <Insights toast={toast} />}
           {tab === "reviews" && <Reviews data={data} refresh={refresh} toast={toast} />}
           {tab === "boost" && <Boost refresh={refresh} toast={toast} />}
-          {tab === "subscription" && <Subscription toast={toast} />}
-          {tab === "concierge" && <Concierge toast={toast} />}
+          {tab === "subscription" && <Subscription toast={toast} highlight={subHighlight} onHighlightConsumed={() => setSubHighlight(null)} />}
+          {tab === "concierge" && <Concierge toast={toast} setTab={setTab} setSubHighlight={setSubHighlight} />}
           {tab === "kyc" && <KYC toast={toast} refresh={refresh} />}
         </div>
       </main>
@@ -1698,11 +1699,12 @@ const PLAN_STYLE = {
   elite:    { bg: "linear-gradient(135deg, #f472b6, #d4af37)", accent: "#fbcfe8", icon: "👑" },
 };
 
-function Subscription({ toast }) {
+function Subscription({ toast, highlight, onHighlightConsumed }) {
   const [plans, setPlans] = useState([]);
   const [current, setCurrent] = useState(null);
   const [cycle, setCycle] = useState("monthly");
   const [busy, setBusy] = useState(false);
+  const highlightRef = useRef(null);
 
   const refresh = async () => {
     try {
@@ -1712,6 +1714,17 @@ function Subscription({ toast }) {
     } catch (e) { toast(formatApiError(e), "error"); }
   };
   useEffect(() => { refresh(); }, []); // eslint-disable-line
+
+  // Iter 63.1 — When the user arrives from the Concierge paywall we scroll to
+  // the highlighted plan card so the value is obvious with zero extra clicks.
+  useEffect(() => {
+    if (!highlight || !plans.length) return;
+    const t = setTimeout(() => {
+      highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (onHighlightConsumed) setTimeout(() => onHighlightConsumed(), 3200);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [highlight, plans.length]); // eslint-disable-line
 
   const subscribe = async (planCode) => {
     if (busy) return;
@@ -1761,8 +1774,31 @@ function Subscription({ toast }) {
           const style = PLAN_STYLE[p.code] || PLAN_STYLE.free;
           const isCurrent = p.code === currentCode;
           const price = cycle === "yearly" ? p.price_yearly : p.price_monthly;
+          const isHighlighted = highlight === p.code;
           return (
-            <div key={p.code} className={`pkg-card ${isCurrent ? "selected" : ""}`} data-testid={`plan-card-${p.code}`}>
+            <div
+              key={p.code}
+              ref={isHighlighted ? highlightRef : null}
+              className={`pkg-card ${isCurrent ? "selected" : ""} ${isHighlighted ? "concierge-highlight" : ""}`}
+              data-testid={`plan-card-${p.code}`}
+              style={isHighlighted ? {
+                position: "relative",
+                border: "2px solid #D4AF37",
+                boxShadow: "0 0 0 3px rgba(212,175,55,0.18), 0 24px 60px rgba(212,175,55,0.35)",
+                animation: "conciergePulse 2s ease-in-out infinite",
+              } : undefined}
+            >
+              {isHighlighted && (
+                <div style={{
+                  position: "absolute", top: -14, left: 12,
+                  background: "linear-gradient(135deg,#D4AF37,#F1D17A)",
+                  color: "#0b0616", padding: "4px 12px", borderRadius: 999,
+                  fontSize: 11, fontWeight: 800, letterSpacing: 0.4,
+                  boxShadow: "0 6px 16px rgba(212,175,55,0.4)",
+                }}>
+                  ✨ RECOMMENDED FOR CONCIERGE
+                </div>
+              )}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                 <div style={{ width: 40, height: 40, borderRadius: 10, background: style.bg, display: "grid", placeItems: "center", fontSize: 22 }}>{style.icon}</div>
                 <div>
@@ -1802,7 +1838,7 @@ function Subscription({ toast }) {
 // ────────────────────────────────────────────────────────────────────────
 // Elite Concierge Chat — Platinum + Elite priority support channel
 // ────────────────────────────────────────────────────────────────────────
-function Concierge({ toast }) {
+function Concierge({ toast, setTab, setSubHighlight }) {
   const [thread, setThread] = useState(null);
   const [messages, setMessages] = useState([]);
   const [locked, setLocked] = useState(false);
@@ -1866,7 +1902,14 @@ function Concierge({ toast }) {
         <div style={{ fontSize: 42, marginBottom: 12 }}>🎩</div>
         <h2 className="font-serif fs-24 fw-700 mb-8">Elite Concierge</h2>
         <p className="text-muted mb-16">Priority support with a 2-6 hour SLA is a benefit reserved for <b>Platinum</b> and <b>Elite</b> plans.</p>
-        <button className="btn btn-gold" onClick={() => window.location.hash = "#subscription"} data-testid="concierge-upgrade-cta">
+        <button
+          className="btn btn-gold"
+          onClick={() => {
+            if (setSubHighlight) setSubHighlight("elite");
+            if (setTab) setTab("subscription");
+          }}
+          data-testid="concierge-upgrade-cta"
+        >
           Upgrade to Unlock 🚀
         </button>
       </div>

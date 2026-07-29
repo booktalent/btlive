@@ -52,6 +52,11 @@
 @media (max-width: 1000px) { .hero-cta-row { justify-content: center; } }
 .btn-lg { padding: 14px 26px; font-size: 15px; }
 
+@keyframes conciergePulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(212,175,55,0.18), 0 24px 60px rgba(212,175,55,0.35); }
+  50%      { box-shadow: 0 0 0 6px rgba(212,175,55,0.28), 0 24px 70px rgba(212,175,55,0.55); }
+}
+
 /* Iter 62.8 — Unified lift-and-glow hover for the hero CTAs so they match
    the spotlight card interaction. Applied via the .hero-cta-row so it
    never leaks into buttons elsewhere in the app. */
