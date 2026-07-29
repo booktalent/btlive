@@ -632,9 +632,12 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
     ):
         filt: Dict[str, Any] = {}
         if category:
-            filt["category"] = category
+            # Iter 62.6 — profiles store free-text categories ("Bollywood Vocalist",
+            # "Ghazal Singer"); dropdown passes canonical labels ("Singer"). Use a
+            # case-insensitive substring match so "Singer" catches every vocalist.
+            filt["category"] = {"$regex": re.escape(category), "$options": "i"}
         if city:
-            filt["city"] = city
+            filt["city"] = {"$regex": f"^{re.escape(city)}$", "$options": "i"}
         if language:
             filt["languages"] = language
         if gender:
@@ -644,12 +647,16 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         if min_rating is not None:
             filt["rating_avg"] = {"$gte": min_rating}
         if min_price is not None or max_price is not None:
-            p: Dict[str, Any] = {}
+            # Iter 62.6 — Prices live in the `packages` collection, not on
+            # artist_profiles. Query package prices first and restrict to the
+            # matching artist_ids so pagination + total stay correct.
+            pkg_q: Dict[str, Any] = {}
             if min_price is not None:
-                p["$gte"] = min_price
+                pkg_q["price"] = {"$gte": float(min_price)}
             if max_price is not None:
-                p["$lte"] = max_price
-            filt["base_price"] = p
+                pkg_q.setdefault("price", {})["$lte"] = float(max_price)
+            matching_ids = await db.packages.distinct("artist_id", pkg_q)
+            filt["user_id"] = {"$in": matching_ids or ["__none__"]}
         if featured_only:
             filt["is_featured"] = True
         if verified_only:

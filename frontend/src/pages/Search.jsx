@@ -91,7 +91,7 @@ export default function Search() {
   // including it would loop; it closes over the current filter state, so we
   // list all filter deps explicitly instead.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { run(1); }, [category, city, sort, language, eventType, minRating, minExperience, gender, featuredOnly, verifiedOnly, premiumOnly, instantOnly]);
+  useEffect(() => { run(1); }, [category, city, sort, language, eventType, minRating, minExperience, gender, featuredOnly, verifiedOnly, premiumOnly, instantOnly, minPrice, maxPrice]);
 
   // Sprint 6 — Infinite scroll via IntersectionObserver on a sentinel element
   const sentinelRef = useRef(null);
