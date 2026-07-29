@@ -12,6 +12,16 @@ function OnlineRoster() {
   const [showSeed, setShowSeed] = useState(false);
   const [msg, setMsg] = useState(null);
   const [referral, setReferral] = useState(null); // Iter 63
+  const [paymentsFor, setPaymentsFor] = useState(null); // Iter 63.4 — artist row we're viewing history for
+  const [paymentsRows, setPaymentsRows] = useState([]);
+
+  // Load artist boost + subscription payments whenever a row is opened.
+  useEffect(() => {
+    if (!paymentsFor) { setPaymentsRows([]); return; }
+    api.get(`/agency/artist/${paymentsFor.artist_id}/payments`)
+      .then((r) => setPaymentsRows(r.data || []))
+      .catch(() => setPaymentsRows([]));
+  }, [paymentsFor]);
 
   const load = () => api.get("/agency/roster").then((r) => setRoster(r.data || [])).catch(() => setRoster([]));
   useEffect(() => {
@@ -153,11 +163,69 @@ function OnlineRoster() {
                   />
                 </td>
                 <td><span className={`ag-badge ${r.status === "active" || r.status === "accepted" ? "ok" : r.status === "pending" ? "warn" : ""}`}>{r.status || "active"}</span></td>
-                <td><button className="btn btn-ghost btn-sm" onClick={() => remove(r.artist_id)}>Remove</button></td>
+                <td>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setPaymentsFor(r)} data-testid={`ag-view-payments-${r.artist_id}`}>Payments</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => remove(r.artist_id)}>Remove</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {paymentsFor && (
+        <div
+          data-testid="ag-payments-drawer"
+          onClick={() => setPaymentsFor(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+            zIndex: 200, display: "flex", justifyContent: "flex-end",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 560, background: "#0F0F1B", color: "#F0EEFF", padding: 26,
+              overflow: "auto", boxShadow: "-8px 0 32px rgba(0,0,0,0.55)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Payment History</h3>
+                <div className="text-muted fs-12">{paymentsFor.artist?.stage_name || paymentsFor.artist_email}</div>
+              </div>
+              <button className="btn btn-link" onClick={() => setPaymentsFor(null)} data-testid="ag-payments-close">✕</button>
+            </div>
+            <div className="text-muted fs-12" style={{ marginBottom: 12 }}>
+              Subscription + boost payments made by this artist. Bookings are on the CRM tab.
+            </div>
+            {paymentsRows.length === 0 ? (
+              <div className="text-muted fs-13" style={{ padding: 20, textAlign: "center" }}>No boost or subscription payments yet.</div>
+            ) : (
+              <table className="table" style={{ width: "100%" }}>
+                <thead><tr><th>When</th><th>Kind</th><th>Description</th><th>Amount</th><th>Status</th><th>Ref</th></tr></thead>
+                <tbody>
+                  {paymentsRows.map((p) => (
+                    <tr key={p.id} data-testid={`ag-payment-row-${p.id}`}>
+                      <td style={{ fontSize: 12 }}>{p.created_at?.slice(0, 16).replace("T", " ")}</td>
+                      <td>{p.payment_kind === "subscription" ? "💎 Sub" : "🚀 Boost"}</td>
+                      <td style={{ fontSize: 12 }}>{p.label || "—"}</td>
+                      <td>₹{Number(p.amount || 0).toLocaleString("en-IN")}</td>
+                      <td>
+                        <span style={{
+                          padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                          background: p.status === "completed" ? "#dcfce7" : p.status === "failed" ? "#fee2e2" : "#fef3c7",
+                          color: p.status === "completed" ? "#166534" : p.status === "failed" ? "#991b1b" : "#92400e",
+                        }}>{p.status || "—"}</span>
+                      </td>
+                      <td><code style={{ fontSize: 10 }}>{p.easepayid || p.txnid || "—"}</code></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

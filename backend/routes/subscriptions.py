@@ -222,23 +222,8 @@ def make_router(*, db, get_current_user: Callable, admin_only: Callable, utcnow,
             "Paid plans require a completed payment. Use POST /api/subscriptions/easebuzz/init.",
         )
 
-    # Iter 63.3 — 7-day Elite free trial. One-time per user.
-    @r.post("/subscriptions/trial/elite")
-    async def start_elite_trial(user: dict = Depends(get_current_user)):
-        if user["role"] not in ("artist", "agency"):
-            raise HTTPException(403, "Only artists / agencies can start a trial")
-        me = await db.users.find_one({"id": user["id"]}, {"elite_trial_used_at": 1})
-        if me and me.get("elite_trial_used_at"):
-            raise HTTPException(400, "You've already used your Elite trial")
-        current = await db.artist_subscriptions.find_one({"artist_id": user["id"], "status": "active"})
-        if current and PLANS.get(current.get("plan", "free"), {}).get("rank", 0) >= 3:
-            raise HTTPException(400, "You already have Platinum or Elite access")
-        sub = await _activate_plan(
-            user_id=user["id"], plan_code="elite", billing_cycle="monthly",
-            price=0, payment_method="trial", days_override=7,
-        )
-        await db.users.update_one({"id": user["id"]}, {"$set": {"elite_trial_used_at": utcnow()}})
-        return {"ok": True, "trial": True, "subscription": clean(sub), "plan": PLANS["elite"]}
+    # Iter 63.4 — trial endpoint removed per product decision. Free plan
+    # remains the only zero-cost tier; artists must pay for Platinum/Elite.
 
     # Expose the activator on the router so the Easebuzz callback can call it.
     r._activate_plan = _activate_plan  # type: ignore[attr-defined]

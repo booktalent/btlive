@@ -16,7 +16,25 @@ export default function NotificationBell() {
 
   const reload = () => {
     if (!user) return;
-    api.get("/announcements/active").then(r => setItems(r.data || [])).catch(() => {});
+    Promise.all([
+      api.get("/announcements/active").then((r) => r.data || []).catch(() => []),
+      // Iter 63.4 — pull personal notifications too so admins see payment
+      // alerts + all other events (not just broadcast announcements).
+      api.get("/notifications?unread_only=true&limit=30")
+        .then((r) => (r.data || []).map((n) => ({
+          id: n.id,
+          title: n.title,
+          body: n.body,
+          cta_url: n.link,
+          cta_label: "View",
+          read: !!n.read,
+          _kind: "personal",
+        })))
+        .catch(() => []),
+    ]).then(([ann, personal]) => {
+      // Personal notifications first (they're user-specific), then announcements.
+      setItems([...personal, ...ann]);
+    });
   };
 
   useEffect(() => {
@@ -38,7 +56,11 @@ export default function NotificationBell() {
   const handleClick = async (item) => {
     setOpen(false);
     if (!item.read) {
-      await api.post(`/announcements/${item.id}/read`).catch(() => {});
+      if (item._kind === "personal") {
+        await api.post(`/notifications/${item.id}/read`).catch(() => {});
+      } else {
+        await api.post(`/announcements/${item.id}/read`).catch(() => {});
+      }
       reload();
     }
     if (item.cta_url) {

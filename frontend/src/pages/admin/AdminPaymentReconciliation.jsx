@@ -31,7 +31,7 @@ const fmtDate = (iso) => {
 export default function AdminPaymentReconciliation({ toast }) {
   const [tab, setTab] = useState("payments");
   const [summary, setSummary] = useState(null);
-  const [filters, setFilters] = useState({ gateway: "", status: "", q: "" });
+  const [filters, setFilters] = useState({ gateway: "", status: "", kind: "", q: "" });
   const [logFilters, setLogFilters] = useState({ txnid: "", kind: "" });
   const [payments, setPayments] = useState({ items: [], total: 0, page: 1, limit: 25 });
   const [logs, setLogs] = useState({ items: [], total: 0, page: 1, limit: 50 });
@@ -49,6 +49,7 @@ export default function AdminPaymentReconciliation({ toast }) {
     const p = new URLSearchParams();
     if (filters.gateway) p.set("gateway", filters.gateway);
     if (filters.status) p.set("status", filters.status);
+    if (filters.kind) p.set("kind", filters.kind);
     if (filters.q) p.set("q", filters.q);
     p.set("page", page);
     p.set("limit", 25);
@@ -141,6 +142,17 @@ export default function AdminPaymentReconciliation({ toast }) {
                 <option value="refunded">Refunded</option>
               </select>
             </label>
+            <label className="stack" style={{ minWidth: 160 }}>
+              <span>Kind</span>
+              <select className="input" value={filters.kind}
+                onChange={(e) => setFilters((f) => ({ ...f, kind: e.target.value }))}
+                data-testid="filter-kind">
+                <option value="">All</option>
+                <option value="booking">Booking</option>
+                <option value="subscription">Subscription</option>
+                <option value="boost">Boost</option>
+              </select>
+            </label>
             <label className="stack" style={{ flex: 1, minWidth: 200 }}>
               <span>Search (txnid / easepayid / booking id)</span>
               <input className="input" value={filters.q}
@@ -149,7 +161,7 @@ export default function AdminPaymentReconciliation({ toast }) {
                 placeholder="BT260728…" data-testid="filter-q" />
             </label>
             <button className="btn btn-primary" onClick={() => loadPayments(1)} data-testid="btn-apply-filters">Apply</button>
-            <button className="btn btn-secondary" onClick={() => { setFilters({ gateway: "", status: "", q: "" }); setTimeout(() => loadPayments(1), 0); }} data-testid="btn-clear-filters">Clear</button>
+            <button className="btn btn-secondary" onClick={() => { setFilters({ gateway: "", status: "", kind: "", q: "" }); setTimeout(() => loadPayments(1), 0); }} data-testid="btn-clear-filters">Clear</button>
           </div>
 
           {/* Payments table */}

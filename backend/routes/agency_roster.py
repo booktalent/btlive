@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Dict
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -76,6 +77,42 @@ def make_roster_router(db: AsyncIOMotorDatabase, get_current_user):
             "commission_pct": rel.get("commission_pct", 15),
             "since": rel.get("decided_at") or rel.get("created_at"),
         }
+
+    # Iter 63.4 — Agency views full boost + subscription payment history for
+    # every managed artist. Bookings excluded here (those are on the CRM tab).
+    @r.get("/agency/artist/{artist_id}/payments")
+    async def agency_artist_payments(artist_id: str, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("agency", "admin"):
+            raise HTTPException(403, "Agency access required")
+        # Ensure the artist is actually in this agency's active roster.
+        rel = await db.agency_roster.find_one(
+            {"agency_id": user["id"], "artist_id": artist_id, "status": "active"},
+        )
+        if not rel and user.get("role") != "admin":
+            raise HTTPException(404, "Not an active artist in your roster")
+        rows = await db.payments.find(
+            {"user_id": artist_id, "payment_kind": {"$in": ["subscription", "boost"]}},
+            {"_id": 0, "id": 1, "gateway": 1, "environment": 1, "amount": 1,
+             "status": 1, "txnid": 1, "easepayid": 1, "created_at": 1,
+             "verified_at": 1, "payment_kind": 1, "subscription_plan": 1,
+             "subscription_cycle": 1, "boost_package_id": 1, "failure_reason": 1},
+        ).sort("created_at", -1).to_list(500)
+        # Enrich boost rows with package name for readability.
+        boost_pkg_ids = [r["boost_package_id"] for r in rows if r.get("boost_package_id")]
+        pkg_map: Dict[str, str] = {}
+        if boost_pkg_ids:
+            async for p in db.boost_packages.find(
+                {"id": {"$in": boost_pkg_ids}}, {"_id": 0, "id": 1, "name": 1},
+            ):
+                pkg_map[p["id"]] = p.get("name", "")
+        for r in rows:
+            if r.get("boost_package_id"):
+                r["boost_package_name"] = pkg_map.get(r["boost_package_id"], "")
+            if r.get("payment_kind") == "subscription":
+                r["label"] = f"{(r.get('subscription_plan') or '').title()} · {r.get('subscription_cycle') or 'monthly'}"
+            elif r.get("payment_kind") == "boost":
+                r["label"] = r.get("boost_package_name") or "Boost package"
+        return rows
 
     @r.post("/auth/roster/consume-ref")
     async def consume_ref(body: ConsumeRefBody, user: dict = Depends(get_current_user)):

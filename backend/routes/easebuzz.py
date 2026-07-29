@@ -325,6 +325,7 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
         admin: dict = Depends(admin_only),
         gateway: Optional[str] = None,
         status: Optional[str] = None,
+        kind: Optional[str] = None,
         q: Optional[str] = None,
         page: int = 1,
         limit: int = 25,
@@ -332,20 +333,30 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
         """Paginated list of payment records for the finance/reconciliation UI.
         Filters: gateway (`easebuzz` / `razorpay` / `razorpay_mock`),
                  status (`pending` / `completed` / `failed`),
+                 kind (`booking` / `subscription` / `boost`),
                  q (partial match on txnid, easepayid, booking ref)."""
         query: Dict[str, Any] = {}
         if gateway:
             query["gateway"] = gateway
         if status:
             query["status"] = status
+        if kind:
+            # payment_kind is only set for non-booking rows; booking rows have
+            # no field so treat missing as "booking".
+            if kind == "booking":
+                query["$or"] = [{"payment_kind": {"$exists": False}}, {"payment_kind": "booking"}]
+            else:
+                query["payment_kind"] = kind
         if q:
             q_regex = {"$regex": q.strip(), "$options": "i"}
-            query["$or"] = [
-                {"txnid": q_regex},
-                {"easepayid": q_regex},
-                {"razorpay_order_id": q_regex},
-                {"booking_id": q_regex},
+            or_clauses = [
+                {"txnid": q_regex}, {"easepayid": q_regex},
+                {"razorpay_order_id": q_regex}, {"booking_id": q_regex},
             ]
+            if "$or" in query:
+                query["$and"] = [{"$or": query.pop("$or")}, {"$or": or_clauses}]
+            else:
+                query["$or"] = or_clauses
         limit = max(1, min(limit, 100))
         page = max(1, page)
         total = await db.payments.count_documents(query)
