@@ -57,6 +57,31 @@
   50%      { box-shadow: 0 0 0 6px rgba(212,175,55,0.28), 0 24px 70px rgba(212,175,55,0.55); }
 }
 
+/* Iter 63.6 — Notification dropdown on mobile: switch from a floating right-
+   anchored panel to a full-width sheet pinned below the top nav so it never
+   overflows the viewport on phones. */
+@media (max-width: 640px) {
+  .notif-dropdown {
+    position: fixed !important;
+    top: 62px !important;
+    right: 10px !important;
+    left: 10px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: 70vh !important;
+  }
+}
+
+/* Iter 63.6 — Highlighted row pulse when a notification deep-links to a booking. */
+.booking-row-highlight {
+  animation: rowHighlight 2.4s ease-out 1;
+  box-shadow: 0 0 0 2px rgba(212,175,55,0.7) inset !important;
+}
+@keyframes rowHighlight {
+  0%   { background: rgba(212,175,55,0.35); }
+  100% { background: transparent; }
+}
+
 /* Iter 62.8 — Unified lift-and-glow hover for the hero CTAs so they match
    the spotlight card interaction. Applied via the .hero-cta-row so it
    never leaks into buttons elsewhere in the app. */

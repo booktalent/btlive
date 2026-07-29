@@ -20,6 +20,7 @@ import Search from "./pages/Search";
 import ArtistProfile from "./pages/ArtistProfile";
 import BookingFlow from "./pages/BookingFlow";
 import PaymentReturn from "./pages/PaymentReturn";
+import Footer from "./components/Footer";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import ArtistDashboard from "./pages/ArtistDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -50,6 +51,16 @@ const ROLES_ARTIST = ["artist"];
 const ROLES_AGENCY = ["agency"];
 const ROLES_CORPORATE = ["corporate"];
 const ROLES_ADMIN = ["admin"];
+
+// Iter 63.6 — Global site footer on every page. We only skip the pages
+// that already render their own footer (Landing) or where a footer would
+// interrupt the flow (booking wizard + payment return + auth screens).
+function GlobalFooter() {
+  const p = window.location.pathname;
+  if (p === "/" || p === "/login" || p === "/signup") return null;
+  if (p.startsWith("/book/") || p === "/booking/payment-return") return null;
+  return <Footer />;
+}
 
 function App() {
   return (
@@ -87,6 +98,7 @@ function App() {
                 <Route path="/admin" element={<Protected roles={ROLES_ADMIN}><AdminDashboard /></Protected>} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              <GlobalFooter />
             </ToastProvider>
           </AuthProvider>
         </BrowserRouter>

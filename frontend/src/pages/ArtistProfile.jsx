@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Nav from "../components/Nav";
-import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import TravelRiderCard from "../components/TravelRiderCard";
@@ -87,8 +86,7 @@ export default function ArtistProfile() {
           <h1>Artist Not Found</h1>
           <Link to="/search" className="btn btn-gold">Browse all artists →</Link>
         </section>
-        <Footer />
-      </div>
+</div>
     );
   }
   if (!data) return (
@@ -550,8 +548,7 @@ export default function ArtistProfile() {
       {lightbox && (
         <MediaCarousel lightbox={lightbox} onClose={() => setLightbox(null)} onChange={setLightbox} />
       )}
-      <Footer />
-    </div>
+</div>
   );
 }
 

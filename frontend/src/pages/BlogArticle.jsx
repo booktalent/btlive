@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import DOMPurify from "dompurify";
 import Nav from "../components/Nav";
-import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import api from "../lib/api";
 
@@ -46,8 +45,7 @@ export default function BlogArticle() {
           <h1 style={{ fontSize: 36 }}>Article Not Found</h1>
           <Link to="/blog" className="btn btn-gold" data-testid="blog-back">← Back to Blog</Link>
         </section>
-        <Footer />
-      </div>
+</div>
     );
   }
 
@@ -151,7 +149,6 @@ export default function BlogArticle() {
           </>
         )}
       </section>
-      <Footer />
-    </div>
+</div>
   );
 }

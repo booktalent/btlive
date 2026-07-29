@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Nav from "../components/Nav";
-import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import api from "../lib/api";
 
@@ -115,8 +114,6 @@ export default function HelpCenter() {
           ))}
         </div>
       </section>
-
-      <Footer />
-    </div>
+</div>
   );
 }

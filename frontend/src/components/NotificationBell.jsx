@@ -65,14 +65,19 @@ export default function NotificationBell() {
     }
     // Iter 63.5 — Rewrite notification links to routes that actually exist
     // in the SPA. Older code wrote /dashboard/bookings/:id which is not a
-    // real route; nav here based on role.
+    // real route; nav here based on role and PRESERVE the booking id so the
+    // destination page can scroll straight to that row (Iter 63.6).
     let target = item.cta_url;
-    if (target && /^\/dashboard\/bookings\/[\w-]+/.test(target)) {
-      const role = user?.role;
-      if (role === "artist") target = "/artist?tab=bookings";
-      else if (role === "agency") target = "/agency/bookings";
-      else if (role === "admin") target = "/admin?tab=bookings";
-      else target = "/customer";
+    if (target) {
+      const m = /^\/dashboard\/bookings\/([\w-]+)/.exec(target);
+      if (m) {
+        const bid = m[1];
+        const role = user?.role;
+        if (role === "artist")       target = `/artist?tab=bookings&highlight=${bid}`;
+        else if (role === "agency")  target = `/agency/bookings?highlight=${bid}`;
+        else if (role === "admin")   target = `/admin?tab=bookings&highlight=${bid}`;
+        else                          target = `/customer?highlight=${bid}`;
+      }
     }
     if (target) {
       if (target.startsWith("http")) window.open(target, "_blank", "noopener,noreferrer");
@@ -102,13 +107,17 @@ export default function NotificationBell() {
         )}
       </button>
       {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 8px)", right: 0,
-          width: 340, maxHeight: 460, overflowY: "auto",
-          background: "linear-gradient(140deg, rgba(30,25,50,0.98), rgba(20,15,35,0.98))",
-          border: "1px solid var(--glass-border)", borderRadius: 12,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.4)", padding: 8, zIndex: 100,
-        }} data-testid="notification-dropdown">
+        <div
+          className="notif-dropdown"
+          style={{
+            position: "absolute", top: "calc(100% + 8px)", right: 0,
+            width: 340, maxHeight: 460, overflowY: "auto",
+            background: "linear-gradient(140deg, rgba(30,25,50,0.98), rgba(20,15,35,0.98))",
+            border: "1px solid var(--glass-border)", borderRadius: 12,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.4)", padding: 8, zIndex: 100,
+          }}
+          data-testid="notification-dropdown"
+        >
           <div style={{
             padding: "8px 12px", borderBottom: "1px solid var(--glass-border)",
             display: "flex", alignItems: "center", justifyContent: "space-between",

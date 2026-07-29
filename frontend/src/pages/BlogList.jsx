@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Nav from "../components/Nav";
-import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import api from "../lib/api";
 
@@ -77,7 +76,6 @@ export default function BlogList() {
           ))}
         </div>
       </section>
-      <Footer />
-    </div>
+</div>
   );
 }

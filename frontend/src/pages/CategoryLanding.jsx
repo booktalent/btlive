@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import Nav from "../components/Nav";
-import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import ArtistCardThumb from "../components/ArtistCardThumb";
 import api, { fmtINRFull } from "../lib/api";
@@ -32,8 +31,7 @@ export default function CategoryLanding() {
           <h1 style={{ fontSize: 36 }}>Category not found</h1>
           <Link to="/search" className="btn btn-gold" data-testid="cat-back-search">Browse all artists →</Link>
         </section>
-        <Footer />
-      </div>
+</div>
     );
   }
 
@@ -122,7 +120,6 @@ export default function CategoryLanding() {
           </>
         )}
       </section>
-      <Footer />
-    </div>
+</div>
   );
 }

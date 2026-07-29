@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import DOMPurify from "dompurify";
 import Nav from "../components/Nav";
-import Footer from "../components/Footer";
 import SEO, { buildBreadcrumb } from "../components/SEO";
 import api from "../lib/api";
 
@@ -36,8 +35,7 @@ export default function CmsPage() {
           <p className="text-muted mb-20">The page you're looking for doesn't exist or has been unpublished.</p>
           <Link to="/" className="btn btn-gold" data-testid="cms-back-home">← Back to Home</Link>
         </section>
-        <Footer />
-      </div>
+</div>
     );
   }
 
@@ -115,7 +113,6 @@ export default function CmsPage() {
           )}
         </div>
       </section>
-      <Footer />
-    </div>
+</div>
   );
 }
