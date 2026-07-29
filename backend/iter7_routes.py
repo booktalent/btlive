@@ -632,10 +632,39 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
     ):
         filt: Dict[str, Any] = {}
         if category:
-            # Iter 62.6 — profiles store free-text categories ("Bollywood Vocalist",
-            # "Ghazal Singer"); dropdown passes canonical labels ("Singer"). Use a
-            # case-insensitive substring match so "Singer" catches every vocalist.
-            filt["category"] = {"$regex": re.escape(category), "$options": "i"}
+            # Iter 62.6 — Dropdown sends catalog labels like "Singers & Vocalists"
+            # or slugs like "singer" but profiles store free-text ("Bollywood
+            # Vocalist", "Ghazal Singer", "DJ / Music Producer"). Map the
+            # incoming label/slug to a set of keywords and match ANY of them.
+            _KEYWORDS = {
+                "singer": ["singer", "vocalist"],
+                "singers": ["singer", "vocalist"],
+                "vocalist": ["singer", "vocalist"],
+                "singers & vocalists": ["singer", "vocalist"],
+                "dj": ["dj", "music producer"],
+                "djs": ["dj", "music producer"],
+                "djs & music": ["dj", "music producer"],
+                "comedian": ["comed"],
+                "comedians": ["comed"],
+                "stand-up": ["comed", "stand-up"],
+                "anchor": ["anchor", "emcee", "mc"],
+                "anchor / mc": ["anchor", "emcee", "mc"],
+                "band": ["band"],
+                "dancer": ["dance", "choreograph"],
+                "instrumentalist": ["instrument", "guitarist", "flutist", "tabla", "sitar"],
+                "magician": ["magic", "illusion"],
+                "speaker": ["speaker", "motivational"],
+            }
+            key = (category or "").strip().lower()
+            words = _KEYWORDS.get(key)
+            if not words:
+                # Fallback: split on non-word chars and drop common connectors.
+                raw = re.split(r"[^\w]+", key)
+                words = [w for w in raw if w and w not in ("and", "or", "the", "of", "a", "an", "&")]
+                if not words:
+                    words = [key]
+            regex = "|".join(re.escape(w) for w in words)
+            filt["category"] = {"$regex": regex, "$options": "i"}
         if city:
             filt["city"] = {"$regex": f"^{re.escape(city)}$", "$options": "i"}
         if language:
