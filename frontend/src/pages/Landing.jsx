@@ -109,7 +109,7 @@ export default function Landing() {
     if (!spotlight.cards || spotlight.cards.length <= 3) return;
     const t = setInterval(() => {
       setSpotIdx((i) => (i + 1) % spotlight.cards.length);
-    }, 8000);
+    }, 5000);
     return () => clearInterval(t);
   }, [spotlight.cards]);
 
