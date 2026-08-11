@@ -275,12 +275,6 @@ export default function Auth({ mode = "signin" }) {
             <button type="submit" className="btn btn-gold btn-block" disabled={busy} data-testid="signin-submit">
               {busy ? "Signing in…" : "Sign In →"}
             </button>
-            <div className="text-center mt-20 fs-13" style={{ color: "var(--white-muted)" }}>
-              <strong style={{ color: "var(--gold-light)" }}>Demo:</strong>{" "}
-              <span data-testid="demo-credentials">admin@booktalent.com / Admin@123</span>
-              <br/>customer@booktalent.com / Customer@123
-              <br/>priya@booktalent.com / Artist@123
-            </div>
           </form>
         ) : (
           <div data-testid="signup-form">
