@@ -3488,7 +3488,7 @@ async def admin_db_export_refresh(admin: dict = Depends(admin_only)):
     return {
         "ok": True,
         "size_bytes": stat.st_size,
-        "generated_at": utcnow().isoformat(),
+        "generated_at": utcnow(),
         "download_url": f"/api/admin/db-export",
     }
 
