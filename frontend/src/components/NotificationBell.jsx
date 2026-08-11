@@ -63,10 +63,10 @@ export default function NotificationBell() {
       }
       reload();
     }
-    // Iter 63.5 — Rewrite notification links to routes that actually exist
-    // in the SPA. Older code wrote /dashboard/bookings/:id which is not a
-    // real route; nav here based on role and PRESERVE the booking id so the
-    // destination page can scroll straight to that row (Iter 63.6).
+    // Iter 65 — Notification links now embed exact routing data
+    // (`?tab=…&subtab=…&highlight=<id>`). Just honour whatever backend
+    // wrote. Legacy `/dashboard/bookings/:id` links (older DB rows) are
+    // still rewritten below so users don't hit 404 on those.
     let target = item.cta_url;
     if (target) {
       const m = /^\/dashboard\/bookings\/([\w-]+)/.exec(target);
@@ -76,7 +76,7 @@ export default function NotificationBell() {
         if (role === "artist")       target = `/artist?tab=bookings&highlight=${bid}`;
         else if (role === "agency")  target = `/agency/bookings?highlight=${bid}`;
         else if (role === "admin")   target = `/admin?tab=bookings&highlight=${bid}`;
-        else                          target = `/customer?highlight=${bid}`;
+        else                          target = `/customer?tab=bookings&highlight=${bid}`;
       }
     }
     if (target) {

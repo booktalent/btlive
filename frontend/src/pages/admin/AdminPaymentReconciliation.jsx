@@ -13,6 +13,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../../lib/api";
+import useHighlightRow from "../../lib/useHighlightRow";
 
 const STATUS_TONES = {
   completed: { bg: "#dcfce7", fg: "#166534" },
@@ -39,6 +40,12 @@ export default function AdminPaymentReconciliation({ toast }) {
   const [refunds, setRefunds] = useState({ items: [], total: 0, page: 1, limit: 25 });
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null); // txnid opened in drawer
+
+  // Iter 65 — When notification links to /admin (Payment Reconciliation tab)
+  // with ?highlight=<payment_id>, scroll & pulse-flash the matching row on
+  // whichever inner tab it lives (payments or refunds).
+  useHighlightRow({ prefix: "payment-row", enabled: tab === "payments", dataKey: payments.items.length });
+  useHighlightRow({ prefix: "refund-row", enabled: tab === "refunds", dataKey: refunds.items.length });
 
   const loadSummary = () => {
     api.get("/admin/payments/summary")
@@ -96,6 +103,19 @@ export default function AdminPaymentReconciliation({ toast }) {
       toast(e?.response?.data?.detail || "Refund retry failed", "error");
     }
   };
+
+  // Iter 65 — respect ?subtab=refunds|payments|logs from notification links so
+  // the correct tab auto-activates before `useHighlightRow` fires.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const st = sp.get("subtab");
+    if (st === "refunds" || st === "payments" || st === "logs") {
+      setTab(st);
+      if (st === "refunds") loadRefunds(1);
+      if (st === "logs") loadLogs(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     loadSummary();

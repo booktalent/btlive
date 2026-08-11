@@ -1,6 +1,31 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 65 — Auto-Scroll To Row + Soft Gold Flash (2026-08-11)
+
+Click any notification in the bell → the destination page opens, scrolls the exact booking/payment/refund row into view (`behavior: smooth`, `block: center`), and pulses a soft-gold glow (~2.2s animation with `box-shadow` + `background-color` keyframes). Agents/admins find the item instantly instead of scanning a table.
+
+**Shared primitives (new)**:
+- `frontend/src/lib/useHighlightRow.js` — hook that reads `?highlight=<id>` from URL and polls (up to 4s / 16×250ms) for `[data-testid="{prefix}-{id}"]` before applying `.row-flash-gold`. `dataKey` prop re-triggers when list length changes so the flash works even when rows load async.
+- `frontend/src/styles/iter65_row_flash.css` — `bt-row-flash-gold` keyframes for both light + dark surfaces.
+
+**Wired into**:
+- `BookingsTable` (used by Customer, Artist, generic role) — `prefix='booking-row'`.
+- `AdminDashboard → AdminBookings` — renamed testids from `admin-booking-{id}` → `booking-row-{id}` for consistency.
+- `AdminDashboard → AdminRefunds` — testids from `refund-{id}` → `refund-row-{id}`; `prefix='refund-row'`.
+- `admin/AdminPaymentReconciliation` — enables highlight for payments-tab (`prefix='payment-row'`) OR refunds-tab (`prefix='refund-row'`) based on which tab is active. Also honours `?subtab=refunds|payments|logs` from URL so the correct inner tab activates before the row scroll.
+- `agency/modules/Bookings.jsx` — added `data-testid="booking-row-{id}"` to kanban cards.
+
+**Notification link updates**:
+- Refund success → `/customer?tab=bookings&highlight=<booking_id>`.
+- Refund failure → `/admin?tab=payment-recon&subtab=refunds&highlight=<payment_id>`.
+- Existing `/dashboard/bookings/:id` legacy links still rewritten to role-specific `?highlight=` targets in `NotificationBell.handleClick`.
+
+**Customer dashboard**: now reads `?tab=` on mount so notifications land on the right sidebar tab immediately (matches AdminDashboard + ArtistDashboard behaviour).
+
+**Manual test verified**: `/customer?tab=bookings&highlight=<bid>` → target row gains `.row-flash-gold` class in ~60ms, gold outline pulse visible in screenshot at `/tmp/highlight_row.png`.
+
+
 ## 🎯 Iter 64 — Automatic Easebuzz Refunds + Agency Earnings + Razorpay Removal (2026-08-11)
 
 ### 1) Easebuzz Automatic Refund System

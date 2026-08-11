@@ -1047,7 +1047,7 @@ async def _auto_refund_payment_doc(pay: Dict[str, Any], *, reason: str,
                 "type": "refund.processed",
                 "title": "Refund initiated",
                 "body": f"₹{refund_amount:,.2f} refund initiated to your original payment. Reason: {reason}. Reflects in 5–7 business days.",
-                "link": "/dashboard/bookings",
+                "link": f"/customer?tab=bookings&highlight={pay.get('booking_id') or (pay.get('booking_ids') or [''])[0]}",
                 "read": False, "created_at": utcnow(),
             })
         except Exception:
@@ -1075,7 +1075,7 @@ async def _auto_refund_payment_doc(pay: Dict[str, Any], *, reason: str,
                 "type": "refund.failed",
                 "title": "Refund failed — manual review needed",
                 "body": f"Payment {pay.get('txnid') or pay.get('id')} refund failed: {err_reason[:120]}",
-                "link": "/admin?tab=refunds",
+                "link": f"/admin?tab=payment-recon&subtab=refunds&highlight={pay['id']}",
                 "read": False, "created_at": utcnow(),
             })
     except Exception:

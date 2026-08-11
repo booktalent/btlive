@@ -6,12 +6,18 @@ import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import ChatBox from "../components/ChatBox";
 import PendingEventCarts from "../components/PendingEventCarts";
+import useHighlightRow from "../lib/useHighlightRow";
 
 export default function CustomerDashboard() {
   const { user } = useAuth();
   const toast = useToast();
   const nav = useNavigate();
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState(() => {
+    // Iter 65 — Notification-driven navigation: honour ?tab=bookings so we
+    // scroll+flash the row without users having to click the sidebar first.
+    const p = new URLSearchParams(window.location.search).get("tab");
+    return p || "overview";
+  });
   const [bookings, setBookings] = useState([]);
   const [analytics, setAnalytics] = useState({});
   const [reviewModal, setReviewModal] = useState(null);
@@ -180,6 +186,11 @@ function ExpiryCountdown({ expiresAt, urgent = false }) {
 
 export function BookingsTable({ bookings, role, onAction, onReview }) {
   const [chatBooking, setChatBooking] = useState(null);
+
+  // Iter 65 — When a notification links to /customer?highlight=BID (or the
+  // equivalent artist/agency/admin routes), scroll to the exact row and
+  // pulse a soft gold flash so the operator immediately spots it.
+  useHighlightRow({ prefix: "booking-row", dataKey: bookings?.length });
 
   // Lock body scroll + scroll to top when a chat opens so the modal is always
   // visible (otherwise the modal-bg dim appears but the modal-card lands above

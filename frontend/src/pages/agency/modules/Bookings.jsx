@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../../../lib/api";
+import useHighlightRow from "../../../lib/useHighlightRow";
 
 const COLS = [
   { key: "pending_confirmation", label: "Pending", badge: "warn" },
@@ -19,6 +20,10 @@ export default function Bookings() {
   const [tab, setTab] = useState("platform");
   const [reportData, setReportData] = useState({ platform: [], offline: [] });
   useEffect(() => { api.get("/agency/reports/bookings").then((r) => setReportData(r.data || { platform: [], offline: [] })).catch(() => {}); }, []);
+
+  // Iter 65 — notification click → highlight the booking row.
+  const totalCount = (reportData.platform?.length || 0) + (reportData.offline?.length || 0);
+  useHighlightRow({ prefix: "booking-row", dataKey: totalCount });
 
   const groupedPlatform = useMemo(() => {
     const map = Object.fromEntries(COLS.map((c) => [c.key, []]));
@@ -62,7 +67,7 @@ export default function Bookings() {
             <div key={c.key} className="ag-kanban-col">
               <h4>{c.label}<span className={`ag-badge ${c.badge}`}>{(groupedPlatform[c.key] || []).length}</span></h4>
               {(groupedPlatform[c.key] || []).map((b) => (
-                <div key={b.id} className="ag-kanban-item">
+                <div key={b.id} className="ag-kanban-item" data-testid={`booking-row-${b.id}`}>
                   <div style={{ fontWeight: 600 }}>{b.event_type || "Booking"}</div>
                   <div className="text-muted fs-11 mt-4">{b.event_date} · {b.city || ""}</div>
                   <div className="fs-11 mt-4">₹{(b.amount_paid || 0).toLocaleString("en-IN")}</div>

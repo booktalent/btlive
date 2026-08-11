@@ -4,6 +4,7 @@ import Nav from "../components/Nav";
 import api, { fmtINRFull, formatApiError } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
+import useHighlightRow from "../lib/useHighlightRow";
 import {
   AdminMaster, AdminBoost, AdminTemplates, AdminFAQs,
   AdminCMS, AdminBroadcast, AdminSettings, AdminAudit, AdminReports,
@@ -258,6 +259,8 @@ function AdminArtists({ toast }) {
 function AdminBookings() {
   const [list, setList] = useState([]);
   useEffect(() => { api.get("/admin/bookings").then(r => setList(r.data)).catch(() => setList([])); }, []);
+  // Iter 65 — booking notification click → highlight the correct row.
+  useHighlightRow({ prefix: "booking-row", dataKey: list.length });
   return (
     <div className="card" data-testid="admin-bookings">
       <div className="card-head"><div className="card-title">📋 All Bookings ({list.length})</div></div>
@@ -266,7 +269,7 @@ function AdminBookings() {
           <thead><tr><th>Ref</th><th>Customer</th><th>Event</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
           <tbody>
             {list.map((b) => (
-              <tr key={b.id} data-testid={`admin-booking-${b.id}`}>
+              <tr key={b.id} data-testid={`booking-row-${b.id}`}>
                 <td className="font-mono text-gold fs-11">{b.ref}</td>
                 <td>{b.customer_name}</td>
                 <td>{b.event_type}<br/><span className="text-muted fs-11">{b.venue}, {b.city}</span></td>
@@ -371,6 +374,9 @@ function AdminRefunds({ toast }) {
     .then(r => setList(r.data || { items: [] }))
     .catch(() => setList({ items: [] }));
   useEffect(() => { reload(); }, []);
+  // Iter 65 — support ?highlight=<payment_id> from refund notifications.
+  const items = list.items || [];
+  useHighlightRow({ prefix: "refund-row", dataKey: items.length });
   const retryRefund = async (paymentId) => {
     if (!window.confirm("Retry Easebuzz refund for this payment?")) return;
     setBusy(paymentId);
@@ -382,7 +388,6 @@ function AdminRefunds({ toast }) {
     } catch (e) { toast(e?.response?.data?.detail || "Refund retry failed", "error"); }
     setBusy(null);
   };
-  const items = list.items || [];
   return (
     <div className="card" data-testid="admin-refunds">
       <div className="card-head">
@@ -395,7 +400,7 @@ function AdminRefunds({ toast }) {
           <tbody>
             {items.length === 0 && <tr><td colSpan={8} className="empty">No refunds yet</td></tr>}
             {items.map((w) => (
-              <tr key={w.payment_id} data-testid={`refund-${w.payment_id}`}>
+              <tr key={w.payment_id} data-testid={`refund-row-${w.payment_id}`}>
                 <td className="text-muted fs-12">{(w.refund_at || "").slice(0, 16).replace("T", " ")}</td>
                 <td>{w.customer_name || "—"}<div className="text-muted fs-11">{w.customer_email || ""}</div></td>
                 <td className="fs-12">{w.artist_name || "—"}</td>
