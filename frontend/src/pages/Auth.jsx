@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { PartyPopper, Mic2, Building2 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import api, { formatApiError as fmtErr } from "../lib/api";
@@ -9,9 +10,13 @@ import api, { formatApiError as fmtErr } from "../lib/api";
 // it later without a migration. Re-add the {value:'corporate', ...} entry to
 // bring the option back on the signup screen.
 const ROLES = [
-  { value: "customer", icon: "🎉", name: "Customer", desc: "I want to book artists for my events" },
-  { value: "artist", icon: "🎤", name: "Artist", desc: "I perform and want to get bookings" },
-  { value: "agency", icon: "🏢", name: "Agency", desc: "I manage multiple artists" },
+  { value: "customer", Icon: PartyPopper, name: "Customer",
+    desc: "Book verified artists for your next event",
+    popular: true },
+  { value: "artist",   Icon: Mic2,        name: "Artist",
+    desc: "List yourself and get discovered by planners" },
+  { value: "agency",   Icon: Building2,   name: "Agency",
+    desc: "Manage a roster of artists in one dashboard" },
 ];
 
 /** Password field with a "show/hide" eye toggle. */
@@ -282,15 +287,33 @@ export default function Auth({ mode = "signin" }) {
             {step === 1 && (
               <>
                 <div className="auth-title">I am <span className="gold-grad" style={{ background: "linear-gradient(135deg, var(--gold-light), var(--gold))", WebkitBackgroundClip: "text", color: "transparent" }}>a…</span></div>
-                <div className="auth-sub">Select your role to get the right experience.</div>
-                <div className="role-grid">
-                  {ROLES.map((r) => (
-                    <div key={r.value} className={`role-opt ${form.role === r.value ? "selected" : ""}`} onClick={() => set("role", r.value)} data-testid={`role-${r.value}`}>
-                      <div className="role-ico">{r.icon}</div>
-                      <div className="role-name">{r.name}</div>
-                      <div className="role-desc">{r.desc}</div>
-                    </div>
-                  ))}
+                <div className="auth-sub">Pick the role that fits — you can always add more later.</div>
+                <div className="role-grid" role="radiogroup" aria-label="Choose your role">
+                  {ROLES.map((r) => {
+                    const Icon = r.Icon;
+                    const isSelected = form.role === r.value;
+                    return (
+                      <button
+                        type="button"
+                        key={r.value}
+                        role="radio"
+                        aria-checked={isSelected}
+                        className={`role-opt ${isSelected ? "selected" : ""}`}
+                        onClick={() => set("role", r.value)}
+                        data-testid={`role-${r.value}`}
+                      >
+                        {r.popular && !isSelected && (
+                          <span className="role-pill">Popular</span>
+                        )}
+                        <span className="role-check" aria-hidden="true">✓</span>
+                        <span className="role-ico">
+                          <Icon size={22} strokeWidth={2.2} />
+                        </span>
+                        <div className="role-name">{r.name}</div>
+                        <div className="role-desc">{r.desc}</div>
+                      </button>
+                    );
+                  })}
                 </div>
                 <button className="btn btn-gold btn-block" onClick={() => setStep(2)} data-testid="signup-next-1">Continue →</button>
               </>
