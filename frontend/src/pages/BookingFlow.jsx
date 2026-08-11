@@ -11,16 +11,6 @@ import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import { useEventCart } from "../lib/useEventCart";
 
-/** Lazy-load Razorpay checkout JS once */
-const loadRazorpay = () => new Promise((resolve) => {
-  if (window.Razorpay) return resolve(true);
-  const s = document.createElement("script");
-  s.src = "https://checkout.razorpay.com/v1/checkout.js";
-  s.onload = () => resolve(true);
-  s.onerror = () => resolve(false);
-  document.body.appendChild(s);
-});
-
 const ADDONS = [
   { id: "dhol", label: "🥁 Dhol Player", price: 3500 },
   { id: "anchor", label: "🎙️ Anchor / Emcee", price: 5000 },
@@ -80,7 +70,6 @@ export default function BookingFlow() {
   });
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);
-  const [paymentConfig, setPaymentConfig] = useState({ razorpay_enabled: false });
   const [gatewayInfo, setGatewayInfo] = useState({ provider: "easebuzz", enabled: true, environment: "sandbox" });
   const [alternatives, setAlternatives] = useState(null);
   // Iter 44 — Multi-Artist Event: if we came in from another booking's
@@ -107,8 +96,8 @@ export default function BookingFlow() {
       if (mandatory.length) setForm((f) => ({ ...f, addon_selections: mandatory }));
     }).catch(() => setArtistAddons([]));
     // Outstation policy strings — admin-editable via /admin/settings
-    api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});    api.get("/payments/config").then((r) => setPaymentConfig(r.data)).catch(() => {});
-    // Iter 61 — Admin-configurable active payment gateway (Easebuzz vs Razorpay).
+    api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});
+    // Iter 61 — Admin-configurable active payment gateway (Easebuzz only).
     api.get("/payment-gateway/public").then((r) => setGatewayInfo(r.data)).catch(() => {});
     // Fetch only when the artist/package `id` changes. Adding `form.package_id`
     // would refetch on every form key-stroke; adding `nav`/`user` would loop.
@@ -286,91 +275,28 @@ export default function BookingFlow() {
     };
 
     try {
-      // ── Iter 45: Multi-Artist Batch Checkout ─────────────────────────────
-      // When the customer has added secondary artists, all bookings are
-      // created under one event_id and paid for in a single Razorpay/mock
-      // checkout via /payments/batch/{init,verify}. Each artist still gets
-      // an isolated booking, contract, and 24-hour confirmation window.
+      // ── Iter 45: Multi-Artist Batch Checkout (Easebuzz-only) ─────────
+      // All bookings created under one event_id and paid in a single hosted
+      // Easebuzz checkout. Each artist still gets an isolated booking,
+      // contract and 24-hour confirmation window.
       if (isMultiEvent) {
         const items = cartItems.map((c) => ({
           artist_id: c.artist_id,
           package_id: c.package_id,
-          // Primary keeps its Step-1 legacy addon slugs AND Sprint-3 artist
-          // add-ons separately. Secondary artists never see legacy addons.
           addons: c.is_primary ? form.addons : [],
           addon_selections: c.is_primary ? mergedSelections : (c.addon_selections || []),
           coupon_code: c.is_primary ? form.coupon_code : "",
           ...commonFields,
         }));
-        let batchR;
-        try {
-          batchR = await api.post("/bookings/batch", { items });
-        } catch (e) {
-          throw e;
-        }
-        const { event_id, booking_ids } = batchR.data;
-        // Iter 61 — Easebuzz active gateway → server-side initiate then
-        // full-page redirect to the hosted checkout. Success/failure comes
-        // back through /booking/payment-return.
-        if (gatewayInfo?.enabled && gatewayInfo?.provider === "easebuzz") {
-          const ebR = await api.post("/payments/easebuzz/init", { booking_ids, method: paymentMethod });
-          window.location.href = ebR.data.payment_url;
-          return;
-        }
-        const initR = await api.post("/payments/batch/init", { booking_ids, method: paymentMethod });
-        if (initR.data.gateway === "razorpay") {
-          const loaded = await loadRazorpay();
-          if (!loaded) { toast("Could not load payment gateway", "error"); setBusy(false); return; }
-          const rp = initR.data.razorpay;
-          const rzp = new window.Razorpay({
-            key: rp.key_id, amount: initR.data.amount_paise, currency: rp.currency,
-            name: rp.name, description: rp.description, order_id: rp.order_id,
-            prefill: rp.prefill, notes: rp.notes, theme: { color: "#D4AF37" },
-            handler: async (resp) => {
-              try {
-                const verR = await api.post("/payments/batch/verify", {
-                  payment_id: initR.data.payment_id, booking_ids,
-                  razorpay_order_id: resp.razorpay_order_id,
-                  razorpay_payment_id: resp.razorpay_payment_id,
-                  razorpay_signature: resp.razorpay_signature,
-                });
-                setSuccessData({
-                  batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
-                  ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
-                  // Iter 60 — Snapshot the cart BEFORE clearCart() so the
-                  // success screen can list every artist in the batch, not
-                  // just the primary.
-                  items: cartItems.map((c) => ({ ...c })),
-                });
-                try { localStorage.removeItem(`bt_event_cart_${id}`); } catch { /* ignore */ }
-                clearCart();
-                setStep(6);
-              } catch (e) { toast(formatApiError(e), "error"); }
-              finally { setBusy(false); }
-            },
-            modal: { ondismiss: () => { setBusy(false); toast("Payment cancelled", "error"); } },
-          });
-          rzp.on("payment.failed", (r) => { setBusy(false); toast(`Payment failed: ${r?.error?.description || "unknown"}`, "error"); });
-          rzp.open();
-          return;
-        }
-        const verR = await api.post("/payments/batch/verify", {
-          payment_id: initR.data.payment_id, booking_ids, mock_otp: "123456",
+        const batchR = await api.post("/bookings/batch", { items });
+        const { booking_ids } = batchR.data;
+        const ebR = await api.post("/payments/easebuzz/init", {
+          booking_ids, method: paymentMethod,
         });
-        setSuccessData({
-          batch: true, event_id, count: verR.data.count, refs: verR.data.booking_refs,
-          ref: verR.data.booking_refs?.[0], booking: { event_id, artist_id: id, event_date: form.event_date },
-          // Iter 60 — Snapshot cart items before clearCart() so batch
-          // success can render every artist, not just the primary.
-          items: cartItems.map((c) => ({ ...c })),
-        });
-        try { localStorage.removeItem(`bt_event_cart_${id}`); } catch { /* ignore */ }
-        clearCart();
-        setStep(6);
-        setBusy(false);
+        window.location.href = ebR.data.payment_url;
         return;
       }
-      // ── Single-artist flow — explicit payload (no ...form spread) ──────
+      // ── Single-artist flow — explicit payload ─────────────────────────
       const payload = {
         artist_id: id,
         package_id: form.package_id,
@@ -393,74 +319,11 @@ export default function BookingFlow() {
         throw e;
       }
       const booking = r.data;
-      // Iter 61 — Easebuzz active gateway → hosted checkout redirect.
-      if (gatewayInfo?.enabled && gatewayInfo?.provider === "easebuzz") {
-        const ebR = await api.post("/payments/easebuzz/init", { booking_ids: [booking.id], method: paymentMethod });
-        window.location.href = ebR.data.payment_url;
-        return;
-      }
-      const initR = await api.post("/payments/init", { booking_id: booking.id, method: paymentMethod });
-
-      if (initR.data.gateway === "razorpay") {
-        // 3a. Real Razorpay checkout
-        const loaded = await loadRazorpay();
-        if (!loaded) {
-          toast("Could not load payment gateway", "error");
-          setBusy(false);
-          return;
-        }
-        const rp = initR.data.razorpay;
-        const options = {
-          key: rp.key_id,
-          amount: initR.data.amount_paise,
-          currency: rp.currency,
-          name: rp.name,
-          description: rp.description,
-          order_id: rp.order_id,
-          prefill: rp.prefill,
-          notes: rp.notes,
-          theme: { color: "#D4AF37" },
-          handler: async (resp) => {
-            try {
-              const verR = await api.post("/payments/verify", {
-                booking_id: booking.id,
-                payment_id: initR.data.payment_id,
-                razorpay_order_id: resp.razorpay_order_id,
-                razorpay_payment_id: resp.razorpay_payment_id,
-                razorpay_signature: resp.razorpay_signature,
-              });
-              setSuccessData({ booking, ref: verR.data.booking_ref, event_id: booking.event_id });
-              setStep(6);
-            } catch (e) {
-              toast(formatApiError(e), "error");
-            } finally {
-              setBusy(false);
-            }
-          },
-          modal: {
-            ondismiss: () => {
-              setBusy(false);
-              toast("Payment cancelled", "error");
-            },
-          },
-        };
-        const rzp = new window.Razorpay(options);
-        rzp.on("payment.failed", (response) => {
-          setBusy(false);
-          toast(`Payment failed: ${response?.error?.description || "unknown"}`, "error");
-        });
-        rzp.open();
-        return; // verify will run inside handler
-      }
-
-      // 3b. Mock flow — auto-verify with OTP 123456
-      const verR = await api.post("/payments/verify", {
-        booking_id: booking.id,
-        payment_id: initR.data.payment_id,
-        mock_otp: "123456",
+      const ebR = await api.post("/payments/easebuzz/init", {
+        booking_ids: [booking.id], method: paymentMethod,
       });
-      setSuccessData({ booking, ref: verR.data.booking_ref, event_id: booking.event_id });
-      setStep(6);
+      window.location.href = ebR.data.payment_url;
+      return;
     } catch (e) {
       toast(formatApiError(e), "error");
     }
@@ -780,7 +643,6 @@ export default function BookingFlow() {
               <PaymentStep
                 paymentMethod={paymentMethod}
                 setPaymentMethod={setPaymentMethod}
-                paymentConfig={paymentConfig}
                 gatewayInfo={gatewayInfo}
                 busy={busy}
                 token={token}

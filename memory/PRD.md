@@ -1,6 +1,59 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 64 — Automatic Easebuzz Refunds + Agency Earnings + Razorpay Removal (2026-08-11)
+
+### 1) Easebuzz Automatic Refund System
+- **No more manual admin refund processing** for standard cancellation/rejection/expiry cases. When a booking is rejected by the artist, cancelled by the customer, or auto-expires without artist confirmation, the backend now **automatically calls the Easebuzz Refund API** (`POST {dashboard}/transaction/v1/refund`) with the correct SHA-512 hash sequence `key|txnid|amount|refund_amount|email|phone|salt`.
+- **Dashboard URL derived from environment**: sandbox → `testdashboard.easebuzz.in`, live → `dashboard.easebuzz.in`. Kept isolated from checkout base URL.
+- **Storage** (payments doc extras): `refund_status` (initiated/successful/failed/not_applicable), `refund_amount`, `refund_at`, `refund_reason`, `refund_id`, `refund_easebuzz_id`, `refund_response`, `refund_error`, `refund_attempts`, `refund_actor`.
+- **Duplicate refund guard**: `refund_status == 'successful'` → skip. `'initiated'` → skip (in-flight). Guarantees a booking can never be refunded twice.
+- **Failure handling**: mark `failed`, record `refund_error`, create `refund.failed` notification for every admin — NO infinite retries. Admin can manually retry via `POST /api/admin/refunds/{payment_id}/retry`.
+- **Customer notification** on success: `refund.processed` notification links to `/dashboard/bookings` with amount + reason.
+- Wired into: `_mark_platform_fee_refundable` (called from booking_action reject/cancel + auto-expire worker).
+
+### 2) Agency Portal — Complete Artist Earnings
+- New endpoint: `GET /api/agency/artist/{artist_id}/earnings` — returns `{artist, totals, bookings[]}`.
+  - `totals`: `total_earnings, completed_earnings, upcoming_earnings, confirmed_booking_value, completed_events, upcoming_events, confirmed_events, agency_commission_earned, commission_pct`.
+  - Per booking: `ref, event_date, customer_name, event_type, venue, city, status, payment_status, amount_paid, artist_fee, platform_charges, agency_commission, artist_net, refund_status, refund_amount, refund_reason`.
+- **No `created_at` window** — Agencies see the artist's COMPLETE history, including bookings that predate the roster join. Matches user spec #3 exactly.
+- Frontend: Artists.jsx → new **Earnings** button per active roster row → drawer with 4-KPI grid + full booking history table. `data-testid='ag-view-earnings-{id}'`, `'ag-earnings-drawer'`, `'ag-earnings-bookings'`, `'ag-earn-total/completed/upcoming/confirmed'`.
+- **Fix**: `routes/agency_crm.py` was querying the wrong collection (`agency_artists` — legacy stub). Now correctly queries `agency_roster` with `status='active'` — CRM Revenue tile is no longer permanently empty.
+
+### 3) Razorpay Removal
+- **Backend deletions**:
+  - `import razorpay` + client init in `server.py`.
+  - Endpoints removed: `/payments/config`, `/payments/init`, `/payments/verify`, `/payments/webhook`, `/payments/{id}/refund`, `/payments/batch/init`, `/payments/batch/verify`.
+  - Old `/admin/refunds` (manual-flagged) renamed to `/admin/refunds/legacy-flagged` — the new automatic `/admin/refunds` in routes/easebuzz.py is now the canonical endpoint.
+  - Pydantic model `PaymentVerifyBody` no longer accepts razorpay_order_id/razorpay_payment_id/razorpay_signature.
+  - `RAZORPAY_*` env vars removed from `/app/backend/.env`.
+  - `razorpay==1.4.2` removed from `requirements.txt` (pip uninstalled).
+  - iter7 subscription `PaymentSetupBody.payment_method` literal narrowed to `easebuzz | mock`.
+  - iter9 `/admin/integrations` no longer lists razorpay; lists easebuzz instead.
+- **Frontend deletions**:
+  - `loadRazorpay()` script loader removed from `BookingFlow.jsx`.
+  - All `initR.data.gateway === "razorpay"` branches removed.
+  - `paymentConfig` prop removed from PaymentStep entirely — component is Easebuzz-only.
+  - AdminEnterprise integrations grid replaces `razorpay` entry with `easebuzz`.
+  - AdminPaymentReconciliation filter dropdown labels Razorpay as `(Legacy)` — historical DB rows can still be filtered.
+  - AdminDashboard `AdminRefunds` widget re-written for auto-refund model (no more "Process Refund" button; only "Retry" for failed refunds).
+- Result: Easebuzz is the **only** active payment path. Legacy razorpay_mock DB rows remain viewable as historical data.
+
+### 4) Admin Refunds Console
+- `GET /api/admin/refunds?status=&page=&limit=` — paginated `{items, total, page, limit}` where each item is enriched with customer_name, customer_email, artist_name, event_date, booking_refs, refund_id, easebuzz_id, refund_error, refund_status, refund_at, gateway, environment.
+- `POST /api/admin/refunds/{payment_id}/retry` — manual re-trigger for failed refunds.
+- New **Refunds** tab in Admin → Payment Reconciliation (`data-testid='tab-refunds'`, `'refunds-table'`, `'filter-refund-status'`, `'btn-retry-refund-{id}'`).
+
+### 5) Testing
+- `tests/test_iter64_refunds.py` — 2/2 pass:
+  - Refund success + idempotency (second call returns `already=True`).
+  - Refund failure → payment marked failed + admin notification created.
+- testing_agent iter-61: 13/13 backend + frontend smoke all green. One minor UX ('Earnings button visible for pending artists') fixed post-report by conditionally rendering only for `status==='active'`.
+
+
+## 🎯 Iter 63.5 — Global Footer Deduplication (2026-02-28)
+
+
 ## 🎯 Iter 60 (was 59.1) — Booking Payment BULLETPROOF Fix (2026-02-27)
 User reported P0 (3rd time): "clicking Pay randomly shows Login redirect / Not Authorized / T&C error". Definitive root-cause tree:
 - (a) axios interceptor hard-redirecting on background 401s → **REMOVED** (iter 58 v2)

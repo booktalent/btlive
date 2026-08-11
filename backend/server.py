@@ -18,7 +18,6 @@ import hashlib
 import re
 import bcrypt
 import jwt
-import razorpay
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List, Literal, Any, Dict
 
@@ -54,7 +53,7 @@ from routes import city_aliases as routes_city_aliases
 from routes import outstation_report as routes_outstation_report
 from routes import cms_seo as routes_cms_seo
 from routes import questionnaire as routes_questionnaire
-from routes.easebuzz import make_easebuzz_router
+from routes.easebuzz import make_easebuzz_router, set_refund_context, auto_refund_bookings
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
@@ -67,19 +66,8 @@ PLATFORM_FEE_PCT = float(os.environ.get("PLATFORM_FEE_PCT", 5))
 GST_PCT = float(os.environ.get("GST_PCT", 18))
 TOKEN_PCT = float(os.environ.get("TOKEN_PCT", 5))
 
-# Razorpay setup
-RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "").strip()
-RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
-RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "").strip()
-RAZORPAY_ENABLED = bool(RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET)
-razorpay_client = None
-if RAZORPAY_ENABLED:
-    try:
-        razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-        razorpay_client.set_app_details({"title": "BookTalent", "version": "1.0.0"})
-    except Exception as _e:
-        RAZORPAY_ENABLED = False
-        razorpay_client = None
+# Payment gateway = Easebuzz (only). Legacy Razorpay integration removed —
+# all keys / URLs live in `payment_gateway_settings` collection.
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -490,10 +478,6 @@ class PaymentVerifyBody(BaseModel):
     payment_id: str
     # mock-mode fields
     mock_otp: Optional[str] = "123456"
-    # Razorpay live fields
-    razorpay_order_id: Optional[str] = None
-    razorpay_payment_id: Optional[str] = None
-    razorpay_signature: Optional[str] = None
 
 
 class ReviewBody(BaseModel):
@@ -1788,186 +1772,13 @@ class BatchPaymentInit(BaseModel):
     method: Literal["card", "upi", "netbanking"]
 
 
-@api.post("/payments/batch/init")
-async def payment_batch_init(body: BatchPaymentInit, user: dict = Depends(get_current_user)):
-    """Initialise a single Razorpay order for many bookings so the customer
-    checks out once and BookTalent collects the combined Platform Service Fee
-    + GST for every artist in the event."""
-    if not body.booking_ids:
-        raise HTTPException(400, "booking_ids required")
-    docs = await db.bookings.find({"id": {"$in": body.booking_ids}}).to_list(20)
-    if len(docs) != len(body.booking_ids):
-        raise HTTPException(404, "Some bookings not found")
-    for d in docs:
-        if d["customer_id"] != user["id"]:
-            raise HTTPException(403, "Not your booking")
-    total_amount = round(sum(float((d.get("pricing") or {}).get("token_amount", 0) or 0) for d in docs), 2)
-    pid = new_id()
-
-    pay_doc = {
-        "id": pid,
-        "booking_ids": body.booking_ids,
-        "user_id": user["id"],
-        "amount": total_amount,
-        "method": body.method,
-        "status": "pending",
-        "created_at": utcnow(),
-        "batch": True,
-    }
-
-    if RAZORPAY_ENABLED:
-        amount_paise = int(round(total_amount * 100))
-        receipt = f"BT-BATCH-{pid[:10]}"
-        try:
-            order = razorpay_client.order.create({
-                "amount": amount_paise,
-                "currency": "INR",
-                "receipt": receipt,
-                "payment_capture": 1,
-                "notes": {
-                    "customer_id": user["id"],
-                    "batch": "true",
-                    "count": str(len(docs)),
-                    "event_id": docs[0].get("event_id", ""),
-                },
-            })
-        except Exception as e:
-            log.error(f"Razorpay batch order error: {e}")
-            raise HTTPException(502, f"Payment gateway error: {e}")
-        pay_doc.update({
-            "gateway": "razorpay",
-            "razorpay_order_id": order["id"],
-            "amount_paise": amount_paise,
-        })
-        await db.payments.insert_one(pay_doc)
-        return {
-            "payment_id": pid,
-            "amount": total_amount,
-            "amount_paise": amount_paise,
-            "gateway": "razorpay",
-            "count": len(docs),
-            "razorpay": {
-                "order_id": order["id"],
-                "key_id": RAZORPAY_KEY_ID,
-                "currency": "INR",
-                "name": "BookTalent",
-                "description": f"Multi-Artist Event · {len(docs)} bookings",
-                "notes": {"batch": "true", "count": str(len(docs))},
-            },
-        }
-
-    pay_doc["gateway"] = "razorpay_mock"
-    await db.payments.insert_one(pay_doc)
-    return {"payment_id": pid, "amount": total_amount, "count": len(docs), "gateway": "razorpay_mock"}
+# NOTE: Legacy /payments/batch/init + /payments/batch/verify endpoints removed
+# in the Iter 64 payment cleanup. Multi-booking checkout now flows exclusively
+# through /api/payments/easebuzz/init (routes/easebuzz.py), which handles
+# batch booking IDs natively.
 
 
-class BatchPaymentVerify(BaseModel):
-    payment_id: str
-    booking_ids: List[str]
-    mock_otp: Optional[str] = "123456"
-    razorpay_order_id: Optional[str] = None
-    razorpay_payment_id: Optional[str] = None
-    razorpay_signature: Optional[str] = None
-
-
-@api.post("/payments/batch/verify")
-async def payment_batch_verify(body: BatchPaymentVerify, user: dict = Depends(get_current_user)):
-    pay = await db.payments.find_one({"id": body.payment_id})
-    if not pay or pay["user_id"] != user["id"]:
-        raise HTTPException(404, "Payment not found")
-    docs = await db.bookings.find({"id": {"$in": body.booking_ids}}).to_list(20)
-    if len(docs) != len(body.booking_ids):
-        raise HTTPException(404, "Some bookings not found")
-    for d in docs:
-        if d["customer_id"] != user["id"]:
-            raise HTTPException(403, "Not your booking")
-
-    is_live = pay.get("gateway") == "razorpay"
-    if is_live:
-        if not (body.razorpay_order_id and body.razorpay_payment_id and body.razorpay_signature):
-            raise HTTPException(400, "Missing Razorpay verification params")
-        try:
-            razorpay_client.utility.verify_payment_signature({
-                "razorpay_order_id": body.razorpay_order_id,
-                "razorpay_payment_id": body.razorpay_payment_id,
-                "razorpay_signature": body.razorpay_signature,
-            })
-        except razorpay.errors.SignatureVerificationError:
-            await db.payments.update_one({"id": body.payment_id}, {"$set": {"status": "failed", "failure_reason": "signature_mismatch"}})
-            raise HTTPException(400, "Signature verification failed")
-        await db.payments.update_one(
-            {"id": body.payment_id},
-            {"$set": {"status": "completed", "razorpay_payment_id": body.razorpay_payment_id,
-                      "razorpay_signature": body.razorpay_signature, "verified_at": utcnow()}},
-        )
-    else:
-        if body.mock_otp != "123456":
-            raise HTTPException(400, "Invalid OTP (use 123456 in test mode)")
-        await db.payments.update_one(
-            {"id": body.payment_id}, {"$set": {"status": "completed", "verified_at": utcnow()}},
-        )
-
-    from datetime import timedelta as _td
-    _confirm_hours = int(os.environ.get("BOOKING_CONFIRM_WINDOW_HOURS", "24"))
-    expires_at_iso = (datetime.now(timezone.utc) + _td(hours=_confirm_hours)).isoformat()
-
-    for d in docs:
-        # Skip bookings that are no longer awaiting payment — never
-        # regress a `confirmed`/`cancelled` booking back to `pending_artist`.
-        if d.get("status") != "pending_payment":
-            continue
-        share = float((d.get("pricing") or {}).get("token_amount", 0) or 0)
-        await db.bookings.update_one(
-            {"id": d["id"]},
-            {"$set": {"payment_status": "token_paid", "amount_paid": share,
-                      "status": "pending_artist",
-                      "expires_at": expires_at_iso,
-                      "confirmation_deadline_hours": _confirm_hours},
-             "$push": {"history": {"at": utcnow(), "action": "paid_token_batch", "by": user["id"],
-                                   "amount": share, "payment_id": body.payment_id,
-                                   "gateway": pay.get("gateway")}}},
-        )
-        await db.transactions.insert_one({
-            "id": new_id(), "user_id": user["id"], "type": "payment",
-            "amount": -share, "status": "completed",
-            "description": f"Token paid for booking {d['ref']} (batch)",
-            "booking_id": d["id"], "gateway": pay.get("gateway"),
-            "created_at": utcnow(),
-        })
-        await db.notifications.insert_one({
-            "id": new_id(), "user_id": d["artist_id"], "type": "booking_request",
-            "title": "New paid booking request",
-            "body": f"Token received for booking {d['ref']}",
-            "read": False, "created_at": utcnow(),
-            "link": f"/dashboard/bookings/{d['id']}",
-        })
-    # Iter 62 — Batch payment receipt (single email listing every booking).
-    try:
-        first = docs[0] if docs else None
-        artist_name = ""
-        if first:
-            ap = await db.artist_profiles.find_one({"user_id": first["artist_id"]}) or {}
-            au = await db.users.find_one({"id": first["artist_id"]}) or {}
-            artist_name = ap.get("stage_name") or f"{au.get('first_name', '')} {au.get('last_name', '')}".strip()
-        await send_payment_receipt_email(
-            to_email=(first or {}).get("customer_email") or "",
-            name=(first or {}).get("customer_name") or "",
-            booking_refs=[d["ref"] for d in docs],
-            amount=float(pay.get("amount", 0) or 0),
-            txnid=body.razorpay_payment_id or pay.get("id", ""),
-            gateway=pay.get("gateway", "razorpay"),
-            easepayid=body.razorpay_payment_id or "",
-            artist_name=artist_name,
-            event_date=(first or {}).get("event_date", ""),
-        )
-    except Exception as _e:
-        log.warning("Batch receipt email failed: %s", _e)
-    return {
-        "ok": True,
-        "count": len(docs),
-        "booking_refs": [d["ref"] for d in docs],
-        "event_id": docs[0].get("event_id"),
-    }
+# Iter 48 — /events/{id}/recap + /events/{id}/summary moved to routes/events.py
 
 
 # Iter 48 — /events/{id}/recap + /events/{id}/summary moved to routes/events.py
@@ -2132,11 +1943,14 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
             log.warning("Confirmation email failed: %s", _e)
     elif body.action == "reject" and (is_artist or is_admin) and doc["status"] in ("pending_artist", "pending_payment"):
         new_status = "rejected"
-        # If a Platform Service Fee was already collected, mark the payment for
-        # refund. Actual money-back happens via the Razorpay refund endpoint,
-        # not through any internal wallet.
+        # Iter 64 — Automatic Easebuzz refund. The customer's Platform Service
+        # Fee is refunded back to the original payment source with no admin
+        # intervention. See _mark_platform_fee_refundable for idempotency logic.
         if doc.get("amount_paid", 0) > 0:
-            await _mark_platform_fee_refundable(doc, f"Refund for rejected booking {doc['ref']}")
+            await _mark_platform_fee_refundable(
+                doc, "Artist rejected booking",
+                actor=f"artist:{user['id']}" if is_artist else f"admin:{user['id']}",
+            )
     elif body.action == "start" and is_artist and doc["status"] == "confirmed":
         new_status = "started"
     elif body.action == "complete" and is_artist and doc["status"] in ("confirmed", "started"):
@@ -2150,7 +1964,10 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
     elif body.action == "cancel" and (is_customer or is_admin) and doc["status"] in ("pending_artist", "pending_payment", "confirmed"):
         new_status = "cancelled"
         if doc.get("amount_paid", 0) > 0:
-            await _mark_platform_fee_refundable(doc, f"Refund for cancelled booking {doc['ref']}")
+            await _mark_platform_fee_refundable(
+                doc, "Booking cancelled by customer" if is_customer else "Booking cancelled by admin",
+                actor=f"customer:{user['id']}" if is_customer else f"admin:{user['id']}",
+            )
     else:
         raise HTTPException(400, "Action not allowed in current state")
 
@@ -2285,24 +2102,49 @@ Digital signatures recorded electronically upon booking confirmation.
     return cid
 
 
-async def _mark_platform_fee_refundable(booking: dict, note: str):
+async def _mark_platform_fee_refundable(booking: dict, note: str, actor: str = "system"):
     """
-    BookTalent's lead-generation model: the only money we ever collected is
-    the Platform Service Fee + GST (Razorpay charge on the customer). When a
-    booking is cancelled/rejected after payment, we flag the payment record so
-    an admin can trigger the actual Razorpay refund from the Payments UI.
-    No internal wallets are involved.
+    Iter 64 — Automatic Easebuzz refund.
+
+    When a booking is rejected / cancelled / auto-expired, we no longer wait
+    for admin action. We call the Easebuzz refund API directly for every
+    completed payment tied to the booking. Duplicate protection lives in
+    `_auto_refund_payment_doc` (skips already-refunded rows).
+
+    For legacy Razorpay / mock payments, we still write the ledger row so
+    admin can see the "would-have-refunded" record.
     """
+    # 1. Direct refund attempt for every Easebuzz-completed payment.
+    try:
+        refund_results = await auto_refund_bookings([booking["id"]], reason=note, actor=actor)
+    except Exception as e:
+        log.error("Auto-refund dispatch failed for %s: %s", booking.get("id"), e)
+        refund_results = []
+
+    # 2. Legacy mock/razorpay rows — flag for admin visibility only. Never
+    #    triggers real money movement.
     await db.payments.update_many(
-        {"booking_id": booking["id"], "status": "completed"},
-        {"$set": {"refund_pending": True, "refund_note": note, "refund_flagged_at": utcnow()}},
+        {
+            "booking_id": booking["id"],
+            "status": "completed",
+            "gateway": {"$ne": "easebuzz"},
+        },
+        {"$set": {"refund_pending": True, "refund_note": note,
+                  "refund_flagged_at": utcnow(),
+                  "refund_status": "not_applicable"}},
     )
-    # Audit trail on the customer ledger (informational only).
+
+    # 3. Audit trail on the customer ledger.
     await db.transactions.insert_one({
         "id": new_id(), "user_id": booking["customer_id"], "type": "refund_flagged",
-        "amount": float(booking.get("amount_paid", 0)), "status": "pending_admin_refund",
-        "description": note, "booking_id": booking["id"], "created_at": utcnow(),
+        "amount": float(booking.get("amount_paid", 0)),
+        "status": "processing",
+        "description": note, "booking_id": booking["id"],
+        "refund_results": refund_results, "created_at": utcnow(),
     })
+
+    # 4. Bubble successes back to caller for testing/debugging.
+    return refund_results
 
 
 # ─── 24-Hour Artist Confirmation window — auto-expiry worker ─────────────
@@ -2326,7 +2168,10 @@ async def _auto_expire_bookings_once():
                                         "reason": "Artist did not confirm within 24 hours"}}},
             )
             if doc.get("amount_paid", 0) > 0:
-                await _mark_platform_fee_refundable(doc, f"Auto-expiry refund for {doc.get('ref', doc['id'])}")
+                await _mark_platform_fee_refundable(
+                    doc, "Artist did not accept booking within allowed timeline",
+                    actor="system:auto_expire",
+                )
             # Customer + artist notifications (in-app + email via dispatcher)
             try:
                 artist_u = await db.users.find_one({"id": doc.get("artist_id")}) or {}
@@ -2422,256 +2267,13 @@ async def _record_completion(booking: dict):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAYMENTS — Razorpay live (with safe mock fallback when keys absent)
+# PAYMENTS — Easebuzz-only (Iter 64)
+# All payment init/verify/refund/webhook endpoints now live in routes/easebuzz.py.
+# Legacy /payments/config, /payments/init, /payments/verify, /payments/webhook
+# and manual /payments/{id}/refund removed as part of Razorpay cleanup.
+# Frontend must call /api/payments/easebuzz/init and rely on the automatic
+# refund flow triggered from booking action (reject/cancel/auto-expire).
 # ─────────────────────────────────────────────────────────────────────────────
-@api.get("/payments/config")
-async def payment_config():
-    """Public config so frontend knows whether to use real Razorpay or mock."""
-    return {
-        "razorpay_enabled": RAZORPAY_ENABLED,
-        "razorpay_key_id": RAZORPAY_KEY_ID if RAZORPAY_ENABLED else None,
-        "currency": "INR",
-    }
-
-
-@api.post("/payments/init")
-async def payment_init(body: PaymentInitBody, user: dict = Depends(get_current_user)):
-    doc = await db.bookings.find_one({"id": body.booking_id})
-    if not doc or doc["customer_id"] != user["id"]:
-        raise HTTPException(404, "Booking not found")
-    amount = float(doc["pricing"]["token_amount"])
-    pid = new_id()
-
-    pay_doc = {
-        "id": pid, "booking_id": body.booking_id, "user_id": user["id"],
-        "amount": amount, "method": body.method, "status": "pending",
-        "created_at": utcnow(),
-    }
-
-    if RAZORPAY_ENABLED:
-        # Razorpay amounts are in paise (INR * 100)
-        amount_paise = int(round(amount * 100))
-        # receipt ≤ 40 chars
-        receipt = f"BT-{doc['ref'][-12:]}-{pid[:6]}"
-        try:
-            order = razorpay_client.order.create({
-                "amount": amount_paise,
-                "currency": "INR",
-                "receipt": receipt,
-                "payment_capture": 1,
-                "notes": {
-                    "booking_id": body.booking_id,
-                    "booking_ref": doc["ref"],
-                    "customer_id": user["id"],
-                    "artist_id": doc["artist_id"],
-                },
-            })
-        except Exception as e:
-            log.error(f"Razorpay order error: {e}")
-            raise HTTPException(502, f"Payment gateway error: {e}")
-
-        pay_doc.update({
-            "gateway": "razorpay",
-            "razorpay_order_id": order["id"],
-            "amount_paise": amount_paise,
-        })
-        await db.payments.insert_one(pay_doc)
-        return {
-            "payment_id": pid,
-            "amount": amount,
-            "amount_paise": amount_paise,
-            "gateway": "razorpay",
-            "razorpay": {
-                "order_id": order["id"],
-                "key_id": RAZORPAY_KEY_ID,
-                "currency": "INR",
-                "name": "BookTalent",
-                "description": f"Booking {doc['ref']}",
-                "prefill": {
-                    "name": doc.get("customer_name") or "",
-                    "email": doc.get("customer_email") or "",
-                    "contact": doc.get("customer_phone") or "",
-                },
-                "notes": {"booking_id": body.booking_id, "booking_ref": doc["ref"]},
-            },
-        }
-
-    # Mock fallback
-    pay_doc["gateway"] = "razorpay_mock"
-    await db.payments.insert_one(pay_doc)
-    return {
-        "payment_id": pid,
-        "amount": amount,
-        "gateway": "razorpay_mock",
-    }
-
-
-@api.post("/payments/verify")
-async def payment_verify(body: PaymentVerifyBody, user: dict = Depends(get_current_user)):
-    pay = await db.payments.find_one({"id": body.payment_id})
-    if not pay:
-        raise HTTPException(404, "Payment not found")
-    booking = await db.bookings.find_one({"id": body.booking_id})
-    if not booking:
-        raise HTTPException(404, "Booking not found")
-
-    is_live = pay.get("gateway") == "razorpay"
-    if is_live:
-        if not (body.razorpay_order_id and body.razorpay_payment_id and body.razorpay_signature):
-            raise HTTPException(400, "Missing Razorpay verification params")
-        # Verify signature: HMAC SHA256 of order_id|payment_id with key_secret
-        try:
-            razorpay_client.utility.verify_payment_signature({
-                "razorpay_order_id": body.razorpay_order_id,
-                "razorpay_payment_id": body.razorpay_payment_id,
-                "razorpay_signature": body.razorpay_signature,
-            })
-        except razorpay.errors.SignatureVerificationError:
-            await db.payments.update_one({"id": body.payment_id}, {"$set": {"status": "failed", "failure_reason": "signature_mismatch"}})
-            raise HTTPException(400, "Signature verification failed")
-        await db.payments.update_one(
-            {"id": body.payment_id},
-            {"$set": {
-                "status": "completed",
-                "razorpay_payment_id": body.razorpay_payment_id,
-                "razorpay_signature": body.razorpay_signature,
-                "verified_at": utcnow(),
-            }},
-        )
-    else:
-        # mock mode: accept OTP 123456
-        if body.mock_otp != "123456":
-            raise HTTPException(400, "Invalid OTP (use 123456 in test mode)")
-        await db.payments.update_one(
-            {"id": body.payment_id},
-            {"$set": {"status": "completed", "verified_at": utcnow()}},
-        )
-
-    # Update booking + start the 24-hour Artist Confirmation window
-    from datetime import timedelta as _td
-    _confirm_hours = int(os.environ.get("BOOKING_CONFIRM_WINDOW_HOURS", "24"))
-    expires_at = (datetime.now(timezone.utc) + _td(hours=_confirm_hours)).isoformat()
-    new_amount_paid = booking.get("amount_paid", 0) + pay["amount"]
-    await db.bookings.update_one(
-        {"id": body.booking_id},
-        {"$set": {"payment_status": "token_paid", "amount_paid": new_amount_paid,
-                  "status": "pending_artist",
-                  "expires_at": expires_at,
-                  "confirmation_deadline_hours": _confirm_hours},
-         "$push": {"history": {"at": utcnow(), "action": "paid_token", "by": user["id"], "amount": pay["amount"], "gateway": pay.get("gateway")}}},
-    )
-    # BookTalent (lead-generation model): the customer's payment is only the
-    # Platform Service Fee + GST — money owed to BookTalent. No artist wallet
-    # exists; the Artist Performance Fee is settled directly Customer ↔ Artist.
-    # Customer ledger (audit only)
-    await db.transactions.insert_one({
-        "id": new_id(), "user_id": user["id"], "type": "payment",
-        "amount": -pay["amount"], "status": "completed",
-        "description": f"Token paid for booking {booking['ref']}",
-        "booking_id": booking["id"], "gateway": pay.get("gateway"),
-        "created_at": utcnow(),
-    })
-    # Notify artist
-    await db.notifications.insert_one({
-        "id": new_id(), "user_id": booking["artist_id"], "type": "booking_request",
-        "title": "New paid booking request",
-        "body": f"₹{pay['amount']} token received for booking {booking['ref']}",
-        "read": False, "created_at": utcnow(),
-        "link": f"/dashboard/bookings/{booking['id']}",
-    })
-    # Iter 62 — Payment receipt email (mock-safe when RESEND_API_KEY empty).
-    try:
-        artist_p = await db.artist_profiles.find_one({"user_id": booking["artist_id"]}) or {}
-        artist_u = await db.users.find_one({"id": booking["artist_id"]}) or {}
-        artist_name = artist_p.get("stage_name") or f"{artist_u.get('first_name', '')} {artist_u.get('last_name', '')}".strip()
-        await send_payment_receipt_email(
-            to_email=booking.get("customer_email") or "",
-            name=booking.get("customer_name") or "",
-            booking_refs=[booking.get("ref", "")],
-            amount=float(pay.get("amount", 0) or 0),
-            txnid=body.razorpay_payment_id or pay.get("id", ""),
-            gateway=pay.get("gateway", "razorpay"),
-            easepayid=body.razorpay_payment_id or "",
-            artist_name=artist_name,
-            event_date=booking.get("event_date", ""),
-        )
-    except Exception as _e:
-        log.warning("Receipt email failed: %s", _e)
-    return {"ok": True, "status": "pending_artist", "booking_ref": booking["ref"], "gateway": pay.get("gateway")}
-
-
-@api.post("/payments/webhook")
-async def razorpay_webhook(request: Request):
-    """Razorpay webhook handler. Verifies signature and updates booking state."""
-    body = await request.body()
-    signature = request.headers.get("X-Razorpay-Signature", "")
-    if not RAZORPAY_ENABLED:
-        return {"ok": False, "reason": "razorpay_disabled"}
-    if not RAZORPAY_WEBHOOK_SECRET:
-        return {"ok": False, "reason": "webhook_secret_missing"}
-
-    expected = hmac.new(
-        RAZORPAY_WEBHOOK_SECRET.encode(), body, hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
-        raise HTTPException(400, "Invalid signature")
-
-    import json
-    try:
-        payload = json.loads(body.decode())
-    except Exception:
-        raise HTTPException(400, "Invalid JSON")
-
-    event = payload.get("event")
-    entity = payload.get("payload", {})
-    log.info(f"Razorpay webhook: {event}")
-
-    if event == "payment.captured":
-        payment_entity = entity.get("payment", {}).get("entity", {})
-        order_id = payment_entity.get("order_id")
-        if order_id:
-            await db.payments.update_one(
-                {"razorpay_order_id": order_id},
-                {"$set": {"webhook_captured_at": utcnow(), "webhook_event": event}},
-            )
-    elif event in ("payment.failed",):
-        payment_entity = entity.get("payment", {}).get("entity", {})
-        order_id = payment_entity.get("order_id")
-        if order_id:
-            await db.payments.update_one(
-                {"razorpay_order_id": order_id},
-                {"$set": {"status": "failed", "webhook_event": event, "failure_reason": payment_entity.get("error_description")}},
-            )
-
-    return {"ok": True, "event": event}
-
-
-@api.post("/payments/{payment_id}/refund")
-async def refund_payment(payment_id: str, body: dict, user: dict = Depends(admin_only)):
-    pay = await db.payments.find_one({"id": payment_id})
-    if not pay:
-        raise HTTPException(404, "Payment not found")
-    amount = float(body.get("amount") or pay["amount"])
-    if pay.get("gateway") == "razorpay" and pay.get("razorpay_payment_id") and RAZORPAY_ENABLED:
-        try:
-            refund = razorpay_client.payment.refund(pay["razorpay_payment_id"], {
-                "amount": int(round(amount * 100)),
-                "notes": {"reason": body.get("reason") or "admin_refund"},
-            })
-            await db.payments.update_one({"id": payment_id}, {"$set": {"refund_id": refund.get("id"), "refunded_at": utcnow(), "status": "refunded"}})
-        except Exception as e:
-            raise HTTPException(502, f"Refund failed: {e}")
-    else:
-        await db.payments.update_one({"id": payment_id}, {"$set": {"status": "refunded", "refunded_at": utcnow()}})
-
-    # Audit-only ledger row — the actual money-back happened via Razorpay above.
-    await db.transactions.insert_one({
-        "id": new_id(), "user_id": pay["user_id"], "type": "refund",
-        "amount": amount, "status": "completed",
-        "description": f"Refund processed for payment {payment_id}",
-        "created_at": utcnow(),
-    })
-    return {"ok": True, "amount": amount}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3317,10 +2919,10 @@ async def admin_delete_user(user_id: str, hard: bool = False, admin: dict = Depe
     return {"ok": True, "mode": "hard"}
 
 
-@api.get("/admin/refunds")
-async def admin_refunds(_: dict = Depends(require_permission("payments.view"))):
-    """Payments flagged for refund (booking cancelled/rejected). Admin
-    processes the actual Razorpay refund via /payments/{id}/refund."""
+@api.get("/admin/refunds/legacy-flagged")
+async def admin_refunds_legacy(_: dict = Depends(require_permission("payments.view"))):
+    """Legacy list of payments flagged for admin refund (razorpay_mock rows).
+    New auto-refunds are handled via /admin/refunds (routes/easebuzz.py)."""
     docs = await db.payments.find({"refund_pending": True, "status": "completed"}).sort("refund_flagged_at", -1).to_list(500)
     out = []
     for d in docs:
@@ -4017,6 +3619,9 @@ app.include_router(
     ),
     prefix="/api",
 )
+# Iter 64 — Wire refund context so booking action handlers can auto-refund
+# via the module-level `auto_refund_bookings` helper.
+set_refund_context(db=db, new_id=new_id, utcnow=utcnow)
 # City-alias admin management (Iter 35)
 app.include_router(
     routes_city_aliases.make_router(admin_only=admin_only, **_common_deps),

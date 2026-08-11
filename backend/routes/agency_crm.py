@@ -440,7 +440,7 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
 
         # Platform bookings revenue (agent commissions)
         # Reuse roster commission — we compute quickly from bookings collection.
-        roster = await db.agency_artists.find({"agency_id": aid}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": aid, "status": "active"}).to_list(500)
         artist_ids = [x["artist_id"] for x in roster]
         commission_map = {x["artist_id"]: float(x.get("commission_pct", 15)) for x in roster}
         platform_gross = 0.0
@@ -490,7 +490,7 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
     @r.get("/reports/artist-performance")
     async def artist_performance(user: dict = Depends(get_current_user)):
         aid = await _guard(user)
-        roster = await db.agency_artists.find({"agency_id": aid}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": aid, "status": "active"}).to_list(500)
         out = []
         for r_ in roster:
             gross = 0.0
@@ -515,7 +515,7 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
     @r.get("/reports/bookings")
     async def bookings_report(user: dict = Depends(get_current_user)):
         aid = await _guard(user)
-        roster = await db.agency_artists.find({"agency_id": aid}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": aid, "status": "active"}).to_list(500)
         artist_ids = [x["artist_id"] for x in roster]
         platform = []
         if artist_ids:
@@ -554,7 +554,7 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
             })
 
         # Platform bookings for roster artists
-        roster = await db.agency_artists.find({"agency_id": aid}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": aid, "status": "active"}).to_list(500)
         artist_ids = [x["artist_id"] for x in roster]
         if artist_ids:
             bq: dict = {"artist_id": {"$in": artist_ids}}
@@ -612,12 +612,12 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
         aid = await _guard(user)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        roster_count = await db.agency_artists.count_documents({"agency_id": aid})
+        roster_count = await db.agency_roster.count_documents({"agency_id": aid, "status": "active"})
         offline_artists = await db.agency_offline_artists.count_documents({"agency_id": aid})
         clients_count = await db.agency_clients.count_documents({"agency_id": aid})
         offline_events_upcoming = await db.agency_offline_events.count_documents({"agency_id": aid, "event_date": {"$gte": today}})
 
-        roster = await db.agency_artists.find({"agency_id": aid}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": aid, "status": "active"}).to_list(500)
         artist_ids = [x["artist_id"] for x in roster]
         pending_bookings = 0
         upcoming_platform = 0

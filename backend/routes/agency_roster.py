@@ -153,4 +153,92 @@ def make_roster_router(db: AsyncIOMotorDatabase, get_current_user):
         })
         return {"ok": True, "agency_id": agency_id}
 
+    # Iter 64 — Agency Artist Earnings.
+    # The Agency portal shows COMPLETE earnings history for every roster
+    # artist — including bookings that existed BEFORE the artist joined the
+    # agency, per user spec. No date-window filter on bookings.
+    @r.get("/agency/artist/{artist_id}/earnings")
+    async def agency_artist_earnings(artist_id: str, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("agency", "admin"):
+            raise HTTPException(403, "Agency access required")
+        if user.get("role") == "agency":
+            rel = await db.agency_roster.find_one({
+                "agency_id": user["id"], "artist_id": artist_id, "status": "active",
+            })
+            if not rel:
+                raise HTTPException(404, "Not an active artist in your roster")
+            commission_pct = float(rel.get("commission_pct", 15))
+        else:
+            rel = await db.agency_roster.find_one({"artist_id": artist_id, "status": "active"})
+            commission_pct = float((rel or {}).get("commission_pct", 15))
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        bookings: list = []
+        async for b in db.bookings.find({"artist_id": artist_id}).sort("event_date", -1):
+            p = b.get("pricing") or {}
+            artist_fee = float(p.get("artist_fee",
+                (p.get("package_fee", 0) or 0)
+                + (p.get("addons_total", 0) or 0)
+                - (p.get("coupon_discount", 0) or 0),
+            ))
+            platform_charges = float(p.get("platform_fee", 0) or 0) + float(p.get("gst", 0) or 0)
+            commission_amount = round(artist_fee * commission_pct / 100.0, 2)
+            # Refund info from linked payment(s) (Iter 64).
+            pay = await db.payments.find_one(
+                {"$or": [{"booking_id": b["id"]}, {"booking_ids": b["id"]}], "status": {"$in": ["completed", "refunded"]}},
+                {"_id": 0, "status": 1, "refund_status": 1, "refund_amount": 1, "refund_reason": 1},
+            )
+            bookings.append({
+                "id": b.get("id"),
+                "ref": b.get("ref"),
+                "customer_id": b.get("customer_id"),
+                "customer_name": b.get("customer_name"),
+                "event_date": b.get("event_date"),
+                "event_type": b.get("event_type"),
+                "venue": b.get("venue"),
+                "city": b.get("city"),
+                "status": b.get("status"),
+                "payment_status": b.get("payment_status"),
+                "amount_paid": float(b.get("amount_paid") or 0),
+                "artist_fee": artist_fee,
+                "platform_charges": round(platform_charges, 2),
+                "agency_commission": commission_amount,
+                "artist_net": round(artist_fee - commission_amount, 2),
+                "refund_status": (pay or {}).get("refund_status"),
+                "refund_amount": (pay or {}).get("refund_amount"),
+                "refund_reason": (pay or {}).get("refund_reason"),
+                "created_at": b.get("created_at"),
+            })
+
+        COMPLETED = {"completed", "reviewed"}
+        UPCOMING = {"confirmed", "pending_artist", "pending_payment", "started"}
+
+        completed_bookings = [x for x in bookings if x["status"] in COMPLETED]
+        upcoming_bookings = [x for x in bookings if x["status"] in UPCOMING and (x.get("event_date") or "") >= today]
+        confirmed_bookings = [x for x in bookings if x["status"] == "confirmed"]
+
+        totals = {
+            "total_earnings": round(sum(x["artist_fee"] for x in bookings if x["status"] not in ("rejected", "cancelled", "auto_expired")), 2),
+            "completed_earnings": round(sum(x["artist_fee"] for x in completed_bookings), 2),
+            "upcoming_earnings": round(sum(x["artist_fee"] for x in upcoming_bookings), 2),
+            "confirmed_booking_value": round(sum(x["artist_fee"] for x in confirmed_bookings), 2),
+            "agency_commission_earned": round(sum(x["agency_commission"] for x in completed_bookings), 2),
+            "completed_events": len(completed_bookings),
+            "upcoming_events": len(upcoming_bookings),
+            "confirmed_events": len(confirmed_bookings),
+            "commission_pct": commission_pct,
+        }
+
+        prof = await db.artist_profiles.find_one({"user_id": artist_id}) or {}
+        u = await db.users.find_one({"id": artist_id}) or {}
+        artist = {
+            "id": artist_id,
+            "stage_name": prof.get("stage_name"),
+            "name": f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or u.get("email"),
+            "category": prof.get("category"),
+            "city": prof.get("city"),
+            "email": u.get("email"),
+        }
+        return {"artist": artist, "totals": totals, "bookings": bookings}
+
     return r

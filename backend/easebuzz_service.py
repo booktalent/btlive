@@ -23,6 +23,9 @@ log = logging.getLogger(__name__)
 # Runtime always reads from Mongo, never from these constants.
 DEFAULT_SANDBOX_BASE_URL = "https://testpay.easebuzz.in"
 DEFAULT_LIVE_BASE_URL = "https://pay.easebuzz.in"
+# Refund API lives on the dashboard host, NOT the pay/checkout host.
+DEFAULT_SANDBOX_DASHBOARD_URL = "https://testdashboard.easebuzz.in"
+DEFAULT_LIVE_DASHBOARD_URL = "https://dashboard.easebuzz.in"
 
 _UDF_FIELDS = [f"udf{i}" for i in range(1, 11)]
 
@@ -120,6 +123,52 @@ async def retrieve_txn(base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]
         return r.json()
     except Exception:
         return {"status": 0, "raw": r.text}
+
+
+def build_refund_hash(payload: Dict[str, Any], salt: str) -> str:
+    """Refund hash sequence: `key|txnid|amount|refund_amount|email|phone|salt`."""
+    parts = [
+        str(payload.get("key", "")),
+        str(payload.get("txnid", "")),
+        str(payload.get("amount", "")),
+        str(payload.get("refund_amount", "")),
+        str(payload.get("email", "")),
+        str(payload.get("phone", "")),
+        salt,
+    ]
+    return _sha512_lower("|".join(parts))
+
+
+def dashboard_url_for(base_url: str) -> str:
+    """Given a pay/checkout base_url, return the corresponding dashboard host
+    used by the Refund + Refund-Status APIs."""
+    if not base_url:
+        return DEFAULT_LIVE_DASHBOARD_URL
+    if "testpay" in base_url or "test" in base_url:
+        return DEFAULT_SANDBOX_DASHBOARD_URL
+    return DEFAULT_LIVE_DASHBOARD_URL
+
+
+async def refund_txn(dashboard_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """POST JSON payload to `{dashboard}/transaction/v1/refund`.
+
+    Payload must include: key, txnid (original easebuzz txnid), amount
+    (original payment amount as float), refund_amount, email, phone, hash.
+    Returns Easebuzz response — success looks like:
+        {"status": true, "refund_amount": N, "easebuzz_id": "...",
+         "refund_id": "RU...", "reason": "Refund initiated..."}
+    """
+    url = dashboard_url.rstrip("/") + "/transaction/v1/refund"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+    try:
+        return r.json()
+    except Exception:
+        return {"status": False, "raw": r.text, "http_status": r.status_code}
 
 
 def default_settings_document() -> Dict[str, Any]:

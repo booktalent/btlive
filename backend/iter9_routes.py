@@ -687,8 +687,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             "whatsapp_gupshup": {"live": has("WHATSAPP_TOKEN", "WHATSAPP_FROM"),
                                  "env_keys": ["WHATSAPP_TOKEN", "WHATSAPP_FROM"]},
             "push_fcm": {"live": has("FCM_SERVER_KEY"), "env_keys": ["FCM_SERVER_KEY"]},
-            "razorpay": {"live": has("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET"),
-                         "env_keys": ["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET"]},
+            "easebuzz": {"live": True, "env_keys": ["payment_gateway_settings (DB)"]},
             "stripe": {"live": has("STRIPE_SECRET_KEY"), "env_keys": ["STRIPE_SECRET_KEY"]},
         }
 

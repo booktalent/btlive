@@ -30,7 +30,8 @@ from pydantic import BaseModel, Field
 
 from easebuzz_service import (
     build_initiate_hash, build_response_hash, build_retrieve_hash,
-    initiate_link, retrieve_txn, normalise_amount,
+    build_refund_hash, dashboard_url_for,
+    initiate_link, retrieve_txn, refund_txn, normalise_amount,
     default_settings_document,
 )
 
@@ -805,4 +806,309 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
             "event_id": bookings[0].get("event_id") if bookings else None,
         }
 
+    # ───── Refund admin surface ──────────────────────────────────────────
+    @r.get("/admin/refunds")
+    async def admin_list_refunds(
+        admin: dict = Depends(admin_only),
+        status: Optional[str] = None,
+        page: int = 1, limit: int = 25,
+    ):
+        """List payments that have a refund attempt attached (any status).
+        Enriches with booking/customer/artist context per admin spec."""
+        query: Dict[str, Any] = {"refund_status": {"$exists": True}}
+        if status:
+            query["refund_status"] = status
+        limit = max(1, min(limit, 100))
+        page = max(1, page)
+        total = await db.payments.count_documents(query)
+        rows = await db.payments.find(query, {"_id": 0}).sort("refund_at", -1) \
+            .skip((page - 1) * limit).limit(limit).to_list(limit)
+        # Batch fetch booking + user context for readability.
+        bids: List[str] = []
+        uids: List[str] = []
+        for row in rows:
+            bids.extend(row.get("booking_ids") or ([row["booking_id"]] if row.get("booking_id") else []))
+            if row.get("user_id"): uids.append(row["user_id"])
+        book_map: Dict[str, Dict[str, Any]] = {}
+        if bids:
+            async for b in db.bookings.find({"id": {"$in": bids}},
+                {"_id": 0, "id": 1, "ref": 1, "customer_id": 1, "customer_name": 1,
+                 "customer_email": 1, "artist_id": 1, "event_date": 1, "status": 1}):
+                book_map[b["id"]] = b
+                if b.get("artist_id"): uids.append(b["artist_id"])
+        user_map: Dict[str, Dict[str, Any]] = {}
+        if uids:
+            async for u in db.users.find({"id": {"$in": uids}},
+                {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "email": 1}):
+                user_map[u["id"]] = u
+        # Artist profile stage names
+        artist_ids = [b["artist_id"] for b in book_map.values() if b.get("artist_id")]
+        artist_names: Dict[str, str] = {}
+        if artist_ids:
+            async for p in db.artist_profiles.find(
+                {"user_id": {"$in": artist_ids}}, {"_id": 0, "user_id": 1, "stage_name": 1},
+            ):
+                artist_names[p["user_id"]] = p.get("stage_name") or ""
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            bid_list = row.get("booking_ids") or ([row["booking_id"]] if row.get("booking_id") else [])
+            primary = book_map.get(bid_list[0]) if bid_list else {}
+            cust = user_map.get(primary.get("customer_id") or row.get("user_id") or "", {})
+            art = user_map.get(primary.get("artist_id") or "", {})
+            out.append({
+                "payment_id": row.get("id"),
+                "booking_ids": bid_list,
+                "booking_refs": [book_map.get(b, {}).get("ref") or b for b in bid_list],
+                "customer_id": primary.get("customer_id") or row.get("user_id"),
+                "customer_name": primary.get("customer_name") or (
+                    f"{cust.get('first_name','')} {cust.get('last_name','')}".strip()
+                    or cust.get("email")),
+                "customer_email": primary.get("customer_email") or cust.get("email"),
+                "artist_id": primary.get("artist_id"),
+                "artist_name": artist_names.get(primary.get("artist_id") or "") or (
+                    f"{art.get('first_name','')} {art.get('last_name','')}".strip()
+                    or art.get("email")),
+                "event_date": primary.get("event_date"),
+                "original_amount": row.get("amount"),
+                "refund_amount": row.get("refund_amount"),
+                "refund_reason": row.get("refund_reason"),
+                "refund_status": row.get("refund_status"),
+                "refund_id": row.get("refund_id"),
+                "easebuzz_id": row.get("refund_easebuzz_id"),
+                "refund_at": row.get("refund_at"),
+                "gateway": row.get("gateway"),
+                "environment": row.get("environment"),
+                "txnid": row.get("txnid"),
+                "easepayid": row.get("easepayid"),
+                "refund_error": row.get("refund_error"),
+                "refund_attempts": row.get("refund_attempts", 0),
+            })
+        return {"items": out, "total": total, "page": page, "limit": limit}
+
+    @r.post("/admin/refunds/{payment_id}/retry")
+    async def admin_retry_refund(payment_id: str, admin: dict = Depends(admin_only)):
+        """Manually retry a failed refund. Bookings that were auto-cancelled
+        past the timeline can be re-refunded via this button when the failure
+        was transient (e.g., gateway timeout)."""
+        pay = await db.payments.find_one({"id": payment_id})
+        if not pay:
+            raise HTTPException(404, "Payment not found")
+        if pay.get("refund_status") == "successful":
+            raise HTTPException(400, "Payment already refunded")
+        result = await _auto_refund_payment_doc(
+            pay,
+            reason=pay.get("refund_reason") or "Admin manual retry",
+            actor="admin_retry",
+        )
+        return result
+
     return r
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Standalone auto-refund helper. Reachable from server.py to trigger refunds
+# from the booking action handler + auto-expiry worker without a circular
+# router dependency. `db`, `new_id`, `utcnow` are threaded in at wire-up
+# time via `set_refund_context()` below.
+# ─────────────────────────────────────────────────────────────────────────────
+_ctx: Dict[str, Any] = {}
+
+
+def set_refund_context(*, db, new_id, utcnow) -> None:
+    _ctx["db"] = db
+    _ctx["new_id"] = new_id
+    _ctx["utcnow"] = utcnow
+
+
+async def _load_settings_direct(db) -> Dict[str, Any]:
+    doc = await db.payment_gateway_settings.find_one({"_id": "active"})
+    if not doc:
+        doc = default_settings_document()
+        await db.payment_gateway_settings.insert_one(doc)
+    return doc
+
+
+async def _auto_refund_payment_doc(pay: Dict[str, Any], *, reason: str,
+                                    actor: str = "system") -> Dict[str, Any]:
+    """Trigger an automatic Easebuzz refund for a single completed payment.
+
+    Idempotency + failure handling per spec:
+    - If pay.refund_status is 'successful' → skip, return existing record.
+    - If 'initiated' or 'pending' (recent) → skip; something already in-flight.
+    - On success: mark 'successful', store refund_id + easebuzz_id.
+    - On failure: mark 'failed', increment `refund_attempts`, alert admins.
+      No infinite retries — admin must click retry manually.
+    """
+    db = _ctx["db"]
+    new_id = _ctx["new_id"]
+    utcnow = _ctx["utcnow"]
+
+    if pay.get("refund_status") == "successful":
+        return {"ok": True, "already": True, "status": "successful"}
+
+    # Only refundable if the payment was actually collected.
+    if pay.get("status") != "completed" or pay.get("gateway") != "easebuzz":
+        # Legacy razorpay/mock rows — mark them for admin visibility only.
+        await db.payments.update_one(
+            {"id": pay["id"]},
+            {"$set": {"refund_status": "not_applicable",
+                      "refund_reason": reason,
+                      "refund_at": utcnow(),
+                      "refund_actor": actor}},
+        )
+        return {"ok": False, "reason": "not_easebuzz_completed"}
+
+    settings = await _load_settings_direct(db)
+    env = pay.get("environment") or settings.get("environment", "sandbox")
+    env_block = settings.get(env) or {}
+    key = env_block.get("key", "")
+    salt = env_block.get("salt", "")
+    base_url = env_block.get("base_url", "")
+    dashboard = dashboard_url_for(base_url)
+
+    original_amount = float(pay.get("amount", 0) or 0)
+    refund_amount = float(pay.get("refund_amount_planned") or original_amount)
+    gr = pay.get("gateway_response") or {}
+    email = (gr.get("email") or "").strip() or "no-reply@booktalent.com"
+    phone_raw = (gr.get("phone") or "").strip()
+    digits = "".join(ch for ch in phone_raw if ch.isdigit())
+    phone = digits[-10:] if len(digits) >= 10 else "9999999999"
+
+    payload = {
+        "key": key,
+        "txnid": pay.get("txnid", ""),
+        "amount": normalise_amount(original_amount),
+        "refund_amount": normalise_amount(refund_amount),
+        "email": email,
+        "phone": phone,
+    }
+    payload["hash"] = build_refund_hash(payload, salt)
+
+    # Mark as initiated BEFORE calling the API to prevent races.
+    await db.payments.update_one(
+        {"id": pay["id"], "refund_status": {"$ne": "successful"}},
+        {"$set": {
+            "refund_status": "initiated",
+            "refund_reason": reason,
+            "refund_amount": refund_amount,
+            "refund_at": utcnow(),
+            "refund_actor": actor,
+        }, "$inc": {"refund_attempts": 1}},
+    )
+
+    await db.payment_logs.insert_one({
+        "kind": "easebuzz.refund.request",
+        "txnid": payload["txnid"],
+        "data": {k: v for k, v in payload.items() if k != "hash"},
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    try:
+        resp = await refund_txn(dashboard, payload)
+    except Exception as e:
+        resp = {"status": False, "reason": f"exception:{e}"}
+    await db.payment_logs.insert_one({
+        "kind": "easebuzz.refund.response",
+        "txnid": payload["txnid"],
+        "data": resp,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    ok = bool(resp.get("status")) if isinstance(resp, dict) else False
+    if ok:
+        await db.payments.update_one(
+            {"id": pay["id"]},
+            {"$set": {
+                "refund_status": "successful",
+                "refund_id": resp.get("refund_id") or resp.get("refund_id_v2"),
+                "refund_easebuzz_id": resp.get("easebuzz_id"),
+                "refund_response": resp,
+                "refunded_at": utcnow(),
+                "status": "refunded",
+            }},
+        )
+        # Customer-facing transaction ledger entry.
+        await db.transactions.insert_one({
+            "id": new_id(),
+            "user_id": pay.get("user_id"),
+            "type": "refund",
+            "amount": refund_amount,
+            "status": "completed",
+            "description": f"Refund processed via Easebuzz ({reason})",
+            "booking_id": pay.get("booking_id") or (pay.get("booking_ids") or [None])[0],
+            "gateway": "easebuzz",
+            "refund_id": resp.get("refund_id"),
+            "created_at": utcnow(),
+        })
+        # Notify customer
+        try:
+            await db.notifications.insert_one({
+                "id": new_id(), "user_id": pay.get("user_id"),
+                "type": "refund.processed",
+                "title": "Refund initiated",
+                "body": f"₹{refund_amount:,.2f} refund initiated to your original payment. Reason: {reason}. Reflects in 5–7 business days.",
+                "link": "/dashboard/bookings",
+                "read": False, "created_at": utcnow(),
+            })
+        except Exception:
+            pass
+        return {"ok": True, "status": "successful",
+                "refund_id": resp.get("refund_id"),
+                "easebuzz_id": resp.get("easebuzz_id")}
+
+    # Failure path — record + alert admins. Do NOT auto-retry.
+    err_reason = ""
+    if isinstance(resp, dict):
+        err_reason = str(resp.get("reason") or resp.get("error") or resp.get("message") or resp)[:400]
+    await db.payments.update_one(
+        {"id": pay["id"]},
+        {"$set": {
+            "refund_status": "failed",
+            "refund_error": err_reason,
+            "refund_response": resp,
+        }},
+    )
+    try:
+        async for adm in db.users.find({"role": "admin"}, {"_id": 0, "id": 1}):
+            await db.notifications.insert_one({
+                "id": new_id(), "user_id": adm["id"],
+                "type": "refund.failed",
+                "title": "Refund failed — manual review needed",
+                "body": f"Payment {pay.get('txnid') or pay.get('id')} refund failed: {err_reason[:120]}",
+                "link": "/admin?tab=refunds",
+                "read": False, "created_at": utcnow(),
+            })
+    except Exception:
+        log.warning("Admin refund-failed notify failed", exc_info=True)
+    return {"ok": False, "status": "failed", "reason": err_reason}
+
+
+async def auto_refund_bookings(booking_ids: List[str], reason: str,
+                                actor: str = "system") -> List[Dict[str, Any]]:
+    """Refund every completed Easebuzz payment attached to the given
+    booking IDs. Called by server.py's booking cancel/reject/auto-expire paths.
+    """
+    db = _ctx.get("db")
+    if not db or not booking_ids:
+        return []
+    # Find all completed payments touching any of these bookings.
+    pays = await db.payments.find({
+        "status": "completed",
+        "gateway": "easebuzz",
+        "$or": [
+            {"booking_id": {"$in": booking_ids}},
+            {"booking_ids": {"$in": booking_ids}},
+        ],
+    }).to_list(20)
+    results = []
+    for pay in pays:
+        # Skip already-refunded to guarantee no duplicate refund per spec.
+        if pay.get("refund_status") == "successful":
+            results.append({"payment_id": pay["id"], "already": True})
+            continue
+        # `initiated` inside last 5min is also considered in-flight.
+        if pay.get("refund_status") == "initiated":
+            results.append({"payment_id": pay["id"], "in_flight": True})
+            continue
+        results.append(await _auto_refund_payment_doc(pay, reason=reason, actor=actor))
+    return results

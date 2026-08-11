@@ -365,41 +365,52 @@ function AdminKYC({ toast }) {
 }
 
 function AdminRefunds({ toast }) {
-  const [list, setList] = useState([]);
+  const [list, setList] = useState({ items: [] });
   const [busy, setBusy] = useState(null);
-  const reload = () => api.get("/admin/refunds").then(r => setList(r.data)).catch(() => {});
+  const reload = () => api.get("/admin/refunds")
+    .then(r => setList(r.data || { items: [] }))
+    .catch(() => setList({ items: [] }));
   useEffect(() => { reload(); }, []);
-  const processRefund = async (paymentId) => {
-    if (!window.confirm("Process refund via Razorpay for this payment?")) return;
+  const retryRefund = async (paymentId) => {
+    if (!window.confirm("Retry Easebuzz refund for this payment?")) return;
     setBusy(paymentId);
     try {
-      await api.post(`/payments/${paymentId}/refund`, { reason: "admin_dispute_refund" });
-      toast("Refund initiated");
+      const r = await api.post(`/admin/refunds/${paymentId}/retry`);
+      toast(r.data?.ok ? "Refund succeeded" : (r.data?.reason || "Attempt made"),
+            r.data?.ok ? "success" : "warn");
       reload();
-    } catch (e) { toast(e?.response?.data?.detail || "Refund failed", "error"); }
+    } catch (e) { toast(e?.response?.data?.detail || "Refund retry failed", "error"); }
     setBusy(null);
   };
+  const items = list.items || [];
   return (
     <div className="card" data-testid="admin-refunds">
       <div className="card-head">
-        <div className="card-title">↩️ Platform Fee Refunds ({list.length})</div>
-        <div className="text-muted fs-12">Bookings cancelled/rejected — refund the Platform Service Fee via Razorpay.</div>
+        <div className="card-title">↩️ Automatic Refunds ({items.length})</div>
+        <div className="text-muted fs-12">Refunds are triggered automatically via Easebuzz when bookings are rejected, cancelled or expire. No manual processing needed.</div>
       </div>
       <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>Customer</th><th>Amount</th><th>Flagged</th><th>Reason</th><th>Actions</th></tr></thead>
+          <thead><tr><th>When</th><th>Customer</th><th>Artist</th><th>Amount</th><th>Reason</th><th>Status</th><th>Ref</th><th></th></tr></thead>
           <tbody>
-            {list.length === 0 && <tr><td colSpan={5} className="empty">No refunds pending</td></tr>}
-            {list.map((w) => (
-              <tr key={w.id} data-testid={`refund-${w.id}`}>
-                <td>{w.user?.first_name} {w.user?.last_name}<div className="text-muted fs-11">{w.user?.email}</div></td>
-                <td className="text-gold font-serif fs-16 fw-700">{fmtINRFull(w.amount || 0)}</td>
-                <td className="text-muted fs-12">{w.refund_flagged_at?.slice(0, 10)}</td>
-                <td className="fs-12">{w.refund_note || "—"}</td>
+            {items.length === 0 && <tr><td colSpan={8} className="empty">No refunds yet</td></tr>}
+            {items.map((w) => (
+              <tr key={w.payment_id} data-testid={`refund-${w.payment_id}`}>
+                <td className="text-muted fs-12">{(w.refund_at || "").slice(0, 16).replace("T", " ")}</td>
+                <td>{w.customer_name || "—"}<div className="text-muted fs-11">{w.customer_email || ""}</div></td>
+                <td className="fs-12">{w.artist_name || "—"}</td>
+                <td className="text-gold font-serif fs-14 fw-700">{fmtINRFull(w.refund_amount || 0)}</td>
+                <td className="fs-11">{w.refund_reason || "—"}</td>
+                <td className="fs-12" style={{ textTransform: "capitalize" }}>{(w.refund_status || "—").replace(/_/g, " ")}</td>
+                <td><code className="fs-11">{w.refund_id || w.easebuzz_id || "—"}</code></td>
                 <td>
-                  <button className="btn btn-green btn-xs" disabled={busy === w.id} onClick={() => processRefund(w.id)} data-testid={`process-refund-${w.id}`}>
-                    {busy === w.id ? "Processing…" : "Process Refund"}
-                  </button>
+                  {w.refund_status === "failed" && (
+                    <button className="btn btn-green btn-xs" disabled={busy === w.payment_id}
+                      onClick={() => retryRefund(w.payment_id)}
+                      data-testid={`process-refund-${w.payment_id}`}>
+                      {busy === w.payment_id ? "Processing…" : "Retry"}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

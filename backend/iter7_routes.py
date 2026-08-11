@@ -106,7 +106,7 @@ class BoostPackageBody(BaseModel):
 
 class BoostPurchaseBody(BaseModel):
     package_id: str
-    payment_method: Literal["razorpay", "stripe", "paypal", "mock"] = "mock"
+    payment_method: Literal["easebuzz", "mock"] = "mock"
     payment_ref: Optional[str] = None
 
 

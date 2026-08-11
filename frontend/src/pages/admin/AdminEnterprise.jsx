@@ -862,7 +862,7 @@ export function AdminProviders({ toast }) {
     { key: "sms_twilio", label: "📱 SMS (Twilio)", info: "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM" },
     { key: "whatsapp_gupshup", label: "💬 WhatsApp (Gupshup/Meta)", info: "WHATSAPP_TOKEN, WHATSAPP_FROM" },
     { key: "push_fcm", label: "🔔 Push (FCM)", info: "FCM_SERVER_KEY" },
-    { key: "razorpay", label: "💳 Payments (Razorpay)", info: "RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET" },
+    { key: "easebuzz", label: "💳 Payments (Easebuzz)", info: "Configured from Admin → Payment Settings" },
     { key: "stripe", label: "💳 Payments (Stripe)", info: "STRIPE_SECRET_KEY" },
   ] : [];
 

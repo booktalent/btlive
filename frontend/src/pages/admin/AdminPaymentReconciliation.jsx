@@ -35,6 +35,8 @@ export default function AdminPaymentReconciliation({ toast }) {
   const [logFilters, setLogFilters] = useState({ txnid: "", kind: "" });
   const [payments, setPayments] = useState({ items: [], total: 0, page: 1, limit: 25 });
   const [logs, setLogs] = useState({ items: [], total: 0, page: 1, limit: 50 });
+  const [refundFilter, setRefundFilter] = useState("");
+  const [refunds, setRefunds] = useState({ items: [], total: 0, page: 1, limit: 25 });
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null); // txnid opened in drawer
 
@@ -70,6 +72,29 @@ export default function AdminPaymentReconciliation({ toast }) {
       .then((r) => setLogs(r.data))
       .catch(() => toast("Failed to load logs", "error"))
       .finally(() => setLoading(false));
+  };
+
+  const loadRefunds = (page = 1) => {
+    setLoading(true);
+    const p = new URLSearchParams();
+    if (refundFilter) p.set("status", refundFilter);
+    p.set("page", page);
+    p.set("limit", 25);
+    api.get(`/admin/refunds?${p}`)
+      .then((r) => setRefunds(r.data))
+      .catch(() => toast("Failed to load refunds", "error"))
+      .finally(() => setLoading(false));
+  };
+
+  const retryRefund = async (payment_id) => {
+    if (!window.confirm("Retry Easebuzz refund for this payment?")) return;
+    try {
+      const r = await api.post(`/admin/refunds/${payment_id}/retry`);
+      toast(r.data?.ok ? "Refund succeeded" : (r.data?.reason || "Refund attempt made"), r.data?.ok ? "success" : "warn");
+      loadRefunds(refunds.page);
+    } catch (e) {
+      toast(e?.response?.data?.detail || "Refund retry failed", "error");
+    }
   };
 
   useEffect(() => {
@@ -112,6 +137,7 @@ export default function AdminPaymentReconciliation({ toast }) {
       {/* Tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <TabBtn active={tab === "payments"} onClick={() => setTab("payments")} testId="tab-payments">Payments</TabBtn>
+        <TabBtn active={tab === "refunds"} onClick={() => { setTab("refunds"); if (!refunds.items.length) loadRefunds(1); }} testId="tab-refunds">Refunds</TabBtn>
         <TabBtn active={tab === "logs"} onClick={() => { setTab("logs"); if (!logs.items.length) loadLogs(1); }} testId="tab-logs">Raw Logs</TabBtn>
       </div>
 
@@ -126,8 +152,8 @@ export default function AdminPaymentReconciliation({ toast }) {
                 data-testid="filter-gateway">
                 <option value="">All</option>
                 <option value="easebuzz">Easebuzz</option>
-                <option value="razorpay">Razorpay (Live)</option>
-                <option value="razorpay_mock">Razorpay (Mock)</option>
+                <option value="razorpay">Razorpay (Legacy)</option>
+                <option value="razorpay_mock">Razorpay (Legacy Mock)</option>
               </select>
             </label>
             <label className="stack" style={{ minWidth: 160 }}>
@@ -213,6 +239,86 @@ export default function AdminPaymentReconciliation({ toast }) {
           </div>
 
           <Pagination page={payments.page} total={payments.total} limit={payments.limit} onGo={(p) => loadPayments(p)} />
+        </>
+      )}
+
+      {tab === "refunds" && (
+        <>
+          <div className="card" style={{ padding: 16, marginBottom: 16, display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <label className="stack" style={{ minWidth: 200 }}>
+              <span>Refund Status</span>
+              <select className="input" value={refundFilter}
+                onChange={(e) => setRefundFilter(e.target.value)}
+                data-testid="filter-refund-status">
+                <option value="">All</option>
+                <option value="successful">Successful</option>
+                <option value="initiated">Initiated</option>
+                <option value="failed">Failed</option>
+                <option value="not_applicable">Not applicable (legacy)</option>
+              </select>
+            </label>
+            <button className="btn btn-primary" onClick={() => loadRefunds(1)} data-testid="btn-load-refunds">Apply</button>
+          </div>
+
+          <div className="card" style={{ padding: 0, overflow: "auto" }}>
+            <table className="table" style={{ width: "100%", minWidth: 1200 }} data-testid="refunds-table">
+              <thead>
+                <tr>
+                  <th>Refund Date</th>
+                  <th>Booking</th>
+                  <th>Customer</th>
+                  <th>Artist</th>
+                  <th>Original Paid</th>
+                  <th>Refund Amount</th>
+                  <th>Reason</th>
+                  <th>Status</th>
+                  <th>Refund Ref</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {refunds.items.map((r) => (
+                  <tr key={r.payment_id} data-testid={`refund-row-${r.payment_id}`}>
+                    <td style={{ fontSize: 12 }}>{fmtDate(r.refund_at)}</td>
+                    <td>
+                      {(r.booking_refs || []).map((br) => (
+                        <code key={br} style={{ display: "block", fontSize: 11 }}>{br}</code>
+                      ))}
+                      <span style={{ fontSize: 10, color: "#9ca3af" }}>{r.event_date || ""}</span>
+                    </td>
+                    <td style={{ fontSize: 12 }}>
+                      {r.customer_name || "—"}
+                      <div style={{ fontSize: 10, color: "#9ca3af" }}>{r.customer_email || ""}</div>
+                    </td>
+                    <td style={{ fontSize: 12 }}>{r.artist_name || "—"}</td>
+                    <td>{fmtINR(r.original_amount)}</td>
+                    <td>{fmtINR(r.refund_amount)}</td>
+                    <td style={{ fontSize: 12, maxWidth: 220 }}>{r.refund_reason || "—"}</td>
+                    <td><RefundPill status={r.refund_status} /></td>
+                    <td style={{ fontSize: 11 }}>
+                      {r.refund_id && <div><code>{r.refund_id}</code></div>}
+                      {r.easebuzz_id && <div style={{ color: "#9ca3af" }}><code>{r.easebuzz_id}</code></div>}
+                      {r.refund_error && (
+                        <div style={{ color: "#f87171", fontSize: 10 }}>{r.refund_error.slice(0, 80)}</div>
+                      )}
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      {r.refund_status === "failed" && (
+                        <button className="btn btn-secondary btn-sm" onClick={() => retryRefund(r.payment_id)}
+                          data-testid={`btn-retry-refund-${r.payment_id}`}>Retry</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!refunds.items.length && !loading && (
+                  <tr><td colSpan={10} style={{ textAlign: "center", padding: 32, color: "#6b7280" }}>
+                    No refunds yet. Refunds are triggered automatically when a booking is rejected, cancelled or expires without artist confirmation.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={refunds.page} total={refunds.total} limit={refunds.limit} onGo={(p) => loadRefunds(p)} />
         </>
       )}
 
@@ -307,6 +413,23 @@ const StatusPill = ({ status }) => {
       padding: "3px 10px", borderRadius: 999, background: t.bg, color: t.fg,
       fontSize: 12, fontWeight: 600, textTransform: "capitalize",
     }} data-testid={`status-${status}`}>{status || "—"}</span>
+  );
+};
+
+const REFUND_TONES = {
+  successful: { bg: "#dcfce7", fg: "#166534" },
+  initiated: { bg: "#fef3c7", fg: "#92400e" },
+  failed: { bg: "#fee2e2", fg: "#991b1b" },
+  not_applicable: { bg: "#e5e7eb", fg: "#4b5563" },
+};
+
+const RefundPill = ({ status }) => {
+  const t = REFUND_TONES[status] || { bg: "#e5e7eb", fg: "#374151" };
+  return (
+    <span style={{
+      padding: "3px 10px", borderRadius: 999, background: t.bg, color: t.fg,
+      fontSize: 12, fontWeight: 600, textTransform: "capitalize",
+    }} data-testid={`refund-status-${status}`}>{(status || "—").replace(/_/g, " ")}</span>
   );
 };
 
