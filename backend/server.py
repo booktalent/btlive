@@ -345,6 +345,9 @@ class RegisterBody(BaseModel):
     # right after user creation and flag the artist profile as
     # category_pending=true.
     category_request: Optional[dict] = None
+    # Iter 67 — Same idea for city: when the artist's city isn't in
+    # cities_master yet, save a `city_requests` row for admin review.
+    city_request: Optional[dict] = None
     # agency / corporate
     company_name: Optional[str] = None
 
@@ -633,13 +636,20 @@ async def register(body: RegisterBody, response: Response):
         category_pending = bool(cat_req and cat_req.get("name"))
         pending_req_id = new_id() if category_pending else None
 
+        # Iter 67 — Same for city: use requested city as placeholder if
+        # provided.
+        city_req = body.city_request if isinstance(body.city_request, dict) else None
+        placeholder_city = (city_req.get("name") if city_req else body.city) or ""
+        city_pending = bool(city_req and city_req.get("name"))
+        pending_city_req_id = new_id() if city_pending else None
+
         await db.artist_profiles.insert_one({
             "id": new_id(),
             "user_id": uid,
             "stage_name": f"{body.first_name} {body.last_name}".strip(),
             "category": placeholder_category,
             "subcategories": [],
-            "city": body.city or "",
+            "city": placeholder_city,
             "state": "",
             "country": "India",
             "bio": "",
@@ -666,6 +676,9 @@ async def register(body: RegisterBody, response: Response):
             "category_pending": category_pending,
             "pending_category_id": pending_req_id,
             "pending_category_name": placeholder_category if category_pending else None,
+            "city_pending": city_pending,
+            "pending_city_id": pending_city_req_id,
+            "pending_city_name": placeholder_city if city_pending else None,
             "created_at": now,
             "updated_at": now,
         })
@@ -677,7 +690,7 @@ async def register(body: RegisterBody, response: Response):
                 "artist_name": f"{body.first_name} {body.last_name}".strip() or email,
                 "artist_email": email,
                 "stage_name": f"{body.first_name} {body.last_name}".strip(),
-                "city": body.city or "",
+                "city": placeholder_city or (body.city or ""),
                 "requested_name": (cat_req.get("name") or "").strip(),
                 "requested_slug": _cat_req_slug(cat_req.get("name") or ""),
                 "description": (cat_req.get("description") or "").strip(),
@@ -695,6 +708,38 @@ async def register(body: RegisterBody, response: Response):
                         "title": "New Artist Category request",
                         "body": f"{req_doc['artist_name']} requested '{req_doc['requested_name']}' at signup.",
                         "link": f"/admin?tab=category-requests&highlight={pending_req_id}",
+                        "read": False, "created_at": now,
+                    })
+            except Exception:
+                pass
+
+        # Iter 67 — City request row (mirror of category).
+        if city_pending:
+            city_doc = {
+                "id": pending_city_req_id,
+                "artist_id": uid,
+                "artist_name": f"{body.first_name} {body.last_name}".strip() or email,
+                "artist_email": email,
+                "stage_name": f"{body.first_name} {body.last_name}".strip(),
+                "category": placeholder_category,
+                "requested_name": (city_req.get("name") or "").strip(),
+                "requested_slug": _cat_req_slug(city_req.get("name") or ""),
+                "state": (city_req.get("state") or "").strip(),
+                "country": (city_req.get("country") or "India").strip(),
+                "description": (city_req.get("description") or "").strip(),
+                "reason": (city_req.get("reason") or "").strip(),
+                "status": "pending",
+                "created_at": now,
+            }
+            await db.city_requests.insert_one(city_doc)
+            try:
+                async for adm in db.users.find({"role": "admin"}, {"_id": 0, "id": 1}):
+                    await db.notifications.insert_one({
+                        "id": new_id(), "user_id": adm["id"],
+                        "type": "city.request",
+                        "title": "New Artist City request",
+                        "body": f"{city_doc['artist_name']} requested '{city_doc['requested_name']}' at signup.",
+                        "link": f"/admin?tab=city-requests&highlight={pending_city_req_id}",
                         "read": False, "created_at": now,
                     })
             except Exception:
@@ -3611,6 +3656,15 @@ app.include_router(make_roster_router(db, get_current_user), prefix="/api")
 from routes.category_requests import make_category_requests_router  # noqa: E402
 app.include_router(
     make_category_requests_router(
+        db=db, get_current_user=get_current_user, admin_only=admin_only, new_id=new_id,
+    ),
+    prefix="/api",
+)
+
+# Iter 67 — Artist city-request workflow (mirror of category requests).
+from routes.city_requests import make_city_requests_router  # noqa: E402
+app.include_router(
+    make_city_requests_router(
         db=db, get_current_user=get_current_user, admin_only=admin_only, new_id=new_id,
     ),
     prefix="/api",

@@ -15,6 +15,7 @@ import AdminOutstationReport from "./admin/AdminOutstationReport";
 import AdminQuestionEditor from "./admin/AdminQuestionEditor";
 import AdminSubscriptions from "./admin/AdminSubscriptions";
 import AdminCategoryRequests from "./admin/AdminCategoryRequests";
+import AdminCityRequests from "./admin/AdminCityRequests";
 import AdminAdmins from "./admin/AdminAdmins";
 import AdminPaymentGateway from "./admin/AdminPaymentGateway";
 import AdminPaymentReconciliation from "./admin/AdminPaymentReconciliation";
@@ -29,6 +30,7 @@ const SIDEBAR = [
   { id: "concierge",        label: "🎩 Concierge",             perm: "bookings.view" },
   { id: "kyc",              label: "🪪 KYC Queue",             perm: "artists.moderate" },
   { id: "category-requests", label: "🎼 Category Requests",     perm: "artists.moderate" },
+  { id: "city-requests",    label: "📍 City Requests",         perm: "artists.moderate" },
   { id: "refunds",          label: "↩️ Refunds",               perm: "payments.refund" },
   { id: "coupons",          label: "🎫 Coupons",               perm: "cms.manage" },
   { id: "subscriptions",    label: "💳 Subscriptions",         perm: "subscriptions.manage" },
@@ -141,6 +143,7 @@ export default function AdminDashboard() {
           {effectiveTab === "outstation-report" && <AdminOutstationReport toast={toast} />}
           {effectiveTab === "kyc" && <AdminKYC toast={toast} />}
           {effectiveTab === "category-requests" && <AdminCategoryRequests toast={toast} />}
+          {effectiveTab === "city-requests" && <AdminCityRequests toast={toast} />}
           {effectiveTab === "refunds" && <AdminRefunds toast={toast} />}
           {effectiveTab === "coupons" && <AdminCoupons toast={toast} />}
           {effectiveTab === "subscriptions" && <AdminSubscriptions toast={toast} />}

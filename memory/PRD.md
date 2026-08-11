@@ -1,6 +1,26 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 67 — Artist City Requests (mirror of Iter 66 Category flow) (2026-08-11)
+
+Applied the same "Request a new city" workflow that Iter 66 shipped for categories:
+
+- **New collection**: `city_requests` with the same shape as `category_requests` (plus `state`, `country`, `reason`).
+- **Router**: `/app/backend/routes/city_requests.py` — 6 endpoints:
+  - `POST /api/artist/city-requests`, `GET /api/artist/city-requests/mine`
+  - `GET /api/admin/city-requests?status=`, `GET /api/admin/city-requests/similar?name=`
+  - `POST /api/admin/city-requests/{id}/approve` (existing_slug OR new_name)
+  - `POST /api/admin/city-requests/{id}/reject` (reason required)
+- **/auth/register**: accepts optional `city_request: {name, state?, country?, description?, reason?}`. Profile is created with `city_pending=true` + placeholder, city row inserted atomically, admin notified with `city.request`.
+- **Approval**: creates a new row in `cities_master` (or reuses existing slug), rewrites `artist_profiles.city`, clears `city_pending`, notifies artist with `city.approved`.
+- **Rejection**: stores `rejection_reason`, notifies artist with `city.rejected`.
+- **Frontend**: Auth.jsx Primary City dropdown now loads from `/catalog/cities` with a bottom option **"📍 Can't find your city? Request a new one"** that reveals inline City/State/Reason fields.
+- **Admin UI**: new `AdminCityRequests.jsx` (identical UX to categories) — Pending / Approved / Rejected / All tabs, per-row drawer with Create-new / Reuse-existing / Reject modes, dupe-avoidance pills from `/similar?name=`.
+- **AdminDashboard sidebar**: new **📍 City Requests** entry beneath Category Requests.
+
+**Verified end-to-end**: signup w/ `city_request:{name:"Coimbatore", …}` → 1 pending row + admin notify → approve → `cities_master` gained slug `coimbatore` → artist profile `.city="Coimbatore"` + `.city_pending=false`. Both category + city flows can be requested simultaneously and resolved independently — I confirmed with a signup that submitted both requests at once; only the city was approved and the profile shows `city_pending:false, category_pending:true`.
+
+
 ## 🎯 Iter 66 — Hide Corporate + Artist Category Requests (2026-08-11)
 
 ### 1) Corporate Access Hidden (kept in DB, reversible)

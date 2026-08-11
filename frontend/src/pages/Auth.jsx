@@ -70,17 +70,23 @@ export default function Auth({ mode = "signin" }) {
   // Iter 66 — Category catalog is loaded from the master list so it stays
   // in sync with what admins publish (no hard-coded dropdown drift).
   const [categoryList, setCategoryList] = useState([]);
+  // Iter 67 — Same for cities.
+  const [cityList, setCityList] = useState([]);
   // Iter 66 — "Request a new category" flow. When the artist picks the
   // special "__request__" option we surface an inline form; the payload
   // rides along with /auth/register so the request is saved atomically.
   const [showCatRequest, setShowCatRequest] = useState(false);
   const [catRequest, setCatRequest] = useState({ name: "", description: "", example_artists: "", portfolio_link: "" });
+  // Iter 67 — "Request a new city" flow (mirror of category).
+  const [showCityRequest, setShowCityRequest] = useState(false);
+  const [cityRequest, setCityRequest] = useState({ name: "", state: "", country: "India", description: "", reason: "" });
 
   useEffect(() => {
     api.get("/auth/config").then((r) => setEmailProviderEnabled(r.data?.email_provider_enabled));
     // Pull live master categories so signup reflects what admins have
     // published — no more hard-coded options.
     api.get("/catalog/categories").then((r) => setCategoryList(r.data || [])).catch(() => setCategoryList([]));
+    api.get("/catalog/cities").then((r) => setCityList(r.data || [])).catch(() => setCityList([]));
   }, []);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -139,6 +145,17 @@ export default function Auth({ mode = "signin" }) {
         // Use the requested name as the placeholder on the profile so the
         // artist immediately sees what they typed. Server also does this.
         payload.category = catRequest.name.trim();
+      }
+      // Iter 67 — Same mechanism for city.
+      if (form.role === "artist" && showCityRequest && cityRequest.name.trim()) {
+        payload.city_request = {
+          name: cityRequest.name.trim(),
+          state: cityRequest.state.trim(),
+          country: cityRequest.country.trim() || "India",
+          description: cityRequest.description.trim(),
+          reason: cityRequest.reason.trim(),
+        };
+        payload.city = cityRequest.name.trim();
       }
       const u = await register(payload);
       // Iter 63 — If ?ref=CODE is in the URL and role=artist, auto-join the
@@ -389,12 +406,80 @@ export default function Auth({ mode = "signin" }) {
 
                     <div className="field">
                       <div className="field-label">Primary City</div>
-                      <select className="field-input" value={form.city} onChange={(e) => set("city", e.target.value)} data-testid="signup-city">
+                      <select
+                        className="field-input"
+                        value={showCityRequest ? "__request__" : form.city}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__request__") {
+                            setShowCityRequest(true);
+                            set("city", "");
+                          } else {
+                            setShowCityRequest(false);
+                            set("city", v);
+                          }
+                        }}
+                        data-testid="signup-city"
+                      >
                         <option value="">Select city…</option>
-                        <option>Mumbai</option><option>Delhi NCR</option><option>Bangalore</option>
-                        <option>Chennai</option><option>Hyderabad</option><option>Kolkata</option><option>Pune</option>
+                        {cityList.map((c) => (
+                          <option key={c.slug} value={c.name}>{c.name}</option>
+                        ))}
+                        <option value="__request__">📍 Can't find your city? Request a new one</option>
                       </select>
                     </div>
+
+                    {showCityRequest && (
+                      <div
+                        style={{
+                          padding: 16, borderRadius: 12,
+                          background: "rgba(109,40,217,0.10)",
+                          border: "1px solid rgba(109,40,217,0.35)",
+                          marginBottom: 12,
+                        }}
+                        data-testid="city-request-block"
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 6, color: "#c4b5fd" }}>
+                          Request a New City
+                        </div>
+                        <div className="text-muted fs-12" style={{ marginBottom: 10 }}>
+                          Same idea — we'll create your account with this as a placeholder while admin reviews (usually within 24 hrs).
+                        </div>
+                        <div className="field-row">
+                          <div className="field">
+                            <div className="field-label">City *</div>
+                            <input
+                              className="field-input"
+                              value={cityRequest.name}
+                              onChange={(e) => setCityRequest({ ...cityRequest, name: e.target.value })}
+                              placeholder="e.g. Coimbatore, Guwahati, Panaji…"
+                              data-testid="city-request-name"
+                            />
+                          </div>
+                          <div className="field">
+                            <div className="field-label">State</div>
+                            <input
+                              className="field-input"
+                              value={cityRequest.state}
+                              onChange={(e) => setCityRequest({ ...cityRequest, state: e.target.value })}
+                              placeholder="e.g. Tamil Nadu"
+                              data-testid="city-request-state"
+                            />
+                          </div>
+                        </div>
+                        <div className="field">
+                          <div className="field-label">Why this city (optional)</div>
+                          <textarea
+                            className="field-input"
+                            rows={2}
+                            value={cityRequest.reason}
+                            onChange={(e) => setCityRequest({ ...cityRequest, reason: e.target.value })}
+                            placeholder="Local venues, growing event scene, willing to travel from here…"
+                            data-testid="city-request-reason"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
                 {form.role === "agency" && (
@@ -441,6 +526,11 @@ export default function Auth({ mode = "signin" }) {
                         }
                       } else if (form.role === "artist" && !form.category) {
                         toast("Please select or request an artist category.", "error");
+                        return;
+                      }
+                      // Iter 67 — Same for city request.
+                      if (form.role === "artist" && showCityRequest && !cityRequest.name.trim()) {
+                        toast("Please enter the requested city name.", "error");
                         return;
                       }
                       sendEmailOtp();
