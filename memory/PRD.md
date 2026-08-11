@@ -1,6 +1,41 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 68 — Agency: Artist-wise Schedule & Booking Console (2026-08-11)
+
+New page: **Agency Dashboard → Artists → [View Schedule] → `/agency/artist/:artistId/schedule`**
+
+### Backend (agency_roster.py)
+Extended `/api/agency/artist/{id}/earnings` totals with new counters: `total_bookings`, `pending_events`, `cancelled_events`, `refunded_events`. Removed the per-booking payment lookup that used to run N+1 queries — now a single batch `find({$or:…})` maps refund status onto all rows.
+
+Two new endpoints:
+- `GET /api/agency/artist/{id}/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD` — range-scoped bookings for calendar views. Uses compound index `artist_id + event_date` (created via startup script).
+- `GET /api/agency/artist/{id}/availability?date=&event_time=&duration_hours=` — returns `{available, conflicts[], reason}`. Overlap detection uses minutes-since-midnight math; treats bookings with no explicit `event_time` as whole-day busy. Only `confirmed / started / completed_by_artist / completed` block the slot — pending, cancelled, expired don't.
+
+Authorization: agency user must have an *active* roster row for the artist; admin can view any artist. **Historical bookings pre-dating the roster join are always visible** (no `created_at` filter).
+
+### Frontend (`/app/frontend/src/pages/agency/ArtistSchedule.jsx`)
+Single-page app with:
+- **KPI grid** — 9 tiles: Total, Completed, Upcoming, Confirmed, Pending, Cancelled, Refunded, Total Earnings, Agency Commission @ %.
+- **Availability panel** — date + time + duration inputs → check button → green "Available" or red "Artist is already booked during this time." with the conflicting bookings listed. Purely UI hint; existing booking creation flow untouched.
+- **Calendar** — self-contained Month / Week / Day toggles (no new dependency). Month = 7×N grid with event chips; Week = 7-column day columns; Day = time-sorted event list. Prev / Next / Today navigator per view.
+- **List view** — sortable columns (Event Date, Event Type, Amount, Status) + filters: Date range, Status, Event Type, City, Payment Status. Reset button. Row click opens the same drawer.
+- **Event drawer** — Ref, Event Date, Start Time, Client, Location, Package, Guests, Booking Status pill, Payment Status, Artist Fee, Platform Charges, Agency Commission, Refund Status + Amount + Reason (when present).
+
+### Wiring
+- `AgencyDashboardV2` routes: added `artist/:artistId/schedule → ArtistSchedule`.
+- `modules/Artists.jsx`: new **📅 View Schedule** primary button + kept Earnings / Payments / Remove (only for `status === "active"` roster rows).
+
+### Performance
+- **Earnings endpoint** switched from N+1 payment lookups to a single batch query — O(1) DB hits per artist regardless of booking count.
+- **Schedule endpoint** uses the compound index for range queries — a full month view only touches the visible slice.
+- Data loads once per artist visit; calendar re-navigation is client-side.
+
+### Verified via Playwright
+Screenshot 1: `/agency/artist/{id}/schedule` shows all 9 KPI tiles with real numbers, availability panel, month calendar navigable to January 2027 where the artist has two wedding bookings visible on Jan 15.
+Screenshot 2: List view — all 22 bookings load with sort/filter controls; row click opens the event drawer showing Ref BT-260723-6A69AF with full details.
+
+
 ## 🎯 Iter 67 — Artist City Requests (mirror of Iter 66 Category flow) (2026-08-11)
 
 Applied the same "Request a new city" workflow that Iter 66 shipped for categories:

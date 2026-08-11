@@ -14,6 +14,7 @@ import "./agency.css";
 
 import Overview from "./modules/Overview";
 import Artists from "./modules/Artists";
+import ArtistSchedule from "./ArtistSchedule";
 import Bookings from "./modules/Bookings";
 import Clients from "./modules/Clients";
 import Events from "./modules/Events";
@@ -126,6 +127,7 @@ export default function AgencyDashboardV2() {
               <Route index element={<Navigate to="overview" replace />} />
               <Route path="overview" element={<Overview />} />
               <Route path="artists/*" element={<Artists />} />
+              <Route path="artist/:artistId/schedule" element={<ArtistSchedule />} />
               <Route path="bookings" element={<Bookings />} />
               <Route path="clients/*" element={<Clients />} />
               <Route path="events/*" element={<Events />} />

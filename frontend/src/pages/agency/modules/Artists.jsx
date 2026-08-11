@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../../../lib/api";
 
 function OnlineRoster() {
@@ -175,7 +176,17 @@ function OnlineRoster() {
                 <td><span className={`ag-badge ${r.status === "active" || r.status === "accepted" ? "ok" : r.status === "pending" ? "warn" : ""}`}>{r.status || "active"}</span></td>
                 <td>
                   {r.status === "active" && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => setEarningsFor(r)} data-testid={`ag-view-earnings-${r.artist_id}`}>Earnings</button>
+                    <>
+                      <Link
+                        to={`/agency/artist/${r.artist_id}/schedule`}
+                        className="btn btn-gold btn-sm"
+                        data-testid={`ag-view-schedule-${r.artist_id}`}
+                        style={{ marginRight: 6 }}
+                      >
+                        📅 View Schedule
+                      </Link>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setEarningsFor(r)} data-testid={`ag-view-earnings-${r.artist_id}`}>Earnings</button>
+                    </>
                   )}
                   <button className="btn btn-ghost btn-sm" onClick={() => setPaymentsFor(r)} data-testid={`ag-view-payments-${r.artist_id}`}>Payments</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => remove(r.artist_id)}>Remove</button>
