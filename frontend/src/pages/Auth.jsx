@@ -4,11 +4,14 @@ import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import api, { formatApiError as fmtErr } from "../lib/api";
 
+// Iter 66 — Corporate role temporarily hidden from public signup. Kept in
+// the backend (existing Corporate accounts + admin panel) so we can re-enable
+// it later without a migration. Re-add the {value:'corporate', ...} entry to
+// bring the option back on the signup screen.
 const ROLES = [
   { value: "customer", icon: "🎉", name: "Customer", desc: "I want to book artists for my events" },
   { value: "artist", icon: "🎤", name: "Artist", desc: "I perform and want to get bookings" },
   { value: "agency", icon: "🏢", name: "Agency", desc: "I manage multiple artists" },
-  { value: "corporate", icon: "💼", name: "Corporate", desc: "Bulk bookings for company events" },
 ];
 
 /** Password field with a "show/hide" eye toggle. */
@@ -42,7 +45,11 @@ function PasswordField({ value, onChange, placeholder, required, testid, autoCom
 
 export default function Auth({ mode = "signin" }) {
   const [params] = useSearchParams();
-  const initialRole = params.get("role") || "customer";
+  // Iter 66 — silently coerce legacy `?role=corporate` links to the Customer
+  // flow now that Corporate signup is hidden. Any bookmarks / old marketing
+  // links still work, they just land on the Customer signup instead of 404.
+  const rawRole = params.get("role") || "customer";
+  const initialRole = rawRole === "corporate" ? "customer" : rawRole;
   const { login, register, formatApiError } = useAuth();
   const toast = useToast();
   const nav = useNavigate();
@@ -60,9 +67,20 @@ export default function Auth({ mode = "signin" }) {
   const [mockOtpHint, setMockOtpHint] = useState("");
   const [emailVerified, setEmailVerified] = useState(false);
   const [emailProviderEnabled, setEmailProviderEnabled] = useState(false);
+  // Iter 66 — Category catalog is loaded from the master list so it stays
+  // in sync with what admins publish (no hard-coded dropdown drift).
+  const [categoryList, setCategoryList] = useState([]);
+  // Iter 66 — "Request a new category" flow. When the artist picks the
+  // special "__request__" option we surface an inline form; the payload
+  // rides along with /auth/register so the request is saved atomically.
+  const [showCatRequest, setShowCatRequest] = useState(false);
+  const [catRequest, setCatRequest] = useState({ name: "", description: "", example_artists: "", portfolio_link: "" });
 
   useEffect(() => {
     api.get("/auth/config").then((r) => setEmailProviderEnabled(r.data?.email_provider_enabled));
+    // Pull live master categories so signup reflects what admins have
+    // published — no more hard-coded options.
+    api.get("/catalog/categories").then((r) => setCategoryList(r.data || [])).catch(() => setCategoryList([]));
   }, []);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -107,6 +125,21 @@ export default function Auth({ mode = "signin" }) {
         category: form.category, city: form.city,
         company_name: form.company_name,
       };
+      // Iter 66 — Include the requested-category payload so the /auth/register
+      // handler can atomically save the request row + flag the artist profile
+      // as pending admin approval. See routes/category_requests.py for the
+      // decision workflow that follows.
+      if (form.role === "artist" && showCatRequest && catRequest.name.trim()) {
+        payload.category_request = {
+          name: catRequest.name.trim(),
+          description: catRequest.description.trim(),
+          example_artists: catRequest.example_artists.trim(),
+          portfolio_link: catRequest.portfolio_link.trim(),
+        };
+        // Use the requested name as the placeholder on the profile so the
+        // artist immediately sees what they typed. Server also does this.
+        payload.category = catRequest.name.trim();
+      }
       const u = await register(payload);
       // Iter 63 — If ?ref=CODE is in the URL and role=artist, auto-join the
       // referring agency (server-side rule: no accept step needed).
@@ -271,19 +304,89 @@ export default function Auth({ mode = "signin" }) {
                   <>
                     <div className="field">
                       <div className="field-label">Artist Category</div>
-                      <select className="field-input" value={form.category} onChange={(e) => set("category", e.target.value)} data-testid="signup-category">
+                      <select
+                        className="field-input"
+                        value={showCatRequest ? "__request__" : form.category}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__request__") {
+                            setShowCatRequest(true);
+                            set("category", "");
+                          } else {
+                            setShowCatRequest(false);
+                            set("category", v);
+                          }
+                        }}
+                        data-testid="signup-category"
+                      >
                         <option value="">Select your category…</option>
-                        <option>Bollywood Vocalist</option>
-                        <option>Classical Vocalist</option>
-                        <option>DJ / Music Producer</option>
-                        <option>Stand-up Comedian</option>
-                        <option>Anchor / Emcee</option>
-                        <option>Dancer / Troupe</option>
-                        <option>Live Band</option>
-                        <option>Magician</option>
-                        <option>Folk Artist</option>
+                        {categoryList.map((c) => (
+                          <option key={c.slug} value={c.name}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>
+                        ))}
+                        <option value="__request__">✨ Can't find your category? Request a new one</option>
                       </select>
                     </div>
+
+                    {showCatRequest && (
+                      <div
+                        style={{
+                          padding: 16, borderRadius: 12,
+                          background: "rgba(212,175,55,0.06)",
+                          border: "1px solid rgba(212,175,55,0.25)",
+                          marginBottom: 12,
+                        }}
+                        data-testid="cat-request-block"
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 6, color: "var(--gold-light)" }}>
+                          Request a New Category
+                        </div>
+                        <div className="text-muted fs-12" style={{ marginBottom: 10 }}>
+                          We'll create your account with this as a placeholder. Once our team approves it (usually within 24 hrs), your listing goes live — no need to re-enter anything.
+                        </div>
+                        <div className="field">
+                          <div className="field-label">Requested Category Name *</div>
+                          <input
+                            className="field-input"
+                            value={catRequest.name}
+                            onChange={(e) => setCatRequest({ ...catRequest, name: e.target.value })}
+                            placeholder="e.g. Sufi Qawwal, Ghazal Trio, Sitar Soloist…"
+                            data-testid="cat-request-name"
+                          />
+                        </div>
+                        <div className="field">
+                          <div className="field-label">Short Description *</div>
+                          <textarea
+                            className="field-input"
+                            rows={3}
+                            value={catRequest.description}
+                            onChange={(e) => setCatRequest({ ...catRequest, description: e.target.value })}
+                            placeholder="Describe your art form, typical event, instruments / troupe size, etc."
+                            data-testid="cat-request-desc"
+                          />
+                        </div>
+                        <div className="field">
+                          <div className="field-label">Similar / Reference Artists (optional)</div>
+                          <input
+                            className="field-input"
+                            value={catRequest.example_artists}
+                            onChange={(e) => setCatRequest({ ...catRequest, example_artists: e.target.value })}
+                            placeholder="Any well-known artists we can compare to"
+                            data-testid="cat-request-examples"
+                          />
+                        </div>
+                        <div className="field">
+                          <div className="field-label">Portfolio / Sample Link (optional)</div>
+                          <input
+                            className="field-input"
+                            value={catRequest.portfolio_link}
+                            onChange={(e) => setCatRequest({ ...catRequest, portfolio_link: e.target.value })}
+                            placeholder="YouTube, Instagram, website…"
+                            data-testid="cat-request-link"
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <div className="field">
                       <div className="field-label">Primary City</div>
                       <select className="field-input" value={form.city} onChange={(e) => set("city", e.target.value)} data-testid="signup-city">
@@ -294,9 +397,9 @@ export default function Auth({ mode = "signin" }) {
                     </div>
                   </>
                 )}
-                {(form.role === "agency" || form.role === "corporate") && (
+                {form.role === "agency" && (
                   <div className="field">
-                    <div className="field-label">{form.role === "agency" ? "Agency Name" : "Company Name"}</div>
+                    <div className="field-label">Agency Name</div>
                     <input className="field-input" value={form.company_name} onChange={(e) => set("company_name", e.target.value)} data-testid="signup-company" />
                   </div>
                 )}
@@ -328,6 +431,18 @@ export default function Auth({ mode = "signin" }) {
                       if (!form.first_name || !form.email || !form.password) { toast("Please fill all fields", "error"); return; }
                       if (form.password !== form.confirm) { toast("Passwords do not match", "error"); return; }
                       if (form.password.length < 6) { toast("Password too short (min 6)", "error"); return; }
+                      // Iter 66 — require category request details when the
+                      // artist picked "Request a new one" so we don't ship an
+                      // empty request row to the admin queue.
+                      if (form.role === "artist" && showCatRequest) {
+                        if (!catRequest.name.trim() || !catRequest.description.trim()) {
+                          toast("Please fill the requested category name and description.", "error");
+                          return;
+                        }
+                      } else if (form.role === "artist" && !form.category) {
+                        toast("Please select or request an artist category.", "error");
+                        return;
+                      }
                       sendEmailOtp();
                     }}
                     disabled={busy} data-testid="signup-send-otp"

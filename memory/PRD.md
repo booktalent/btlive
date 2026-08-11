@@ -1,6 +1,45 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 66 — Hide Corporate + Artist Category Requests (2026-08-11)
+
+### 1) Corporate Access Hidden (kept in DB, reversible)
+- **Landing.jsx** — Corporate CTA card removed; the dual-CTA section now renders only the Artist card (single-column). Zero references to `cta-corporate` / `cta-corp-join` remain.
+- **Auth.jsx** — `corporate` removed from the public `ROLES` list. Legacy `?role=corporate` URLs auto-coerce to `customer` so old bookmarks / marketing links still land somewhere useful.
+- **Backend `/auth/register`** — explicit 400 with message *"Corporate signup is not currently available. Please register as a Customer."* if a client bypasses the UI. The `RegisterBody.role` Literal still allows `corporate` so **admins can still create corporate accounts** from `/admin` and existing rows work unchanged.
+- **Reversible**: To re-enable, re-add `{value:'corporate', …}` to `ROLES` and drop the 400 branch. No schema changes, no data loss.
+
+### 2) Artist Category Request Workflow
+New collection: `category_requests` — `{id, artist_id, artist_name, artist_email, stage_name, city, requested_name, requested_slug, description, example_artists, portfolio_link, status, created_at, decision, assigned_slug, assigned_name, decided_at, decided_by, rejection_reason}`.
+
+**Endpoints** (`/app/backend/routes/category_requests.py`):
+- `POST /api/artist/category-requests` — logged-in artist submits (limits: 1 pending per artist).
+- `GET /api/artist/category-requests/mine` — artist reads own history.
+- `GET /api/admin/category-requests?status=` — admin queue with tab filter.
+- `GET /api/admin/category-requests/similar?name=` — dupe-avoidance helper (tokenised regex against `name` + `slug`).
+- `POST /api/admin/category-requests/{id}/approve` — two-mode approval:
+  - `{ existing_slug }` → reuse existing master row.
+  - `{ new_name, icon }` → create new `categories_master` row (slug auto-derived, sort_order = end).
+  Either way: artist profile updated (`category=canonical`, `category_pending=false`), artist notified.
+- `POST /api/admin/category-requests/{id}/reject` — requires `reason`; artist notified.
+
+**Signup-time submission**: `POST /auth/register` now accepts optional `category_request: {name, description, example_artists?, portfolio_link?}`. When present, the artist profile is created with `category_pending=true` + `pending_category_id`, and the request row is inserted atomically. Admin notification of type `category.request` is emitted.
+
+**Artist preservation**: Even if the requested category isn't approved yet, the artist has a complete profile row with the requested category name as placeholder. On admin approval, `category` gets rewritten to the canonical name and the pending flag cleared — the artist doesn't re-enter anything.
+
+### 3) Frontend
+- `Auth.jsx` — category dropdown now loads from `/catalog/categories` (live master list) with a bottom option **"✨ Can't find your category? Request a new one"**. Selecting it swaps in an inline "Request a New Category" panel with fields: name*, description*, similar artists (optional), portfolio link (optional).
+- Client-side validation gates the "Continue → Verify Email" button until either a category is picked OR the request has both name + description.
+- `pages/admin/AdminCategoryRequests.jsx` — new admin queue: status tabs (Pending / Approved / Rejected / All), row-click drawer with three tabs (Create new | Reuse existing | Reject), automatic dupe-suggestion pills fed by `/similar?name=`, icon picker, rejection reason box. Wired into `AdminDashboard` sidebar under KYC Queue.
+
+### 4) End-to-end verification
+- `curl` — POST /auth/register with `role=corporate` → 400 as designed.
+- Full signup with `category_request:{name:"Sufi Qawwal", …}` → artist created + request row inserted + admin notified.
+- POST /admin/category-requests/{id}/approve with `{new_name:"Sufi / Qawwali", icon:"🪕"}` → new master row `sufi-qawwali`, artist profile `.category="Sufi / Qawwali"` + `.category_pending=false`, artist notification `category.approved` fired.
+- POST /reject with reason → artist notification `category.rejected`, no master row change.
+- Playwright — Landing page: `cta-corporate=0`; Signup step 2 shows the Request panel with all fields; Admin `/admin?tab=category-requests` renders sidebar entry, tabs, and both my test rows.
+
+
 ## 🎯 Iter 65 — Auto-Scroll To Row + Soft Gold Flash (2026-08-11)
 
 Click any notification in the bell → the destination page opens, scrolls the exact booking/payment/refund row into view (`behavior: smooth`, `block: center`), and pulses a soft-gold glow (~2.2s animation with `box-shadow` + `background-color` keyframes). Agents/admins find the item instantly instead of scanning a table.

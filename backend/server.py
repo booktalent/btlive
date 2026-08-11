@@ -55,6 +55,11 @@ from routes import cms_seo as routes_cms_seo
 from routes import questionnaire as routes_questionnaire
 from routes.easebuzz import make_easebuzz_router, set_refund_context, auto_refund_bookings
 
+def _cat_req_slug(s: str) -> str:
+    """Iter 66 — reused by /auth/register when saving category_request payload."""
+    s = (s or "").strip().lower()
+    return re.sub(r"[^a-z0-9]+", "-", s).strip("-") or "custom"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Setup
 # ─────────────────────────────────────────────────────────────────────────────
@@ -328,10 +333,18 @@ class RegisterBody(BaseModel):
     first_name: str
     last_name: str = ""
     phone: str = ""
+    # Iter 66 — Corporate role temporarily hidden from public signup. Kept in
+    # the Literal so existing corporate users can still be created via the
+    # admin panel + backfilled data. Public /auth/register rejects it below.
     role: Literal["customer", "artist", "agency", "corporate"]
     # artist-specific
     category: Optional[str] = None
     city: Optional[str] = None
+    # Iter 66 — Optional payload for artists whose desired category isn't in
+    # the master list yet. When present, we create a `category_requests` row
+    # right after user creation and flag the artist profile as
+    # category_pending=true.
+    category_request: Optional[dict] = None
     # agency / corporate
     company_name: Optional[str] = None
 
@@ -572,6 +585,14 @@ class DisputeResolveBody(BaseModel):
 @api.post("/auth/register")
 async def register(body: RegisterBody, response: Response):
     email = body.email.lower()
+    # Iter 66 — Corporate signup is hidden from the public site while we
+    # decide what makes that role distinct from the Normal Customer flow.
+    # Existing Corporate users keep working; admins can still create new
+    # ones from the admin panel via /admin/users. Public signup only
+    # accepts the three consumer-facing roles.
+    if body.role == "corporate":
+        raise HTTPException(400, "Corporate signup is not currently available. Please register as a Customer.")
+
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
 
@@ -603,11 +624,20 @@ async def register(body: RegisterBody, response: Response):
 
     # Create role-specific profile
     if body.role == "artist":
+        # Iter 66 — When the artist typed a category that isn't in the master
+        # list, use their requested name as the placeholder and mark the
+        # profile as pending admin approval so search UI can hide it until
+        # admin decides.
+        cat_req = body.category_request if isinstance(body.category_request, dict) else None
+        placeholder_category = (cat_req.get("name") if cat_req else body.category) or "Vocalist"
+        category_pending = bool(cat_req and cat_req.get("name"))
+        pending_req_id = new_id() if category_pending else None
+
         await db.artist_profiles.insert_one({
             "id": new_id(),
             "user_id": uid,
             "stage_name": f"{body.first_name} {body.last_name}".strip(),
-            "category": body.category or "Vocalist",
+            "category": placeholder_category,
             "subcategories": [],
             "city": body.city or "",
             "state": "",
@@ -633,9 +663,42 @@ async def register(body: RegisterBody, response: Response):
             "is_boosted": False,
             "boost_expires": None,
             "kyc_status": "unverified",
+            "category_pending": category_pending,
+            "pending_category_id": pending_req_id,
+            "pending_category_name": placeholder_category if category_pending else None,
             "created_at": now,
             "updated_at": now,
         })
+        # Save the request row + notify admins so nothing is lost per spec.
+        if category_pending:
+            req_doc = {
+                "id": pending_req_id,
+                "artist_id": uid,
+                "artist_name": f"{body.first_name} {body.last_name}".strip() or email,
+                "artist_email": email,
+                "stage_name": f"{body.first_name} {body.last_name}".strip(),
+                "city": body.city or "",
+                "requested_name": (cat_req.get("name") or "").strip(),
+                "requested_slug": _cat_req_slug(cat_req.get("name") or ""),
+                "description": (cat_req.get("description") or "").strip(),
+                "example_artists": (cat_req.get("example_artists") or "").strip(),
+                "portfolio_link": (cat_req.get("portfolio_link") or "").strip(),
+                "status": "pending",
+                "created_at": now,
+            }
+            await db.category_requests.insert_one(req_doc)
+            try:
+                async for adm in db.users.find({"role": "admin"}, {"_id": 0, "id": 1}):
+                    await db.notifications.insert_one({
+                        "id": new_id(), "user_id": adm["id"],
+                        "type": "category.request",
+                        "title": "New Artist Category request",
+                        "body": f"{req_doc['artist_name']} requested '{req_doc['requested_name']}' at signup.",
+                        "link": f"/admin?tab=category-requests&highlight={pending_req_id}",
+                        "read": False, "created_at": now,
+                    })
+            except Exception:
+                pass
     elif body.role == "agency":
         await db.agencies.insert_one({
             "id": new_id(),
@@ -3543,6 +3606,15 @@ app.include_router(make_agency_crm_router(db, get_current_user), prefix="/api")
 # Iter 63 — Agency ↔ Artist roster (invite, accept, referral, release).
 from routes.agency_roster import make_roster_router  # noqa: E402
 app.include_router(make_roster_router(db, get_current_user), prefix="/api")
+
+# Iter 66 — Artist category-request workflow.
+from routes.category_requests import make_category_requests_router  # noqa: E402
+app.include_router(
+    make_category_requests_router(
+        db=db, get_current_user=get_current_user, admin_only=admin_only, new_id=new_id,
+    ),
+    prefix="/api",
+)
 
 # Iter13 — server.py modularisation. Domain routers split out for maintainability.
 _common_deps = dict(db=db, utcnow=utcnow, new_id=new_id, clean=clean)

@@ -495,9 +495,9 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ── Dual CTA: Artists / Corporate ────────────────────────────── */}
+      {/* ── Artist Join CTA ─────────────────────────────────────────── */}
       <section className="lp-section" style={{ paddingTop: 0 }} data-testid="landing-dual-cta">
-        <div className="dual-cta">
+        <div className="dual-cta" style={{ gridTemplateColumns: "1fr" }}>
           <div className="cta-box" data-testid="cta-artist">
             <div className="cta-box-glow cta-glow-purple" />
             <span className="cta-box-icon">🎤</span>
@@ -508,18 +508,6 @@ export default function Landing() {
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               <Link to="/signup?role=artist" className="btn btn-purple" data-testid="cta-artist-join">Join as Artist →</Link>
               <Link to="/page/artist-guidelines" className="btn btn-ghost" data-testid="cta-artist-learn">Learn more</Link>
-            </div>
-          </div>
-          <div className="cta-box" data-testid="cta-corporate">
-            <div className="cta-box-glow cta-glow-gold" />
-            <span className="cta-box-icon">🏢</span>
-            <div className="cta-box-title">Corporate Events?</div>
-            <div className="cta-box-desc">
-              Bulk bookings, dedicated account manager, custom contracts and team collaboration for annual functions, launches and offsites.
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <Link to="/signup?role=corporate" className="btn btn-gold" data-testid="cta-corp-join">Get Corporate Access →</Link>
-              <Link to="/page/contact" className="btn btn-outline-gold" data-testid="cta-corp-contact">Talk to Sales</Link>
             </div>
           </div>
         </div>
