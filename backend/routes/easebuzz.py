@@ -19,6 +19,7 @@ Design notes
 from __future__ import annotations
 
 import os
+import re
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
@@ -463,14 +464,30 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
         first_booking = docs[0]
 
         firstname = (user.get("first_name") or first_booking.get("customer_name") or "Customer").strip()
+        # Iter 69 — Easebuzz declines names with special chars. Strip to ASCII
+        # letters + spaces (max 60), fall back to "Customer" if empty.
+        firstname = re.sub(r"[^A-Za-z ]+", "", firstname)[:60].strip() or "Customer"
+
         email = (user.get("email") or first_booking.get("customer_email") or "no-reply@booktalent.com").strip()
+        # Basic email shape check — Easebuzz rejects malformed emails.
+        if "@" not in email or "." not in email.split("@")[-1]:
+            email = "no-reply@booktalent.com"
+
         raw_phone = (first_booking.get("customer_phone") or user.get("phone") or "").strip()
         # Easebuzz expects a plain 10-digit Indian mobile — strip +91, spaces, dashes.
         digits = "".join(ch for ch in raw_phone if ch.isdigit())
         if len(digits) > 10:
             digits = digits[-10:]
-        phone = digits if len(digits) == 10 else "9999999999"
+        # Iter 69 — Easebuzz also rejects a 10-digit number that doesn't start
+        # with 6-9 (invalid mobile prefix). Fall back to a well-known valid
+        # dummy so the customer can still reach the checkout page.
+        phone = digits if (len(digits) == 10 and digits[0] in "6789") else "9999999999"
+
         productinfo = f"BookTalent Booking - {len(docs)} artist{'s' if len(docs) > 1 else ''}"
+        # Iter 69 — Guard against any non-ASCII characters slipping into
+        # productinfo (a `·` middle-dot in the past caused Parameter
+        # validation failed rejections from Easebuzz).
+        productinfo = re.sub(r"[^A-Za-z0-9 \-_/]+", "", productinfo)[:100] or "BookTalent Booking"
 
         # Our own return URLs. Easebuzz will POST here.
         backend_base = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
@@ -508,9 +525,15 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
         await _log(db, "easebuzz.initiate.response", txnid, resp)
 
         # Easebuzz response shape: {"status": 1, "data": "<access_key>"} on success,
-        # or {"status": 0, "data": "<error msg>"} on failure.
+        # or {"status": 0, "data": "<error msg>", "error_desc": "<why>"} on failure.
         if not isinstance(resp, dict) or resp.get("status") != 1:
-            raise HTTPException(502, f"Easebuzz declined: {resp.get('data') if isinstance(resp, dict) else resp}")
+            # Iter 69 — Surface the actual Easebuzz error_desc (e.g. "Invalid
+            # value for phone.") so the user knows WHAT to correct instead
+            # of a generic "Parameter validation failed".
+            data = resp.get("data") if isinstance(resp, dict) else str(resp)
+            why = resp.get("error_desc") if isinstance(resp, dict) else None
+            msg = f"{data}" if not why else f"{data} — {why}"
+            raise HTTPException(502, f"Easebuzz declined: {msg}")
 
         access_key = resp.get("data")
         if not access_key or not isinstance(access_key, str):
@@ -553,15 +576,23 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
         # Iter 63.3 — Easebuzz rejects non-ASCII in productinfo with cryptic
         # GC0E01. Strip anything outside plain ASCII printable range.
         productinfo = "".join(ch for ch in (productinfo or "BookTalent") if 32 <= ord(ch) < 127).strip() or "BookTalent"
+        # Iter 69 — Further sanitize to Easebuzz-safe charset.
+        productinfo = re.sub(r"[^A-Za-z0-9 \-_/]+", "", productinfo)[:100] or "BookTalent"
         cfg = await _active_env(db)
         amount_str = normalise_amount(amount)
         txnid = _new_txnid()
         payment_id = new_id()
         firstname = (user.get("first_name") or "Customer").strip()
+        firstname = re.sub(r"[^A-Za-z ]+", "", firstname)[:60].strip() or "Customer"
         email = (user.get("email") or "no-reply@booktalent.com").strip()
+        if "@" not in email or "." not in email.split("@")[-1]:
+            email = "no-reply@booktalent.com"
         raw_phone = (user.get("phone") or "").strip()
         digits = "".join(ch for ch in raw_phone if ch.isdigit())
-        phone = digits[-10:] if len(digits) >= 10 else "9999999999"
+        if len(digits) > 10:
+            digits = digits[-10:]
+        # Iter 69 — Easebuzz rejects mobiles that don't start with 6-9.
+        phone = digits if (len(digits) == 10 and digits[0] in "6789") else "9999999999"
         backend_base = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
         payload: Dict[str, Any] = {
             "key": cfg["key"], "txnid": txnid, "amount": amount_str,
@@ -581,7 +612,9 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
             raise HTTPException(502, f"Payment gateway error: {e}")
         await _log(db, f"easebuzz.initiate.response.{payment_kind}", txnid, resp)
         if not isinstance(resp, dict) or resp.get("status") != 1:
-            raise HTTPException(502, f"Easebuzz declined: {resp.get('data') if isinstance(resp, dict) else resp}")
+            data = resp.get("data") if isinstance(resp, dict) else str(resp)
+            why = resp.get("error_desc") if isinstance(resp, dict) else None
+            raise HTTPException(502, f"Easebuzz declined: {data}{' — ' + why if why else ''}")
         access_key = resp.get("data")
         payment_url = f"{cfg['base_url'].rstrip('/')}/pay/{access_key}"
         pay_doc = {
