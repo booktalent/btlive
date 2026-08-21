@@ -281,7 +281,22 @@ function AdminBookings() {
                 <td>{b.event_type}<br/><span className="text-muted fs-11">{b.venue}, {b.city}</span></td>
                 <td className="fs-12">{b.event_date}</td>
                 <td className="text-gold font-serif fs-16 fw-700">{fmtINRFull(b.pricing?.total || 0)}</td>
-                <td><span className="pill pill-purple">{b.status}</span></td>
+                <td>
+                  <span className="pill pill-purple">{b.status}</span>
+                  {/* Iter 75.5 — Show cancellation attribution + reason so
+                      admins can audit every cancelled booking at a glance. */}
+                  {b.status === "cancelled" && b.cancel_reason && (
+                    <div
+                      data-testid={`admin-cancel-info-${b.id}`}
+                      className="fs-11 mt-4"
+                      style={{ color: "rgba(255,107,129,0.85)", lineHeight: 1.35, maxWidth: 260 }}
+                      title={b.cancel_reason}
+                    >
+                      <span style={{ opacity: 0.75 }}>By {b.cancelled_by || "—"}:</span>{" "}
+                      {b.cancel_reason.length > 60 ? b.cancel_reason.slice(0, 57) + "…" : b.cancel_reason}
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

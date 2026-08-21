@@ -2185,19 +2185,55 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
         # settlement. We simply mark the booking complete and bump artist
         # stats. Artist Performance Fee is settled directly Customer ↔ Artist.
         await _record_completion(doc)
-    elif body.action == "cancel" and (is_customer or is_admin) and doc["status"] in ("pending_artist", "pending_payment", "confirmed"):
+    elif body.action == "cancel" and (is_customer or is_admin or is_artist) and doc["status"] in ("pending_artist", "pending_payment", "confirmed"):
+        # Iter 75.5 — Mandatory cancellation reason. Reject the request
+        # (400) if the caller didn't supply a real reason. Enforced for
+        # every actor role so the audit trail is always complete.
+        reason_text = (body.reason or "").strip()
+        if not reason_text:
+            raise HTTPException(400, "Cancellation reason is required.")
+        if len(reason_text) < 3:
+            raise HTTPException(400, "Please provide a more descriptive reason (min 3 chars).")
+
         new_status = "cancelled"
-        if doc.get("amount_paid", 0) > 0:
+        # Who cancelled? We derive from the acting user's role so the
+        # customer branch can never sneak into the artist-refund path.
+        actor_role = "artist" if is_artist else ("customer" if is_customer else "admin")
+        # Persist cancellation metadata directly on the booking so admins,
+        # customers and artists can all see WHO cancelled, WHY and WHEN
+        # without having to trawl the history array.
+        extra_updates = {
+            "cancel_reason": reason_text,
+            "cancelled_by": actor_role,
+            "cancelled_by_user_id": user["id"],
+            "cancelled_at": utcnow(),
+        }
+
+        # Iter 75 — Business rule: refunds are only owed to the customer when
+        # the ARTIST (or admin acting on the artist's behalf) walks away from
+        # a paid booking. A CUSTOMER-initiated cancellation of a paid booking
+        # forfeits the Platform Service Fee — no refund is triggered.
+        refund_note = f"Booking cancelled by {actor_role}: {reason_text}"
+        if is_artist and doc.get("amount_paid", 0) > 0:
             await _mark_platform_fee_refundable(
-                doc, "Booking cancelled by customer" if is_customer else "Booking cancelled by admin",
-                actor=f"customer:{user['id']}" if is_customer else f"admin:{user['id']}",
+                doc, refund_note, actor=f"artist:{user['id']}",
             )
+        elif is_admin and doc.get("amount_paid", 0) > 0:
+            # Admin overrides can go either way — treat as refund by default
+            # so support can protect the customer when needed.
+            await _mark_platform_fee_refundable(
+                doc, refund_note, actor=f"admin:{user['id']}",
+            )
+        # Customer branch: intentionally no refund call. The extra_updates
+        # above still record the reason so admins can audit forfeitures.
     else:
         raise HTTPException(400, "Action not allowed in current state")
 
     await db.bookings.update_one(
         {"id": bid},
-        {"$set": {"status": new_status, "updated_at": utcnow()}, "$push": {"history": history_entry}},
+        {"$set": {"status": new_status, "updated_at": utcnow(),
+                  **(extra_updates if body.action == "cancel" and new_status == "cancelled" else {})},
+         "$push": {"history": history_entry}},
     )
 
     # notifications

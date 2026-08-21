@@ -7,6 +7,7 @@ import { useToast } from "../lib/toast";
 import ChatBox from "../components/ChatBox";
 import PendingEventCarts from "../components/PendingEventCarts";
 import useHighlightRow from "../lib/useHighlightRow";
+import CancellationReasonModal from "../components/CancellationReasonModal";
 
 export default function CustomerDashboard() {
   const { user } = useAuth();
@@ -63,9 +64,9 @@ export default function CustomerDashboard() {
     } catch (e) { toast(formatApiError(e), "error"); }
   };
 
-  const doAction = async (bid, action) => {
+  const doAction = async (bid, action, extra = {}) => {
     try {
-      await api.post(`/bookings/${bid}/action`, { action });
+      await api.post(`/bookings/${bid}/action`, { action, ...extra });
       toast("Booking updated");
       refresh();
     } catch (e) { toast(formatApiError(e), "error"); }
@@ -366,6 +367,18 @@ function ExpiryCountdown({ expiresAt, urgent = false }) {
 
 export function BookingsTable({ bookings, role, onAction, onReview }) {
   const [chatBooking, setChatBooking] = useState(null);
+  // Iter 75.5 — Cancellation-reason modal. Opened by every "Cancel"
+  // button (artist OR customer). Reason is passed straight through to
+  // `onAction(id, "cancel", { reason })`.
+  const [cancelState, setCancelState] = useState(null); // { booking, actorRole }
+
+  const openCancel = (booking, actorRole) => setCancelState({ booking, actorRole });
+  const closeCancel = () => setCancelState(null);
+  const confirmCancel = async (reason) => {
+    if (!cancelState) return;
+    await onAction(cancelState.booking.id, "cancel", { reason });
+    setCancelState(null);
+  };
 
   // Iter 65 — When a notification links to /customer?highlight=BID (or the
   // equivalent artist/agency/admin routes), scroll to the exact row and
@@ -447,6 +460,20 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                       <ExpiryCountdown expiresAt={b.expires_at} urgent={role === "artist"} />
                     </div>
                   )}
+                  {/* Iter 75.5 — Show cancellation attribution + reason on any
+                      cancelled row so admins / customers / artists can see who
+                      pulled the plug and why. */}
+                  {b.status === "cancelled" && b.cancel_reason && (
+                    <div
+                      data-testid={`cancel-info-${b.id}`}
+                      className="mt-4 fs-11"
+                      style={{ color: "rgba(255,107,129,0.85)", lineHeight: 1.35 }}
+                      title={b.cancel_reason}
+                    >
+                      <span style={{ opacity: 0.75 }}>By {b.cancelled_by || "—"}:</span>{" "}
+                      {b.cancel_reason.length > 60 ? b.cancel_reason.slice(0, 57) + "…" : b.cancel_reason}
+                    </div>
+                  )}
                 </td>
                 <td>
                   <div className="flex gap-8" style={{ flexWrap: "wrap" }}>
@@ -457,7 +484,17 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                       </>
                     )}
                     {role === "artist" && b.status === "confirmed" && (
-                      <button className="btn btn-purple btn-xs" onClick={() => onAction(b.id, "complete")} data-testid={`complete-${b.id}`}>Mark Complete</button>
+                      <>
+                        <button className="btn btn-purple btn-xs" onClick={() => onAction(b.id, "complete")} data-testid={`complete-${b.id}`}>Mark Complete</button>
+                        {/* Iter 75.5 — Artist cancellation opens the
+                            mandatory reason modal. Refund still fires
+                            server-side once the reason is confirmed. */}
+                        <button
+                          className="btn btn-red btn-xs"
+                          data-testid={`artist-cancel-${b.id}`}
+                          onClick={() => openCancel(b, "artist")}
+                        >Cancel</button>
+                      </>
                     )}
                     {role === "customer" && b.status === "completed_by_artist" && (
                       <button className="btn btn-green btn-xs" onClick={() => onAction(b.id, "approve_completion")} data-testid={`approve-${b.id}`}>Approve</button>
@@ -466,7 +503,13 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                       <button className="btn btn-gold btn-xs" onClick={() => onReview(b)} data-testid={`review-${b.id}`}>⭐ Review</button>
                     )}
                     {role === "customer" && ["pending_artist", "confirmed"].includes(b.status) && (
-                      <button className="btn btn-red btn-xs" onClick={() => onAction(b.id, "cancel")} data-testid={`cancel-${b.id}`}>Cancel</button>
+                      /* Iter 75.5 — Customer cancellation also requires a
+                         reason. Modal spells out the non-refund policy. */
+                      <button
+                        className="btn btn-red btn-xs"
+                        data-testid={`cancel-${b.id}`}
+                        onClick={() => openCancel(b, "customer")}
+                      >Cancel</button>
                     )}
                     {showContract && (
                       <button
@@ -537,6 +580,16 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
           </div>
         </div>
       )}
+      {/* Iter 75.5 — Cancellation reason modal shared across artist &
+          customer cancellation flows. */}
+      <CancellationReasonModal
+        open={!!cancelState}
+        onClose={closeCancel}
+        onConfirm={confirmCancel}
+        actorRole={cancelState?.actorRole}
+        amountPaid={cancelState?.booking?.amount_paid || 0}
+        bookingRef={cancelState?.booking?.ref || ""}
+      />
     </div>
   );
 }

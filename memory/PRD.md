@@ -1,6 +1,29 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔴 Iter 75 + 75.5 — Cancellation refund rule + mandatory reason (2026-08-21)
+
+### Iter 75 — Refund business rule fix (was inverted)
+- Previously the `cancel` action refunded the customer whenever `is_customer` cancelled a paid booking, and artists could not cancel a confirmed booking AT ALL. Both wrong.
+- Now the `cancel` branch in `POST /api/bookings/{id}/action` accepts `is_artist` in addition to `is_customer`/`is_admin`, and the refund path is keyed to the ACTING role:
+  - **Artist cancels** paid booking → `_mark_platform_fee_refundable(...)` fires → Easebuzz refund API called via `auto_refund_bookings`.
+  - **Customer cancels** paid booking → NO refund. Platform Service Fee is forfeited.
+  - **Admin cancels** → refund (support can still protect the customer).
+- Frontend: Artist dashboard now shows a "Cancel" button on confirmed bookings; customer's Cancel button warns clearly about forfeiture.
+
+### Iter 75.5 — Mandatory cancellation reason
+- **Backend**: `cancel` branch rejects with HTTP 400 when `body.reason` is missing, whitespace-only, or shorter than 3 chars. On success the booking gets `{cancel_reason, cancelled_by: "artist"|"customer"|"admin", cancelled_by_user_id, cancelled_at}` persisted on the doc. The `_mark_platform_fee_refundable` note now includes the actor + reason for audit trail.
+- **Frontend**: New shared `CancellationReasonModal` component (`/app/frontend/src/components/CancellationReasonModal.jsx`) — 6 preset reasons per role + "Other" free-text + role-specific warning copy. Both artist and customer Cancel buttons open it via the shared `openCancel(booking, actorRole)` handler in `BookingsTable`. The Confirm button is disabled until reason ≥ 3 chars. `doAction(id, action, extra)` now forwards `{reason}` into the API call.
+- **Visibility**: Every cancelled row shows `By {artist|customer|admin}: {reason}` under the status pill on the customer, artist, and admin bookings tables.
+
+### Verified (curl + screenshot)
+- Empty / whitespace / <3-char reason → 400 "Cancellation reason is required."
+- Customer with real reason → `status=cancelled, cancelled_by=customer, cancel_reason=…, cancelled_at=…`, payment NOT touched.
+- Artist with real reason → same fields set with `cancelled_by=artist`, `_mark_platform_fee_refundable` invoked (real Easebuzz-completed payment refunded; legacy razorpay_mock rows tagged `refund_status=not_applicable`).
+- Frontend modal: preset radios visible, "Other" reveals textarea, confirm gated on reason ≥ 3 chars, reason renders on cancelled rows for customer, artist AND admin views.
+
+
+
 ## 🗂 Iter 74.5 — Draft Bookings, Recent Views, Filter Chips (2026-08-21)
 
 ### Draft Bookings (cross-device)

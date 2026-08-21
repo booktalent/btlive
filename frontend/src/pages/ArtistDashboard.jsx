@@ -140,9 +140,9 @@ export default function ArtistDashboard() {
     setData({ bookings: b.data, packages: p.data, media: m.data, analytics: a.data, reviews: r.data });
   };
 
-  const doAction = async (bid, action) => {
+  const doAction = async (bid, action, extra = {}) => {
     try {
-      await api.post(`/bookings/${bid}/action`, { action });
+      await api.post(`/bookings/${bid}/action`, { action, ...extra });
       toast("Booking updated");
       refresh();
     } catch (e) { toast(formatApiError(e), "error"); }
