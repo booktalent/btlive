@@ -1,6 +1,18 @@
 # BookTalent — Product Requirements Document
 
 
+## 🚀 Iter 74 — Continuity UX: history-aware BookingFlow, Discover persist, Auth redirect (2026-08-21)
+
+- **Browser Back walks BookingFlow.** Each step transition (except mount + terminal step 6) pushes `{__bt_step, __bt_artist}` to `window.history`. A `popstate` listener in BookingFlow intercepts Back — if the state carries a step for this artist, we `setStep(s)`; if state is null but we're mid-wizard, we decrement one step + re-push so a single Back never blows up the flow. Step 6 skips the push so Back correctly exits the success screen. Verified: `/book/{id}?pkg&city` → click `step1-next` → browser Back → user is back on step 1, form intact.
+- **Discover filter persistence.** `Search.jsx` now hydrates from `localStorage["bt_last_search_filters"]` when the URL has no filter params (URL always wins for shared / deep-linked results). Every `run()` snapshots the current filter set; `Reset` wipes the snapshot for a genuine clean slate. Verified: pre-seed storage → revisit `/discover` → URL rewrites to `?category=…&city=…&sort=…` and results show 1 filtered artist.
+- **Auth page redirects logged-in users.** `Auth.jsx` now consumes `useAuth().user`; when a signed-in customer/artist/agency/admin lands on `/login` or `/signup` we `nav(resolveDest(user), {replace:true})` from an effect. `resolveDest` still honours `?returnTo=`, `?next=`, and the `bt_post_login_redirect` sessionStorage handoff. Verified: authed customer visits `/login` → redirected to `/customer`.
+
+### Known follow-ups (backlog)
+- Save-for-Later drafts (server-side booking drafts keyed by customer).
+- Hydration warning `<span>` inside `<option>` (cosmetic).
+
+
+
 ## 🎯 Iter 73 — Booking UX polish, AI Planner clickable cards, calendar hardening (2026-08-21)
 
 ### Media / list order

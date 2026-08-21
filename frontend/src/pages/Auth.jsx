@@ -55,7 +55,7 @@ export default function Auth({ mode = "signin" }) {
   // links still work, they just land on the Customer signup instead of 404.
   const rawRole = params.get("role") || "customer";
   const initialRole = rawRole === "corporate" ? "customer" : rawRole;
-  const { login, register, formatApiError } = useAuth();
+  const { login, register, formatApiError, user: currentUser } = useAuth();
   const toast = useToast();
   const nav = useNavigate();
 
@@ -93,6 +93,18 @@ export default function Auth({ mode = "signin" }) {
     api.get("/catalog/categories").then((r) => setCategoryList(r.data || [])).catch(() => setCategoryList([]));
     api.get("/catalog/cities").then((r) => setCityList(r.data || [])).catch(() => setCityList([]));
   }, []);
+
+  // Iter 74 — If a signed-in user lands on /login or /signup (e.g. browser
+  // Back after logging in, or a stale bookmark), route them straight to
+  // their dashboard / the `?next=` param instead of showing the sign-in
+  // form. This is done in an effect (not during render) so it survives a
+  // successful auth call and doesn't fight the `nav(resolveDest(u))` line.
+  useEffect(() => {
+    if (!currentUser) return;
+    const dest = resolveDest(currentUser);
+    nav(dest, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 

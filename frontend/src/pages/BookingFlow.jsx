@@ -165,6 +165,44 @@ export default function BookingFlow() {
     } catch { /* private-mode / quota — silently ignore */ }
   }, [form, step, storageKey]);
 
+  // Iter 74 — Browser-Back walks the wizard. Every step change (except
+  // the initial mount) pushes a new history entry keyed with `{step}`.
+  // A popstate handler intercepts Back to decrement the step in-place
+  // instead of letting the browser tear the whole booking flow down.
+  // Step 6 (success) is a terminal state → we do NOT push it so Back
+  // takes the user out of the wizard entirely (expected UX).
+  const initialStepRef = React.useRef(step);
+  React.useEffect(() => {
+    if (step === initialStepRef.current) return; // don't push the mount step
+    if (step === 6) return; // terminal → let Back leave the flow
+    try {
+      window.history.pushState({ __bt_step: step, __bt_artist: id }, "", window.location.href);
+    } catch { /* ignore */ }
+  }, [step, id]);
+  React.useEffect(() => {
+    const onPop = (e) => {
+      // Ignore popstate for other pages / artists.
+      const s = e.state?.__bt_step;
+      if (typeof s === "number" && e.state?.__bt_artist === id) {
+        setStep(s);
+        return;
+      }
+      // No step in state → user is exiting the flow entirely; if we're
+      // past step 1 we treat this as walking back one step so single Back
+      // presses inside the wizard don't blow it up. Only decrement if
+      // there IS a previous step to walk to.
+      if (step > 1 && step < 6) {
+        setStep((s) => Math.max(1, s - 1));
+        try {
+          window.history.pushState({ __bt_step: step - 1, __bt_artist: id }, "", window.location.href);
+        } catch { /* ignore */ }
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, id]);
+
   // Iter 35 — Canonicalise cities before comparing so intra-region events
   // (Delhi/New Delhi/NCR, Mumbai/Bombay, Bengaluru/Bangalore, ...) don't
   // wrongly trigger the outstation gate. Uses the same alias table as the

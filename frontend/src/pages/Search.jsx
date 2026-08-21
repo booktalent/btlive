@@ -26,22 +26,40 @@ export default function Search() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const sugRef = useRef(null);
 
+  // Iter 74 — Persist search filters so revisiting /discover lands on the
+  // last known filter set instead of a blank slate. URL params always win
+  // (deep links / shared URLs), then localStorage, then empty defaults.
+  const savedFiltersKey = "bt_last_search_filters";
+  const savedFilters = React.useMemo(() => {
+    try {
+      // Skip restore when the URL already carries any filter param — a
+      // shared / bookmarked link must remain authoritative.
+      const hasUrlFilters = ["q","category","city","min_price","max_price",
+        "language","event_type","min_rating","min_experience","gender","sort"]
+        .some((k) => params.get(k));
+      if (hasUrlFilters) return null;
+      const raw = localStorage.getItem(savedFiltersKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Filters
-  const [q, setQ] = useState(params.get("q") || "");
-  const [category, setCategory] = useState(params.get("category") || "");
-  const [city, setCity] = useState(params.get("city") || "");
-  const [minPrice, setMinPrice] = useState(params.get("min_price") || "");
-  const [maxPrice, setMaxPrice] = useState(params.get("max_price") || "");
-  const [language, setLanguage] = useState(params.get("language") || "");
-  const [eventType, setEventType] = useState(params.get("event_type") || "");
-  const [minRating, setMinRating] = useState(params.get("min_rating") || "");
-  const [minExperience, setMinExperience] = useState(params.get("min_experience") || "");
-  const [gender, setGender] = useState(params.get("gender") || "");
-  const [featuredOnly, setFeaturedOnly] = useState(false);
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [premiumOnly, setPremiumOnly] = useState(false);
-  const [instantOnly, setInstantOnly] = useState(false);
-  const [sort, setSort] = useState("relevance");
+  const [q, setQ] = useState(params.get("q") || savedFilters?.q || "");
+  const [category, setCategory] = useState(params.get("category") || savedFilters?.category || "");
+  const [city, setCity] = useState(params.get("city") || savedFilters?.city || "");
+  const [minPrice, setMinPrice] = useState(params.get("min_price") || savedFilters?.minPrice || "");
+  const [maxPrice, setMaxPrice] = useState(params.get("max_price") || savedFilters?.maxPrice || "");
+  const [language, setLanguage] = useState(params.get("language") || savedFilters?.language || "");
+  const [eventType, setEventType] = useState(params.get("event_type") || savedFilters?.eventType || "");
+  const [minRating, setMinRating] = useState(params.get("min_rating") || savedFilters?.minRating || "");
+  const [minExperience, setMinExperience] = useState(params.get("min_experience") || savedFilters?.minExperience || "");
+  const [gender, setGender] = useState(params.get("gender") || savedFilters?.gender || "");
+  const [featuredOnly, setFeaturedOnly] = useState(!!savedFilters?.featuredOnly);
+  const [verifiedOnly, setVerifiedOnly] = useState(!!savedFilters?.verifiedOnly);
+  const [premiumOnly, setPremiumOnly] = useState(!!savedFilters?.premiumOnly);
+  const [instantOnly, setInstantOnly] = useState(!!savedFilters?.instantOnly);
+  const [sort, setSort] = useState(savedFilters?.sort || "relevance");
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -76,6 +94,18 @@ export default function Search() {
     // Preserve URL only for the base page (not the infinite append calls)
     if (!append) setParams(p);
     setPage(pg);
+    // Iter 74 — Persist current filter snapshot so the next visit to
+    // /discover starts on this filter set. Only for base fetches — we
+    // don't rewrite storage on infinite scroll.
+    if (!append) {
+      try {
+        localStorage.setItem(savedFiltersKey, JSON.stringify({
+          q, category, city, minPrice, maxPrice, language, eventType,
+          minRating, minExperience, gender,
+          featuredOnly, verifiedOnly, premiumOnly, instantOnly, sort,
+        }));
+      } catch { /* private-mode / quota */ }
+    }
     try {
       const r = await api.get(`/search/artists?${p.toString()}`);
       setItems(append ? [...items, ...r.data.items] : r.data.items);
@@ -141,6 +171,9 @@ export default function Search() {
     setLanguage(""); setEventType(""); setMinRating(""); setMinExperience("");
     setGender(""); setFeaturedOnly(false); setVerifiedOnly(false);
     setPremiumOnly(false); setInstantOnly(false); setSort("relevance");
+    // Iter 74 — Explicit reset wipes the persisted snapshot so a next
+    // visit is truly a clean slate.
+    try { localStorage.removeItem(savedFiltersKey); } catch { /* ignore */ }
     setTimeout(() => run(1), 50);
   };
 
