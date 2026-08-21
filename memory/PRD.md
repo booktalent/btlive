@@ -1,6 +1,51 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 73 — Booking UX polish, AI Planner clickable cards, calendar hardening (2026-08-21)
+
+### Media / list order
+- **Legacy media backfill migration**: 71 pre-Iter-73 media docs had no `order` field; Mongo's null-sort meant new uploads (order=0) landed AFTER them. `startup()` now runs an idempotent `update_many({"order":{"$exists":false}}, {"$set":{"order":0}})` and logs `[iter73] backfilled order=0 on N media docs`.
+- `/api/media` + `/api/public/media` sort now `[("order",1),("created_at",-1)]` — new uploads appear first.
+- `/api/availability/mine` sort → `date DESC`.
+
+### Upload UX
+- Upload toast now counts real successes/failures. Oversized-only batch shows only the error toast; mixed batch shows `Uploaded N files · M failed`.
+- Blob URLs revoked only for rows removed from strip; error rows keep their preview.
+
+### Questionnaire deep-link (recurring bug)
+- `QuestionnaireWizard` used a one-shot `deepLinkApplied` guard, so sidebar sub-item clicks only jumped on the first click. Replaced with a re-firing `useEffect(startSection)` and `wizardRef.current.scrollIntoView({behavior:"smooth"})`. Verified on desktop + mobile.
+
+### Location popup on Book Now
+- Guests / customers with no city typed now see `[data-testid=location-prompt]` modal on Book Now click. Filling the city → auto-fills `[data-testid=venue-first-input]` → continues (LoginGate for guests, direct BookingFlow for authed).
+- Book Now button no longer disabled when city empty — clicks always open the popup (or the LoginGate for guests).
+
+### BookingFlow state preservation
+- `sessionStorage["bt_book_state_${artistId}"]` auto-saves `{form, step}` on every change; restores on mount; cleared on step 6 (success).
+- BookingFlow's `Protected`-bounce now includes `?next=<encoded full path+search+hash>` — verified end-to-end: `/book/{id}?pkg&city&date` → `/login?next=%2Fbook%2F...` → sign-in → returns to `/book/{id}?pkg&city&date` with data intact.
+- Fixed in `App.js:Protected` — the guard was silently dropping deep-link state before BookingFlow could set its own `?next=`.
+
+### AI Planner
+- Date input calendar icon replaced with inline white SVG (`::-webkit-calendar-picker-indicator { background-image: url(...) }`) — icon is now clearly visible on all dark themes. Same fix rolled out globally in `index.css` to every `input[type=date/time/datetime-local/month]`.
+- Matched-artist planner cards are fully clickable (`role=link`, `tabindex=0`, hover glow) and open `/artist/{user_id}` in a new tab (`window.open(..., "_blank", "noopener,noreferrer")`). Sold-out / unmatched cards stay display-only. Explore button uses `stopPropagation` so it doesn't double-open.
+
+### Artist calendar hardening
+- `AvailabilityCalendar` now always opens on the current month.
+- Read-only (customer/guest) view: Prev arrow is disabled when viewing the current month; navigation to earlier months is silently blocked. Tooltip: "This is the current month — you can only pick today or future dates."
+- Past dates + outside-month cells continue to be muted/non-clickable (Iter 72 behaviour preserved).
+- Artist's own editable view (`editable=true`) unchanged — they can still page back to review past bookings.
+
+### Regressions verified in iteration_73.json
+- All Iter 71 SEC-001/002 items still PASS.
+- Iter 71 mobile pill nav, LoginGate on favorite/message/availability all still PASS.
+- Iter 72 calendar completeness (42 cells, 0 hollows) + upload preview strip both PASS.
+
+### Known follow-ups (backlog)
+- MEDIUM: Push each BookingFlow step to history so browser Back walks the wizard instead of exiting.
+- LOW: Redirect already-authed users away from `/login` to `resolveDest`.
+- LOW: Hydration warning `<span> inside <option>` on ArtistProfile (cosmetic).
+
+
+
 ## 🔒 Iter 71 — Security Hardening (SEC-001/002/003) + Guest Gate Expansion + Mobile Dashboard Sweep (2026-08-21)
 
 ### Security fixes (P0 → P2)

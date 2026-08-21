@@ -65,16 +65,44 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
     const lastDate = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
     const leading = first.getDay(); // 0 = Sunday
     const cells = [];
-    for (let i = 0; i < leading; i++) cells.push(null);
+    // Iter 72 — Fill leading cells with the tail of the previous month
+    // (marked as `outside`) so the grid never has hollow / partially
+    // empty boxes. Same for trailing cells: pad to a full 6-row (42-cell)
+    // grid using the head of the next month.
+    if (leading > 0) {
+      const prevLastDate = new Date(month.getFullYear(), month.getMonth(), 0).getDate();
+      for (let i = leading; i > 0; i--) {
+        const d = new Date(month.getFullYear(), month.getMonth() - 1, prevLastDate - i + 1);
+        cells.push({ date: d, outside: true });
+      }
+    }
     for (let d = 1; d <= lastDate; d++) {
-      cells.push(new Date(month.getFullYear(), month.getMonth(), d));
+      cells.push({ date: new Date(month.getFullYear(), month.getMonth(), d), outside: false });
+    }
+    // Trailing pad — always render 6 rows (42 cells) so height stays stable.
+    let trail = 1;
+    while (cells.length < 42) {
+      cells.push({ date: new Date(month.getFullYear(), month.getMonth() + 1, trail++), outside: true });
     }
     return cells;
   }, [month]);
 
   const step = (delta) => {
-    setMonth(new Date(month.getFullYear(), month.getMonth() + delta, 1));
+    // Iter 73.1 — When viewed as a customer/guest (i.e. NOT the artist's
+    // own editable calendar), block navigation to any month before the
+    // current one. Artists editing their own availability still need to
+    // page back if they want to review past bookings (unchanged for
+    // `editable`).
+    const next = new Date(month.getFullYear(), month.getMonth() + delta, 1);
+    const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    if (!editable && next < currentMonthStart) return;
+    setMonth(next);
   };
+  // `true` when we're already at (or before) the current month → Prev arrow
+  // must be disabled in the read-only public view.
+  const atCurrentMonth =
+    month.getFullYear() === today.getFullYear() && month.getMonth() === today.getMonth();
+  const prevDisabled = !editable && atCurrentMonth;
 
   // Local-safe YYYY-MM-DD formatter. We CANNOT use `d.toISOString().split("T")[0]`
   // here — that converts local midnight to UTC first, which pushes IST/AEST/JST
@@ -87,7 +115,16 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
     <div className="avail-cal card card-pad" data-testid="availability-calendar">
       <div className="avail-cal-head">
         <div className="avail-cal-header-pill" data-testid="avail-cal-header-pill">
-          <button type="button" onClick={() => step(-1)} className="avail-cal-nav" aria-label="Previous month" data-testid="cal-prev">‹</button>
+          <button
+            type="button"
+            onClick={() => step(-1)}
+            className={`avail-cal-nav${prevDisabled ? " disabled" : ""}`}
+            aria-label="Previous month"
+            data-testid="cal-prev"
+            disabled={prevDisabled}
+            style={prevDisabled ? { opacity: 0.28, cursor: "not-allowed" } : undefined}
+            title={prevDisabled ? "This is the current month — you can only pick today or future dates." : "Previous month"}
+          >‹</button>
           <div className="avail-cal-title">{monthLabel}</div>
           <button type="button" onClick={() => step(1)} className="avail-cal-nav" aria-label="Next month" data-testid="cal-next">›</button>
         </div>
@@ -132,24 +169,28 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => (
           <div key={`h-${i}`} className="avail-cal-h">{d}</div>
         ))}
-        {days.map((d, i) => {
-          if (!d) return <div key={`e-${i}`} className="avail-cal-cell empty" />;
+        {days.map((cell, i) => {
+          if (!cell) return <div key={`e-${i}`} className="avail-cal-cell empty" />;
+          const d = cell.date;
+          const outside = cell.outside;
           const dateStr = fmtDate(d);
           const past = d < today;
           const isToday = d.getTime() === today.getTime();
           const isBlocked = blocked.has(dateStr);
           const isPremium = !!premium[dateStr];
           const isSelected = selected === dateStr;
-          const disabled = past || isBlocked;
+          const disabled = outside || past || isBlocked;
           const cls = ["avail-cal-cell"];
+          if (outside) cls.push("outside");
           if (past) cls.push("past");
           if (isToday) cls.push("today");
-          if (isBlocked) cls.push("blocked");
-          if (isPremium && !isBlocked && !past) cls.push("premium");
+          if (isBlocked && !outside) cls.push("blocked");
+          if (isPremium && !isBlocked && !past && !outside) cls.push("premium");
           if (isSelected) cls.push("selected");
           if (!disabled && !isPremium) cls.push("free");
           let title = "Available";
-          if (isBlocked) title = "Artist is unavailable on this date";
+          if (outside) title = d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+          else if (isBlocked) title = "Artist is unavailable on this date";
           else if (past) title = "Past date";
           else if (isPremium) {
             const p = premium[dateStr];
@@ -158,11 +199,12 @@ export default function AvailabilityCalendar({ artistUserId, onPick, selected = 
           }
           return (
             <button
-              key={dateStr}
+              key={`${dateStr}-${outside ? "o" : "i"}`}
               type="button"
-              className={cls.join(" ") + (bulkSelection.has(dateStr) ? " bulk-picked" : "")}
-              disabled={disabled && !editable}
+              className={cls.join(" ") + (bulkSelection.has(dateStr) && !outside ? " bulk-picked" : "")}
+              disabled={outside || (disabled && !editable)}
               onClick={(e) => {
+                if (outside) return; // Prev/next month cells are display-only.
                 if (editable && (e.shiftKey || e.ctrlKey || e.metaKey) && lastPicked) {
                   // Shift+click: extend range from lastPicked to current
                   // Build the range using LOCAL YYYY-MM-DD (avoids the same

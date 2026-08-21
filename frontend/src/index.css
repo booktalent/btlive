@@ -665,6 +665,84 @@ textarea.field-input { min-height: 100px; resize: vertical; }
 .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .upload-zone-icon { font-size: 32px; display: block; margin-bottom: 8px; }
 
+/* Iter 72 — Live per-file upload preview strip on the Media Manager. */
+.upload-preview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin: -8px 0 20px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.02);
+  border: 1px dashed rgba(255,255,255,0.12);
+}
+.upload-preview-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  transition: background 200ms ease, border-color 200ms ease;
+}
+.upload-preview-item.upload-done {
+  border-color: rgba(110,231,168,0.4);
+  background: rgba(110,231,168,0.06);
+}
+.upload-preview-item.upload-error {
+  border-color: rgba(255,107,129,0.45);
+  background: rgba(255,107,129,0.07);
+}
+.upload-preview-thumb {
+  position: relative;
+  width: 48px; height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(0,0,0,0.35);
+  display: grid; place-items: center;
+}
+.upload-preview-thumb img,
+.upload-preview-thumb video {
+  width: 100%; height: 100%; object-fit: cover;
+}
+.upload-preview-icon { font-size: 22px; opacity: 0.85; }
+.upload-preview-badge {
+  position: absolute; bottom: -2px; right: -2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 10px; font-weight: 700;
+  color: #000;
+  border: 2px solid var(--bg, #0a0a12);
+}
+.upload-preview-uploading { background: var(--gold, #d4af37); }
+.upload-preview-done { background: #6ee7a8; }
+.upload-preview-error { background: #ff6b81; color: #fff; }
+.upload-preview-meta {
+  min-width: 0; flex: 1;
+}
+.upload-preview-name {
+  font-size: 12px; font-weight: 600;
+  color: rgba(255,255,255,0.9);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.upload-preview-sub {
+  font-size: 10.5px; color: rgba(255,255,255,0.55);
+  margin-top: 2px;
+}
+.upload-preview-item.upload-done .upload-preview-sub { color: rgba(110,231,168,0.9); }
+.upload-preview-item.upload-error .upload-preview-sub { color: rgba(255,107,129,0.9); }
+.spinner-sm {
+  width: 10px; height: 10px;
+  border: 2px solid rgba(0,0,0,0.3);
+  border-top-color: #000;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+
 /* ─── Media grid ─── */
 .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 .media-tile {
@@ -1654,6 +1732,38 @@ textarea:-webkit-autofill {
   filter: invert(0.75) sepia(1) hue-rotate(15deg) saturate(3);
   cursor: pointer;
 }
+
+/* Iter 73.1 — GLOBAL: ensure every native date / time picker icon is
+   visible against the dark theme. Uses an inline white SVG (invert
+   filters were fragile across browsers). Any component that wants a
+   different look can override this locally. */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"] {
+  color-scheme: dark;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2' ry='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px 18px;
+  width: 22px; height: 22px;
+  padding: 0; margin: 0;
+  opacity: 1; filter: none;
+  color: transparent;
+  cursor: pointer;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="time"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 0.85;
+}
+
 .hero-adv-btn {
   align-self: end;
   height: 40px;
@@ -1788,6 +1898,17 @@ textarea:-webkit-autofill {
   cursor: default; pointer-events: none;
   color: transparent;
 }
+/* Iter 72 — leading/trailing days from previous/next month.
+   Rendered as fully-boxed cells so the grid never has holes, but muted
+   and non-interactive so the "focus month" stays visually dominant. */
+.avail-cal-cell.outside {
+  background: rgba(255,255,255,0.015);
+  border-color: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.22);
+  cursor: default;
+  pointer-events: none;
+}
+.avail-cal-cell.outside:hover { transform: none; box-shadow: none; }
 /* Available: emerald outline on transparent bg */
 .avail-cal-cell.free {
   background: rgba(255,255,255,0.02);

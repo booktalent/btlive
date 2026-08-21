@@ -1172,7 +1172,7 @@ async def media_list(
     q = {"user_id": user_id or user["id"]}
     if type:
         q["type"] = type
-    items = await db.media.find(q, {"data": 0}).sort("order", 1).to_list(500)
+    items = await db.media.find(q, {"data": 0}).sort([("order", 1), ("created_at", -1)]).to_list(500)
     return [clean(x) for x in items]
 
 
@@ -1181,7 +1181,7 @@ async def public_media_list(user_id: str, type: Optional[str] = None):
     q = {"user_id": user_id}
     if type:
         q["type"] = type
-    items = await db.media.find(q, {"data": 0}).sort("order", 1).to_list(500)
+    items = await db.media.find(q, {"data": 0}).sort([("order", 1), ("created_at", -1)]).to_list(500)
     return [clean(x) for x in items]
 
 
@@ -1384,7 +1384,9 @@ async def clear_availability(date_str: str, user: dict = Depends(get_current_use
 
 @api.get("/availability/mine")
 async def my_availability(user: dict = Depends(get_current_user)):
-    docs = await db.availability.find({"user_id": user["id"]}).to_list(500)
+    # Iter 73 — Newest-first so the artist sees their latest entries at the
+    # top of the "Existing Entries" list on the Availability tab.
+    docs = await db.availability.find({"user_id": user["id"]}).sort("date", -1).to_list(500)
     return [clean(d) for d in docs]
 
 
@@ -3275,6 +3277,21 @@ async def startup():
     await db.coupons.create_index("code", unique=True)
     await db.media.create_index("user_id")
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+
+    # Iter 73 — Backfill `order: 0` on legacy media docs that predate the
+    # order field. MongoDB sorts missing values BEFORE numeric 0, so
+    # without this migration newly uploaded gallery items (which always
+    # write `order:0`) end up AFTER every legacy item in the tie-breaker
+    # `.sort([('order',1),('created_at',-1)])` query. Idempotent — safe
+    # to run on every boot.
+    try:
+        res = await db.media.update_many(
+            {"order": {"$exists": False}}, {"$set": {"order": 0}},
+        )
+        if res.modified_count:
+            log.info("[iter73] backfilled order=0 on %d media docs", res.modified_count)
+    except Exception as _e:
+        log.warning("[iter73] media order backfill failed: %s", _e)
 
     # seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@booktalent.com")

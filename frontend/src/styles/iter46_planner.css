@@ -85,6 +85,38 @@
   font-size: 13px;
   outline: none;
   transition: border-color 0.15s ease, background 0.15s ease;
+  /* Iter 73 — Force browser widgets (date-picker calendar icon, dropdown
+     chevron) to render against a dark theme so the icon is visible. On
+     Chrome/Edge/Safari `color-scheme: dark` recolours the native calendar
+     icon to white; on older browsers we invert the raw indicator below. */
+  color-scheme: dark;
+}
+.planner-field input[type="date"]::-webkit-calendar-picker-indicator,
+.planner-field input[type="time"]::-webkit-calendar-picker-indicator {
+  /* Iter 73.1 — Replace the browser default indicator (which stayed
+     invisible against our dark theme even with `filter:invert`) with an
+     explicit white SVG so the icon is always crisply visible. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='18' rx='2' ry='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px 18px;
+  width: 22px; height: 22px;
+  padding: 0; margin: 0;
+  opacity: 1;
+  color: transparent; /* hide the fallback glyph */
+  filter: none;
+  cursor: pointer;
+}
+.planner-field input[type="date"]::-webkit-calendar-picker-indicator:hover,
+.planner-field input[type="time"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 0.85;
+  transform: scale(1.05);
+}
+.planner-field input[type="date"],
+.planner-field input[type="time"] {
+  /* Make sure the icon isn't clipped at the right edge on tiny widths. */
+  padding-right: 8px;
+  min-height: 42px;
 }
 .planner-field input:focus,
 .planner-field select:focus,
@@ -173,6 +205,16 @@
   transition: transform 0.15s ease, border-color 0.15s ease;
 }
 .planner-cat:hover { transform: translateY(-2px); border-color: rgba(245, 212, 122, 0.35); }
+/* Iter 73 — Whole-card clickable state for matched artists. */
+.planner-cat.clickable { cursor: pointer; }
+.planner-cat.clickable:hover {
+  border-color: rgba(245, 212, 122, 0.55);
+  box-shadow: 0 6px 20px -8px rgba(245, 212, 122, 0.25);
+}
+.planner-cat.clickable:focus-visible {
+  outline: 2px solid rgba(245, 212, 122, 0.6);
+  outline-offset: 2px;
+}
 .planner-cat.prio-1 { border-left: 3px solid #f5d47a; }
 .planner-cat.prio-2 { border-left: 3px solid #a78bfa; }
 .planner-cat.prio-3 { border-left: 3px solid #64748b; }

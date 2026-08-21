@@ -45,6 +45,11 @@ export default function ArtistProfile() {
   // browsing sessions too (their picks travel with them if they sign up).
   const favoritesKey = "bt_favorites";
   const [isFavorite, setIsFavorite] = React.useState(false);
+  // Iter 73 — Location popup: instead of a hard alert("enter city first"),
+  // opening the Book Now with no city shows a friendly modal that captures
+  // it, auto-fills the sidebar city field, then resumes the flow. Declared
+  // up here (BEFORE the early returns below) so hook order stays stable.
+  const [locationPrompt, setLocationPrompt] = React.useState({ open: false, value: "" });
   React.useEffect(() => {
     try {
       const raw = localStorage.getItem(favoritesKey);
@@ -133,19 +138,27 @@ export default function ArtistProfile() {
     !quote ||
     (isOutstation && !outstationAck);
 
-  const startBooking = () => {
-    // Guard #1: venue must be entered so we can compute local/outstation
-    // *before* the customer commits to Book Now (Iter 52.6 requirement).
-    if (!cityTouched) {
-      alert("Please enter your event city first so we can quote the right price.");
+  // Iter 73 — Location popup: instead of a hard alert("enter city first"),
+  // opening the Book Now with no city shows a friendly modal that captures
+  // it, auto-fills the sidebar city field, then resumes the flow.
+  const startBooking = (overrideCity) => {
+    const cityValue = (overrideCity ?? eventCity ?? "").trim();
+    // Guard #1: venue must be entered — but instead of failing hard, open
+    // the Location popup so the customer can supply it in-place.
+    if (cityValue.length < 2) {
+      setLocationPrompt({ open: true, value: eventCity || "" });
       return;
     }
-    if (!quote) {
+    if (!quote && !overrideCity) {
+      // Only require the pre-fetched quote when the city was already in
+      // state (typed by the user). When we're resuming from the popup we
+      // pass the new city → let the flow continue and re-quote inside
+      // BookingFlow.
       alert("Fetching quote — please wait a moment.");
       return;
     }
     // Guard #2: outstation acknowledgement must be ticked for cross-city.
-    if (isOutstation && !outstationAck) {
+    if (isOutstation && !outstationAck && !overrideCity) {
       alert("Please accept the Outstation Terms to continue.");
       return;
     }
@@ -157,8 +170,8 @@ export default function ArtistProfile() {
     // customer never has to re-enter them post-login.
     const qs = new URLSearchParams();
     if (selectedPkg?.id) qs.set("pkg", selectedPkg.id);
-    qs.set("city", eventCity.trim());
-    if (isOutstation) qs.set("outstation_ack", "1");
+    qs.set("city", cityValue);
+    if (isOutstation && !overrideCity) qs.set("outstation_ack", "1");
     const back = `/book/${artistId}?${qs.toString()}`;
 
     if (!user) {
@@ -171,6 +184,21 @@ export default function ArtistProfile() {
       return;
     }
     nav(back);
+  };
+
+  // Iter 73 — Submit handler for the Location popup.
+  const submitLocationPrompt = (e) => {
+    e?.preventDefault();
+    const city = (locationPrompt.value || "").trim();
+    if (city.length < 2) return;
+    // Update the sidebar city input so the customer never has to re-type
+    // the same location again. useEffect on eventCity re-quotes.
+    setEventCity(city);
+    setLocationPrompt({ open: false, value: "" });
+    // Continue Book Now with the freshly-entered city so guests hit the
+    // LoginGate → login → back to /book/{id}?city=... flow immediately.
+    // We pass `city` as override so we don't wait for the quote effect.
+    setTimeout(() => startBooking(city), 30);
   };
 
   // Iter 71 — Guest-gated secondary actions.
@@ -577,10 +605,9 @@ export default function ArtistProfile() {
 
                   <button
                     className="btn btn-gold btn-block"
-                    onClick={startBooking}
-                    disabled={bookingBlocked}
+                    onClick={() => startBooking()}
                     data-testid="confirm-booking-btn"
-                    title={bookingBlocked ? "Fill the fields above to unlock" : undefined}
+                    title={bookingBlocked && cityTouched ? "Fill the fields above to unlock" : undefined}
                   >
                     🔐 Book Now
                   </button>
@@ -658,6 +685,70 @@ export default function ArtistProfile() {
       />
       {/* Iter 71 — Secondary gate for Favorite / Message / Availability picks. */}
       {secondaryGate.gate}
+      {/* Iter 73 — Location popup: opens when a guest / customer clicks
+          Book Now without a city typed. Filling it here auto-updates the
+          sidebar city input AND resumes the Book Now flow immediately. */}
+      {locationPrompt.open && (
+        <div
+          data-testid="location-prompt-backdrop"
+          onClick={() => setLocationPrompt({ open: false, value: locationPrompt.value })}
+          style={{
+            position: "fixed", inset: 0, zIndex: 500,
+            background: "rgba(4,6,20,0.72)", backdropFilter: "blur(10px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <form
+            data-testid="location-prompt"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={submitLocationPrompt}
+            style={{
+              width: 440, maxWidth: "100%",
+              background: "linear-gradient(180deg, #16172B, #0F0F1B)",
+              border: "1px solid rgba(212,175,55,0.35)",
+              borderRadius: 20, padding: "26px 24px 22px",
+              color: "#F0EEFF",
+              boxShadow: "0 24px 64px -12px rgba(0,0,0,0.75)",
+            }}
+          >
+            <div style={{ fontSize: 26, marginBottom: 10 }}>📍</div>
+            <h3 style={{
+              fontFamily: "'Cormorant Garamond', serif",
+              fontSize: 24, fontWeight: 700, margin: "0 0 6px",
+            }}>
+              Where's your event?
+            </h3>
+            <p style={{ fontSize: 13, lineHeight: 1.55, color: "rgba(240,238,255,0.7)", margin: "0 0 16px" }}>
+              Tell us your event city so we can quote the right price — Mumbai, Delhi, Bengaluru, etc. We'll auto-fill this for you and continue.
+            </p>
+            <input
+              autoFocus
+              type="text"
+              className="field-input"
+              placeholder="e.g. Mumbai, Delhi, Bengaluru…"
+              value={locationPrompt.value}
+              onChange={(e) => setLocationPrompt((p) => ({ ...p, value: e.target.value }))}
+              data-testid="location-prompt-input"
+              style={{ width: "100%", marginBottom: 14 }}
+            />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                data-testid="location-prompt-cancel"
+                onClick={() => setLocationPrompt({ open: false, value: "" })}
+              >Cancel</button>
+              <button
+                type="submit"
+                className="btn btn-gold"
+                data-testid="location-prompt-continue"
+                disabled={(locationPrompt.value || "").trim().length < 2}
+              >Continue to Book →</button>
+            </div>
+          </form>
+        </div>
+      )}
 </div>
   );
 }

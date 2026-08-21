@@ -9,7 +9,7 @@ import "./styles/iter44_recap.css";
 import "./styles/iter45_cart.css";
 import "./styles/iter46_planner.css";
 import "./styles/iter65_row_flash.css";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { ToastProvider } from "./lib/toast";
@@ -39,8 +39,16 @@ import AgencyDashboardV2 from "./pages/agency/AgencyDashboardV2";
 
 function Protected({ children, roles }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <div className="loading"><div className="spinner" /></div>;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    // Iter 73.1 — Preserve the full path+search+hash so post-login /
+    // signup returns the user to the exact URL (with pkg/city/date /
+    // event_id etc. intact for the BookingFlow). Without this the
+    // `Protected` guard was silently dropping deep-link state.
+    const next = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
   return children;
 }

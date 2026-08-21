@@ -275,8 +275,26 @@ export default function EventPlannerPage() {
                     const p = previewForCategory(c.category);
                     const soldOut = !previewLoading && preview && (!p || !p.matched);
                     const matched = p?.matched && p?.package_id;
+                    // Iter 73 — When we've matched a real artist for this
+                    // category, make the ENTIRE card clickable → opens
+                    // that artist's profile in a new tab. Non-matched
+                    // (sold-out or category-only) cards stay display-only.
+                    const openArtist = () => {
+                      if (matched && p?.user_id) {
+                        window.open(`/artist/${p.user_id}`, "_blank", "noopener,noreferrer");
+                      }
+                    };
                     return (
-                    <div key={`${c.category}-${i}`} className={`planner-cat prio-${c.priority} ${soldOut ? "sold-out" : ""}`} data-testid={`planner-cat-${i}`}>
+                    <div
+                      key={`${c.category}-${i}`}
+                      className={`planner-cat prio-${c.priority} ${soldOut ? "sold-out" : ""} ${matched ? "clickable" : ""}`}
+                      data-testid={`planner-cat-${i}`}
+                      onClick={matched ? openArtist : undefined}
+                      onKeyDown={matched ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openArtist(); } } : undefined}
+                      role={matched ? "link" : undefined}
+                      tabIndex={matched ? 0 : undefined}
+                      title={matched ? `Open ${p.stage_name}'s profile in a new tab` : undefined}
+                    >
                       <div className="planner-cat-head">
                         <span className="planner-cat-name">{c.category}</span>
                         {soldOut ? (
@@ -299,7 +317,7 @@ export default function EventPlannerPage() {
                           )}
                         </div>
                       )}
-                      <button className="planner-explore-btn" onClick={() => exploreCategory(c.category)} data-testid={`planner-explore-${i}`}>
+                      <button className="planner-explore-btn" onClick={(e) => { e.stopPropagation(); exploreCategory(c.category); }} data-testid={`planner-explore-${i}`}>
                         Explore {c.category}s →
                       </button>
                     </div>

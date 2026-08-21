@@ -43,30 +43,55 @@ export default function BookingFlow() {
   const [artistAddons, setArtistAddons] = useState([]); // Sprint 3
   const [platformSettings, setPlatformSettings] = useState({});  // Outstation policy strings
   const [busy, setBusy] = useState(false);
-  const [step, setStep] = useState(1);
+  // Iter 73 — Persist multi-step booking state to sessionStorage so:
+  //   (a) hitting Back inside the flow never loses previously entered data,
+  //   (b) an auth bounce (login/signup) followed by a return-to-URL lands
+  //       the customer on the SAME step with the SAME selections,
+  //   (c) an accidental refresh doesn't reset the funnel to step 1.
+  // Key is scoped to the artist so switching artists doesn't cross-pollute.
+  const storageKey = `bt_book_state_${id}`;
+  const restored = React.useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, [storageKey]);
+  const [step, setStep] = useState(restored?.step || 1);
 
-  const [form, setForm] = useState({
-    package_id: params.get("pkg") || "",
-    addons: [],
-    addon_selections: [],  // Sprint 3: [{addon_id, quantity}]
-    // Iter 44 — pre-fill from URL for "Add another artist to this event" flow
-    event_date: params.get("date") || "",
-    event_time: params.get("time") || "",
-    event_type: params.get("event_type") || "Wedding / Sangeet",
-    venue: params.get("venue") || "",
-    city: params.get("city") || "",
-    guests: "300-600",
-    language_pref: "Hindi (Bollywood)",
-    notes: "",
-    customer_name: user ? `${user.first_name} ${user.last_name || ""}`.trim() : "",
-    customer_phone: user?.phone || "",
-    customer_email: user?.email || "",
-    coupon_code: "",
-    // Iter 52.5 additions ↓
-    customer_travel_allowance: "",  // optional ₹ amount the customer offers toward artist travel (informational only)
-    tnc_accepted: false,             // mandatory before Proceed to Payment
-    // Iter 52.6 — outstation ack pre-collected on the artist profile
-    outstation_ack: params.get("outstation_ack") === "1",
+  const [form, setForm] = useState(() => {
+    const base = {
+      package_id: params.get("pkg") || "",
+      addons: [],
+      addon_selections: [],  // Sprint 3: [{addon_id, quantity}]
+      // Iter 44 — pre-fill from URL for "Add another artist to this event" flow
+      event_date: params.get("date") || "",
+      event_time: params.get("time") || "",
+      event_type: params.get("event_type") || "Wedding / Sangeet",
+      venue: params.get("venue") || "",
+      city: params.get("city") || "",
+      guests: "300-600",
+      language_pref: "Hindi (Bollywood)",
+      notes: "",
+      customer_name: user ? `${user.first_name} ${user.last_name || ""}`.trim() : "",
+      customer_phone: user?.phone || "",
+      customer_email: user?.email || "",
+      coupon_code: "",
+      // Iter 52.5 additions ↓
+      customer_travel_allowance: "",
+      tnc_accepted: false,
+      // Iter 52.6 — outstation ack pre-collected on the artist profile
+      outstation_ack: params.get("outstation_ack") === "1",
+    };
+    // Merge in any persisted form values — URL params still override so a
+    // "share this booking" link keeps the same explicit values.
+    if (restored?.form) {
+      Object.keys(restored.form).forEach((k) => {
+        if (!params.get(k === "package_id" ? "pkg" : k) && restored.form[k] !== undefined) {
+          base[k] = restored.form[k];
+        }
+      });
+    }
+    return base;
   });
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);
@@ -79,7 +104,14 @@ export default function BookingFlow() {
   const [suggested, setSuggested] = useState([]);  // shown on success screen
 
   useEffect(() => {
-    if (!user) { nav("/login"); return; }
+    if (!user) {
+      // Iter 73 — Preserve the full booking URL (including pkg/city/date/
+      // outstation_ack) so login → sign-up flow returns the customer to
+      // this exact step with everything they had already selected.
+      const back = `${window.location.pathname}${window.location.search}`;
+      nav(`/login?next=${encodeURIComponent(back)}`);
+      return;
+    }
     api.get(`/artists/${id}`).then((r) => {
       setArtist(r.data);
       setPackages(r.data.packages);
@@ -119,6 +151,19 @@ export default function BookingFlow() {
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const toggleAddon = (a) => set("addons", form.addons.includes(a) ? form.addons.filter(x => x !== a) : [...form.addons, a]);
+
+  // Iter 73 — Auto-persist form + step to sessionStorage on every change
+  // so refresh / back / login-bounce can restore the exact state. We
+  // clear on step 6 (success) so the next booking starts fresh.
+  React.useEffect(() => {
+    try {
+      if (step === 6) {
+        sessionStorage.removeItem(storageKey);
+      } else {
+        sessionStorage.setItem(storageKey, JSON.stringify({ form, step }));
+      }
+    } catch { /* private-mode / quota — silently ignore */ }
+  }, [form, step, storageKey]);
 
   // Iter 35 — Canonicalise cities before comparing so intra-region events
   // (Delhi/New Delhi/NCR, Mumbai/Bombay, Bengaluru/Bangalore, ...) don't

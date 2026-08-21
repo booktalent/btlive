@@ -16,10 +16,11 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
-  // Iter 57 — Once we've applied a deep-link, don't keep re-applying it if
-  // sections list mutates (e.g. category picker changes layer 2). This is a
-  // one-shot jump.
-  const [deepLinkApplied, setDeepLinkApplied] = useState(false);
+  // Iter 73 — Sidebar dropdown items must be able to jump to ANY section
+  // repeatedly (not just once), so we drive deep-linking from `startSection`
+  // directly. The previous `deepLinkApplied` boolean guard swallowed every
+  // click after the first — this bug is what the artist reported.
+  const wizardRef = React.useRef(null);
 
   // Live category — starts from prop, follows the answer if the user picks one
   const liveCategory = answers.category || category;
@@ -88,17 +89,23 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
   const current = sections[stepIdx];
   const isLast = stepIdx === totalSteps - 1;
 
-  // Iter 57 — Deep-link support: when a startSection prop is provided (e.g.
-  // from the onboarding nudge), jump to that section on first render as soon
-  // as the sections list is ready. Case-insensitive match, falls back to
-  // step 0 when the section can't be found.
+  // Iter 73 — Deep-link support: whenever the parent updates `startSection`
+  // (e.g. sidebar dropdown click), jump to that section AND smooth-scroll
+  // the wizard body into view. This re-fires on EVERY prop change, so the
+  // artist can keep clicking sidebar items to navigate — the previous
+  // "one-shot" behaviour ignored every click after the first.
   useEffect(() => {
-    if (!startSection || deepLinkApplied || loading || sections.length === 0) return;
+    if (!startSection || loading || sections.length === 0) return;
     const target = startSection.toLowerCase();
     const idx = sections.findIndex((s) => (s.section || "").toLowerCase() === target);
-    if (idx >= 0) setStepIdx(idx);
-    setDeepLinkApplied(true);
-  }, [startSection, deepLinkApplied, loading, sections]);
+    if (idx >= 0) {
+      setStepIdx(idx);
+      // Scroll on the next paint so the newly-rendered section is in view.
+      requestAnimationFrame(() => {
+        wizardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [startSection, loading, sections]);
 
   const setAns = (id, val) => setAnswers((a) => ({ ...a, [id]: val }));
 
@@ -140,7 +147,7 @@ export default function QuestionnaireWizard({ category, onComplete, initialAnswe
   if (!current) return null;
 
   return (
-    <div className="q-wizard" data-testid="q-wizard">
+    <div className="q-wizard" data-testid="q-wizard" ref={wizardRef}>
       <div className="q-progress">
         {sections.map((s, i) => (
           <div

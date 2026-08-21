@@ -1243,6 +1243,12 @@ function MediaManager({ data, refresh, toast }) {
   const replaceRefs = useRef({});
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  // Iter 72 — Per-file upload feedback. Each entry:
+  //   { name, size, mime, previewUrl, status: 'uploading'|'done'|'error', error? }
+  // Rendered as a preview strip so artists can immediately see WHAT
+  // they uploaded and each item's live status, instead of a single
+  // ambiguous "Uploading… 42%" line.
+  const [pending, setPending] = useState([]);
 
   const fileToDataUrl = (f) => new Promise((res, rej) => {
     const r = new FileReader();
@@ -1255,24 +1261,63 @@ function MediaManager({ data, refresh, toast }) {
     setBusy(true);
     setProgress(0);
     const list = Array.from(files);
+    // Seed pending entries with client-side previews so the strip is
+    // visible instantly — long before the base64 upload finishes.
+    const seeded = list.map((f) => ({
+      name: f.name,
+      size: f.size,
+      mime: f.type || "application/octet-stream",
+      previewUrl: (f.type.startsWith("image/") || f.type.startsWith("video/"))
+        ? URL.createObjectURL(f) : null,
+      status: "uploading",
+    }));
+    setPending(seeded);
+    // Iter 73 — track per-file outcomes locally so the summary toast
+    // reflects reality (previously we always shouted "Uploaded N files"
+    // even when the client-side 12MB guard rejected every one of them).
+    let ok = 0, failed = 0;
     try {
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
-        if (f.size > 12 * 1024 * 1024) { toast(`${f.name} too large (max 12MB)`, "error"); continue; }
-        const dataUrl = await fileToDataUrl(f);
-        await api.post("/media/upload", { type, data_url: dataUrl, title: f.name }, {
-          onUploadProgress: (e) => {
-            const fileProg = e.total ? (e.loaded / e.total) : 0;
-            setProgress(Math.round(((i + fileProg) / list.length) * 100));
-          },
-        });
+        if (f.size > 12 * 1024 * 1024) {
+          toast(`${f.name} too large (max 12MB)`, "error");
+          setPending((prev) => prev.map((p, idx) => idx === i ? { ...p, status: "error", error: "Too large (max 12MB)" } : p));
+          failed++;
+          continue;
+        }
+        try {
+          const dataUrl = await fileToDataUrl(f);
+          await api.post("/media/upload", { type, data_url: dataUrl, title: f.name }, {
+            onUploadProgress: (e) => {
+              const fileProg = e.total ? (e.loaded / e.total) : 0;
+              setProgress(Math.round(((i + fileProg) / list.length) * 100));
+            },
+          });
+          setPending((prev) => prev.map((p, idx) => idx === i ? { ...p, status: "done" } : p));
+          ok++;
+        } catch (err) {
+          setPending((prev) => prev.map((p, idx) => idx === i ? { ...p, status: "error", error: formatApiError(err) } : p));
+          failed++;
+        }
       }
-      toast(`Uploaded ${list.length} file${list.length > 1 ? "s" : ""}`);
+      if (ok > 0) toast(`Uploaded ${ok} file${ok > 1 ? "s" : ""}${failed ? ` · ${failed} failed` : ""}`);
+      else if (failed > 0) toast(`Upload failed · ${failed} file${failed > 1 ? "s" : ""} rejected`, "error");
       await refresh();
     } catch (e) { toast(formatApiError(e), "error"); }
     setBusy(false);
     setProgress(0);
     if (inputRef.current) inputRef.current.value = "";
+    // Iter 73 — Auto-fade success rows after 4s. Only revoke the blob
+    // URLs for the rows we're actually removing (leaving error rows
+    // intact so the artist can still see the thumbnail and act on it).
+    setTimeout(() => {
+      setPending((prev) => {
+        prev.forEach((p) => {
+          if (p.status !== "error" && p.previewUrl) URL.revokeObjectURL(p.previewUrl);
+        });
+        return prev.filter((p) => p.status === "error");
+      });
+    }, 4000);
   };
 
   const replace = async (mediaId, file) => {
@@ -1344,6 +1389,43 @@ function MediaManager({ data, refresh, toast }) {
           </div>
         )}
       </div>
+      {/* Iter 72 — Live per-file upload preview strip. */}
+      {pending.length > 0 && (
+        <div className="upload-preview-strip" data-testid="upload-preview-strip">
+          {pending.map((p, i) => (
+            <div key={i} className={`upload-preview-item upload-${p.status}`} data-testid={`upload-preview-${i}`}>
+              <div className="upload-preview-thumb">
+                {p.previewUrl && p.mime.startsWith("image/") ? (
+                  <img src={p.previewUrl} alt={p.name} />
+                ) : p.previewUrl && p.mime.startsWith("video/") ? (
+                  <video src={p.previewUrl} muted />
+                ) : p.mime === "application/pdf" ? (
+                  <div className="upload-preview-icon">📄</div>
+                ) : p.mime.startsWith("audio/") ? (
+                  <div className="upload-preview-icon">🎵</div>
+                ) : (
+                  <div className="upload-preview-icon">📎</div>
+                )}
+                <div className={`upload-preview-badge upload-preview-${p.status}`}>
+                  {p.status === "uploading" && <span className="spinner-sm" />}
+                  {p.status === "done" && "✓"}
+                  {p.status === "error" && "✕"}
+                </div>
+              </div>
+              <div className="upload-preview-meta">
+                <div className="upload-preview-name" title={p.name}>{p.name}</div>
+                <div className="upload-preview-sub">
+                  {(p.size / 1024).toFixed(1)} KB · {
+                    p.status === "uploading" ? "Uploading…" :
+                    p.status === "done" ? "Uploaded ✓" :
+                    p.error || "Failed"
+                  }
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="media-grid">
         {galleryItems.map((m, idx) => (
           <div key={m.id} className="media-tile" data-testid={`media-tile-${m.id}`}>
