@@ -1,6 +1,40 @@
 # BookTalent — Product Requirements Document
 
 
+## 🚀 Iter 76 — Boost audit + 1 GB video uploads (2026-08-21)
+
+### Boost / Profile Promotion — NOT missing, ALREADY WORKING
+- Audit confirms the Boost system is fully implemented and live. Verified end-to-end:
+  - Public: `GET /api/boost/packages` → 11 active packages (`Category Top`, `City Featured`, `Featured Artist`, `Search Priority`, `Homepage Banner`, `Premium Badge`, `Verified Badge`, `Trending`, `Recommended`, etc.).
+  - Artist: `GET /api/boost/mine` returns active subscriptions; `POST /api/boost/easebuzz/init` starts a payment. Sidebar `🚀 Boost Profile` tab renders package cards with pricing, GST breakdown and "Your Active Boosts" list. Screenshot confirms "1 Active Boost · Search Priority · Expires 2026-08-22" for Priya Sharma.
+  - Admin: `GET/POST/PUT/DELETE /api/admin/boost/packages` for pricing management; `/api/admin/boost/subscriptions` for purchase history. Sidebar `🚀 Boost Manager` tab (AdminBoost component). Boost revenue is aggregated into the admin platform stats `boost_revenue` KPI.
+  - No fix needed — no code changed for boost.
+
+### 1 GB Artist Video Uploads (NEW)
+- **Backend** (`/app/backend/storage.py` + `server.py`):
+  - New `storage.py` wraps Emergent Object Storage (`INTEGRATION_PROXY_URL` + `EMERGENT_LLM_KEY`). Session key cached at startup with `[iter76] Object storage session initialised.` log line; auto-refreshes on 404.
+  - 3-step chunked upload endpoints protected by `get_current_user`:
+    1. `POST /api/media/video/start {filename, mime, size, type, title}` → `{session_id, chunk_size: 8MB}`. Rejects non-video mime or size > 1 GB.
+    2. `POST /api/media/video/chunk` (multipart: `session_id`, `chunk_index`, `chunk`) → per-chunk ack. Chunks stream to `/tmp/bt_uploads/{session_id}/chunk_XXXXXX.bin`.
+    3. `POST /api/media/video/finish {session_id}` → assembles → `put_object("booktalent/videos/{user_id}/{uuid}.{ext}", ...)` → inserts a `media` doc with `storage_path` (no base64 `data` field) → cleans tmp dir → returns `{ok, id, size, storage_path}`.
+  - `GET /api/media/{id}` transparently detects `storage_path` and streams from Emergent Object Storage. Falls back to legacy base64 for pre-Iter76 rows.
+  - Photos + docs unchanged — still route through `POST /api/media/upload` with the 12 MB base64 guard.
+- **Frontend** (`ArtistDashboard.jsx MediaManager`):
+  - `upload()` branches on `file.type.startsWith("video/")`:
+    - Videos: `f.slice(...)` into `chunk_size` blobs, `FormData` upload per chunk with axios `onUploadProgress` → real progress bar tracks completed + in-flight chunks. Then finish.
+    - Photos / docs: legacy base64 path, 12 MB cap.
+  - Upload-zone hint updated: "Photos & docs auto-compressed · up to 12 MB each · Videos up to 1 GB via chunked upload".
+  - Existing preview strip (Iter 72) already renders `<video src={URL.createObjectURL(f)}>` during upload and post-upload the gallery tile streams `<video src={mediaUrl(m.id)}>` from `/api/media/{id}` — no code change needed.
+- **Verified** with curl:
+  - 1 MB single-chunk upload → assembled → stored → GET back returned byte-identical (md5 match).
+  - 20 MB multi-chunk (3×8MB) upload → assembled → stored, media doc has `storage_path`, sessions tmp dir cleaned.
+
+### Known follow-ups (backlog)
+- Generate a poster thumbnail server-side (first-frame ffmpeg) for storage-backed videos so listings don't have blank tiles until the `<video>` element loads metadata.
+- Retry-on-network-blip for individual chunk uploads (currently a chunk failure aborts the whole session).
+
+
+
 ## 🔴 Iter 75 + 75.5 — Cancellation refund rule + mandatory reason (2026-08-21)
 
 ### Iter 75 — Refund business rule fix (was inverted)

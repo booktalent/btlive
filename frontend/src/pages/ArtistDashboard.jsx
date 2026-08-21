@@ -1279,20 +1279,59 @@ function MediaManager({ data, refresh, toast }) {
     try {
       for (let i = 0; i < list.length; i++) {
         const f = list[i];
-        if (f.size > 12 * 1024 * 1024) {
-          toast(`${f.name} too large (max 12MB)`, "error");
-          setPending((prev) => prev.map((p, idx) => idx === i ? { ...p, status: "error", error: "Too large (max 12MB)" } : p));
+        const isVideo = (f.type || "").startsWith("video/");
+        // Iter 76 — Videos: allow up to 1 GB and route through the
+        // chunked endpoints. Photos & other files stick with the
+        // legacy 12 MB base64 flow.
+        const sizeLimit = isVideo ? 1024 * 1024 * 1024 : 12 * 1024 * 1024;
+        const sizeLabel = isVideo ? "1 GB" : "12MB";
+        if (f.size > sizeLimit) {
+          toast(`${f.name} too large (max ${sizeLabel})`, "error");
+          setPending((prev) => prev.map((p, idx) => idx === i ? { ...p, status: "error", error: `Too large (max ${sizeLabel})` } : p));
           failed++;
           continue;
         }
         try {
-          const dataUrl = await fileToDataUrl(f);
-          await api.post("/media/upload", { type, data_url: dataUrl, title: f.name }, {
-            onUploadProgress: (e) => {
-              const fileProg = e.total ? (e.loaded / e.total) : 0;
-              setProgress(Math.round(((i + fileProg) / list.length) * 100));
-            },
-          });
+          if (isVideo) {
+            // ── Chunked upload path ────────────────────────────────
+            const start = await api.post("/media/video/start", {
+              filename: f.name, mime: f.type || "video/mp4",
+              size: f.size, type, title: f.name,
+            });
+            const sessionId = start.data.session_id;
+            const chunkSize = start.data.chunk_size || (8 * 1024 * 1024);
+            const totalChunks = Math.ceil(f.size / chunkSize);
+            for (let ci = 0; ci < totalChunks; ci++) {
+              const slice = f.slice(ci * chunkSize, (ci + 1) * chunkSize);
+              const fd = new FormData();
+              fd.append("session_id", sessionId);
+              fd.append("chunk_index", String(ci));
+              fd.append("chunk", slice, `${f.name}.part${ci}`);
+              await api.post("/media/video/chunk", fd, {
+                headers: { "Content-Type": "multipart/form-data" },
+                // Per-file progress = completed chunks + in-flight chunk fraction.
+                onUploadProgress: (e) => {
+                  const chunkProg = e.total ? (e.loaded / e.total) : 0;
+                  const fileProg = (ci + chunkProg) / totalChunks;
+                  setProgress(Math.round(((i + fileProg) / list.length) * 100));
+                },
+              });
+            }
+            const fin = new FormData();
+            fin.append("session_id", sessionId);
+            await api.post("/media/video/finish", fin, {
+              headers: { "Content-Type": "multipart/form-data" },
+            });
+          } else {
+            // ── Legacy small-file base64 path (unchanged) ─────────
+            const dataUrl = await fileToDataUrl(f);
+            await api.post("/media/upload", { type, data_url: dataUrl, title: f.name }, {
+              onUploadProgress: (e) => {
+                const fileProg = e.total ? (e.loaded / e.total) : 0;
+                setProgress(Math.round(((i + fileProg) / list.length) * 100));
+              },
+            });
+          }
           setPending((prev) => prev.map((p, idx) => idx === i ? { ...p, status: "done" } : p));
           ok++;
         } catch (err) {
@@ -1382,7 +1421,7 @@ function MediaManager({ data, refresh, toast }) {
         />
         <div className="upload-zone-icon">📁</div>
         <div className="fs-14 fw-600 mb-4">{busy ? `Uploading… ${progress}%` : "Drop files here or click to browse"}</div>
-        <div className="text-muted fs-12">Auto-compressed & thumbnailed · Up to 12 MB each</div>
+        <div className="text-muted fs-12">Photos & docs auto-compressed · up to 12&nbsp;MB each · Videos up to 1&nbsp;GB via chunked upload</div>
         {busy && (
           <div style={{ width: "60%", margin: "12px auto 0", height: 6, background: "var(--glass)", borderRadius: 3, overflow: "hidden" }}>
             <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, var(--gold), var(--purple))", transition: "width 0.2s" }} />

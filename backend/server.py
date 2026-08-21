@@ -1159,8 +1159,169 @@ async def media_get(media_id: str):
     doc = await db.media.find_one({"id": media_id})
     if not doc:
         raise HTTPException(404, "Not found")
+    # Iter 76 — When the media was stored in Emergent Object Storage
+    # (large videos), fetch its bytes from there instead of decoding a
+    # base64 blob in Mongo. Small photos & legacy rows keep the base64
+    # path untouched.
+    if doc.get("storage_path"):
+        try:
+            from storage import get_object  # local import to keep cold-path fast
+            raw, ct = get_object(doc["storage_path"])
+            return StreamingResponse(io.BytesIO(raw), media_type=ct or doc.get("mime", "application/octet-stream"))
+        except Exception as _e:
+            log.error("Object-storage fetch failed for %s: %s", media_id, _e)
+            raise HTTPException(502, "Media temporarily unavailable, please retry.")
     raw = base64.b64decode(doc["data"])
     return StreamingResponse(io.BytesIO(raw), media_type=doc.get("mime", "application/octet-stream"))
+
+
+# ─── Iter 76 — Chunked large-video upload ────────────────────────────────
+#
+# Photos (< 12 MB) continue to POST /media/upload as base64 data URLs.
+# Videos up to 1 GB use this 3-step chunked flow so we bypass the
+# Kubernetes ingress body-size limits AND avoid holding the whole file
+# in the app process's memory:
+#
+#   1. POST /media/video/start   → creates a session, returns session_id.
+#   2. POST /media/video/chunk   → append a 5 MB slice by index.
+#   3. POST /media/video/finish  → assemble → upload to Object Storage
+#                                   → insert media doc → return media_id.
+#
+# Chunks live under /tmp/bt_uploads/<session_id> until finish() or the
+# next reboot; sessions carry a short TTL so orphans are cleaned up.
+
+import shutil
+import tempfile
+
+_VIDEO_TMP_ROOT = os.path.join(tempfile.gettempdir(), "bt_uploads")
+os.makedirs(_VIDEO_TMP_ROOT, exist_ok=True)
+_MAX_VIDEO_BYTES = 1024 * 1024 * 1024  # 1 GB per file
+_MAX_CHUNK_BYTES = 8 * 1024 * 1024      # 8 MB per chunk
+
+
+class VideoUploadStartBody(BaseModel):
+    filename: str
+    mime: str
+    size: int
+    type: str = "gallery"  # matches Media type — usually "gallery"
+    title: Optional[str] = ""
+
+
+@api.post("/media/video/start")
+async def video_upload_start(body: VideoUploadStartBody, user: dict = Depends(get_current_user)):
+    if not body.mime.startswith("video/"):
+        raise HTTPException(400, "Only video files can use the large-file endpoint.")
+    if body.size <= 0 or body.size > _MAX_VIDEO_BYTES:
+        raise HTTPException(413, f"Video too large. Max {_MAX_VIDEO_BYTES // (1024*1024)} MB.")
+
+    sid = new_id()
+    session_dir = os.path.join(_VIDEO_TMP_ROOT, sid)
+    os.makedirs(session_dir, exist_ok=True)
+    await db.video_upload_sessions.insert_one({
+        "id": sid, "user_id": user["id"],
+        "filename": body.filename, "mime": body.mime, "size": body.size,
+        "type": body.type, "title": body.title or body.filename,
+        "chunks_received": 0, "assembled": False, "session_dir": session_dir,
+        "created_at": utcnow(),
+    })
+    return {"session_id": sid, "chunk_size": _MAX_CHUNK_BYTES}
+
+
+@api.post("/media/video/chunk")
+async def video_upload_chunk(
+    session_id: str = Form(...),
+    chunk_index: int = Form(...),
+    chunk: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    sess = await db.video_upload_sessions.find_one({"id": session_id, "user_id": user["id"]})
+    if not sess:
+        raise HTTPException(404, "Upload session not found or expired.")
+    if sess.get("assembled"):
+        raise HTTPException(400, "This upload session is already finalised.")
+    chunk_path = os.path.join(sess["session_dir"], f"chunk_{chunk_index:06d}.bin")
+    # Stream chunk to disk so we never buffer > chunk_size in memory.
+    data = await chunk.read()
+    if len(data) > _MAX_CHUNK_BYTES:
+        raise HTTPException(413, f"Chunk too large. Max {_MAX_CHUNK_BYTES // (1024*1024)} MB per chunk.")
+    with open(chunk_path, "wb") as f:
+        f.write(data)
+    await db.video_upload_sessions.update_one(
+        {"id": session_id}, {"$inc": {"chunks_received": 1}},
+    )
+    return {"ok": True, "chunk_index": chunk_index, "bytes": len(data)}
+
+
+@api.post("/media/video/finish")
+async def video_upload_finish(
+    session_id: str = Form(...),
+    user: dict = Depends(get_current_user),
+):
+    sess = await db.video_upload_sessions.find_one({"id": session_id, "user_id": user["id"]})
+    if not sess:
+        raise HTTPException(404, "Upload session not found or expired.")
+    if sess.get("assembled"):
+        raise HTTPException(400, "Already finalised.")
+
+    session_dir = sess["session_dir"]
+    # Assemble chunks in ascending index order.
+    parts = sorted(f for f in os.listdir(session_dir) if f.startswith("chunk_"))
+    if not parts:
+        raise HTTPException(400, "No chunks received.")
+
+    assembled_path = os.path.join(session_dir, "_assembled.bin")
+    total_size = 0
+    with open(assembled_path, "wb") as out:
+        for p in parts:
+            with open(os.path.join(session_dir, p), "rb") as ch:
+                buf = ch.read()
+                out.write(buf)
+                total_size += len(buf)
+
+    if total_size == 0:
+        raise HTTPException(400, "Empty upload.")
+    if total_size > _MAX_VIDEO_BYTES:
+        raise HTTPException(413, "Assembled file exceeds 1 GB limit.")
+
+    # Upload assembled file to Emergent Object Storage.
+    ext = (sess["filename"].rsplit(".", 1)[-1] if "." in sess["filename"] else "mp4").lower()
+    mid = new_id()
+    storage_path = f"booktalent/videos/{user['id']}/{mid}.{ext}"
+    try:
+        from storage import put_object
+        with open(assembled_path, "rb") as f:
+            raw = f.read()
+        put_object(storage_path, raw, sess["mime"])
+    except Exception as e:
+        log.error("Object storage upload failed for session %s: %s", session_id, e)
+        raise HTTPException(502, "Storage upload failed — please retry.")
+    finally:
+        # Always clean the tmp session dir so 1GB files don't accumulate.
+        try:
+            shutil.rmtree(session_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    doc = {
+        "id": mid, "user_id": user["id"],
+        "type": sess.get("type") or "gallery",
+        "mime": sess["mime"], "size": total_size,
+        "original_size": total_size,
+        "title": sess.get("title") or sess["filename"],
+        "is_featured": False,
+        "storage_path": storage_path,
+        # No `data` field for object-storage-backed rows. Thumb generation
+        # for large video is deferred; frontend renders the <video> tag
+        # with the streaming URL so users see confirmation.
+        "thumb": None,
+        "order": 0,
+        "created_at": utcnow(),
+    }
+    await db.media.insert_one(doc)
+    await db.video_upload_sessions.update_one(
+        {"id": session_id}, {"$set": {"assembled": True, "media_id": mid, "assembled_at": utcnow()}},
+    )
+    return {"ok": True, "id": mid, "size": total_size, "storage_path": storage_path}
 
 
 @api.get("/media")
@@ -3428,6 +3589,17 @@ async def startup():
     await db.booking_drafts.create_index([("user_id", 1), ("updated_at", -1)])
     await db.recent_views.create_index([("user_id", 1), ("artist_id", 1)], unique=True)
     await db.recent_views.create_index([("user_id", 1), ("viewed_at", -1)])
+    # Iter 76 — Video upload sessions (chunked).
+    await db.video_upload_sessions.create_index([("user_id", 1), ("created_at", -1)])
+    # Iter 76 — Emergent Object Storage session key. Failure is
+    # non-fatal so photo/base64 uploads keep working even when the
+    # object-storage backend is unreachable.
+    try:
+        from storage import init_storage
+        init_storage()
+        log.info("[iter76] Object storage session initialised.")
+    except Exception as _e:
+        log.warning("[iter76] Object storage init failed (video uploads will error): %s", _e)
 
     # Iter 73 — Backfill `order: 0` on legacy media docs that predate the
     # order field. MongoDB sorts missing values BEFORE numeric 0, so
