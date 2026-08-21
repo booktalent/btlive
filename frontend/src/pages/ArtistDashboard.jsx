@@ -60,7 +60,28 @@ export default function ArtistDashboard() {
   const [data, setData] = useState({ bookings: [], packages: [], media: [], analytics: {}, reviews: [] });
   const [showWizard, setShowWizard] = useState(false);
   const [completion, setCompletion] = useState(null); // Iter 56 — onboarding nudge
-  const [wizardStartSection, setWizardStartSection] = useState(null); // Iter 57 — deep-link
+  const [wizardStartSection, setWizardStartSection] = useState(null);
+  // Iter 70 — Questionnaire sections listed in the sidebar as a dropdown.
+  // We fetch layer-1 questions once and group them so the artist can jump
+  // directly into any section (e.g. "Basics", "Style", "Performance"…).
+  const [qSections, setQSections] = useState([]);
+  const [qSidebarOpen, setQSidebarOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/questionnaire/universal")
+      .then((r) => {
+        if (cancelled) return;
+        const secs = [];
+        const seen = new Set();
+        for (const q of r.data || []) {
+          const s = q.section || "Other";
+          if (!seen.has(s)) { seen.add(s); secs.push(s); }
+        }
+        setQSections(secs);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []); // Iter 57 — deep-link
   const [agencyInvites, setAgencyInvites] = useState([]); // Iter 63 — roster invites
   const [managingAgency, setManagingAgency] = useState(null); // Iter 63 — current agency
 
@@ -137,12 +158,57 @@ export default function ArtistDashboard() {
           <span style={{ fontSize: 18 }}>Book<span className="gold">Talent</span></span>
         </Link>
         <div className="sb-section">Artist Hub</div>
-        {SIDEBAR.map((x) => (
-          <div key={x.id} className={`sb-item ${tab === x.id ? "active" : ""}`} onClick={() => setTab(x.id)} data-testid={`sb-${x.id}`}>
-            {x.label}
-            {x.elite && <span style={{ marginLeft: 6, fontSize: 9, background: "linear-gradient(135deg,#f472b6,#d4af37)", color: "#0b0616", padding: "2px 6px", borderRadius: 6, fontWeight: 700 }}>ELITE</span>}
-          </div>
-        ))}
+        {SIDEBAR.map((x) => {
+          // Iter 70 — Special-case Questionnaire so we can render its
+          // sections as an expandable submenu. Clicking a section jumps
+          // straight to that question set inside the wizard.
+          if (x.id === "questionnaire") {
+            const isActive = tab === "questionnaire";
+            return (
+              <div key={x.id}>
+                <div
+                  className={`sb-item ${isActive ? "active" : ""}`}
+                  onClick={() => { setTab("questionnaire"); setQSidebarOpen((o) => !o); }}
+                  data-testid={`sb-${x.id}`}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                >
+                  <span>{x.label}</span>
+                  {qSections.length > 0 && (
+                    <span style={{ fontSize: 10, color: "rgba(240,238,255,0.5)" }}>
+                      {qSidebarOpen ? "▼" : "▶"}
+                    </span>
+                  )}
+                </div>
+                {qSidebarOpen && qSections.length > 0 && (
+                  <div data-testid="sb-questionnaire-sections" style={{ padding: "4px 0 6px 14px", borderLeft: "1px solid rgba(212,175,55,0.15)", marginLeft: 12 }}>
+                    {qSections.map((s) => (
+                      <div
+                        key={s}
+                        className={`sb-sub-item ${isActive && wizardStartSection === s ? "active" : ""}`}
+                        onClick={() => { setWizardStartSection(s); setTab("questionnaire"); }}
+                        data-testid={`sb-q-${s.toLowerCase().replace(/\s+/g, "-")}`}
+                        style={{
+                          padding: "6px 10px", fontSize: 12,
+                          color: (isActive && wizardStartSection === s) ? "#F1D17A" : "rgba(240,238,255,0.65)",
+                          cursor: "pointer", borderRadius: 6, margin: "2px 0",
+                          background: (isActive && wizardStartSection === s) ? "rgba(212,175,55,0.10)" : "transparent",
+                        }}
+                      >
+                        • {s}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div key={x.id} className={`sb-item ${tab === x.id ? "active" : ""}`} onClick={() => setTab(x.id)} data-testid={`sb-${x.id}`}>
+              {x.label}
+              {x.elite && <span style={{ marginLeft: 6, fontSize: 9, background: "linear-gradient(135deg,#f472b6,#d4af37)", color: "#0b0616", padding: "2px 6px", borderRadius: 6, fontWeight: 700 }}>ELITE</span>}
+            </div>
+          );
+        })}
       </aside>
 
       <main className="dash-content">

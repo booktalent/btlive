@@ -168,7 +168,7 @@ export default function Search() {
             {suggestions && (suggestions.artists?.length || suggestions.categories?.length || suggestions.cities?.length) > 0 && (
               <div className="card" style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, marginTop: 4, maxHeight: 320, overflow: "auto", padding: 6 }} data-testid="search-suggestions">
                 {suggestions.artists?.map((a) => (
-                  <Link key={a.id} to={`/artist/${a.id}`} className="sb-item" style={{ padding: "6px 10px", display: "block" }}>
+                  <Link key={a.id} to={`/artist/${a.id}`} className="sb-item" style={{ padding: "6px 10px", display: "block" }} target="_blank" rel="noopener noreferrer">
                     <div className="fw-600">{a.label}</div>
                     <div className="text-muted fs-11">{a.sub}</div>
                   </Link>
@@ -312,7 +312,7 @@ export default function Search() {
                 const cityLine = [a.category, a.city].filter(Boolean).join(" · ");
                 const tags = (a.tags || a.genres || []).slice(0, 4);
                 return (
-                  <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card-v2" data-testid={`artist-card-${a.user_id}`}>
+                  <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card-v2" data-testid={`artist-card-${a.user_id}`} target="_blank" rel="noopener noreferrer">
                     <div className="artist-img-wrap">
                       <ArtistCardThumb
                         artist={a}

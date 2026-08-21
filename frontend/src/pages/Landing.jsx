@@ -279,6 +279,8 @@ export default function Landing() {
               to={`/artist/${c.slug || c.user_id}`}
               className={`spotlight-card spotlight-card-${i + 1}`}
               data-testid={`spotlight-card-${i}`}
+              target="_blank"
+              rel="noopener noreferrer"
               {...(heroImg ? {
                 style: {
                   background: `linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 55%, rgba(0,0,0,0.85) 100%), url(${heroImg}) center/cover no-repeat`,
@@ -653,7 +655,7 @@ function HomeRail({ rail }) {
           const cityLine = [a.category, a.city].filter(Boolean).join(" · ");
           const tags = (a.tags || a.genres || []).slice(0, 4);
           return (
-            <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card-v2" data-testid={`rail-card-${rail.code}-${a.user_id}`}>
+            <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card-v2" data-testid={`rail-card-${rail.code}-${a.user_id}`} target="_blank" rel="noopener noreferrer">
               <div className="artist-img-wrap">
                 <ArtistCardThumb
                   artist={a}

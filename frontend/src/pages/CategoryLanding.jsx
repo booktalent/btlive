@@ -103,7 +103,7 @@ export default function CategoryLanding() {
             ) : (
               <div className="grid grid-4">
                 {artists.map((a) => (
-                  <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card" data-testid={`cat-card-${a.user_id}`}>
+                  <Link to={`/artist/${a.slug || a.user_id}`} key={a.user_id} className="artist-card" data-testid={`cat-card-${a.user_id}`} target="_blank" rel="noopener noreferrer">
                     <ArtistCardThumb artist={a} className="artist-card-cover" placeholder={<span style={{ fontSize: "inherit" }}>{a.emoji || "🎤"}</span>} />
                     <div className="artist-card-body">
                       <div className="artist-card-name">{a.stage_name}</div>

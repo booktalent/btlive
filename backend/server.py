@@ -798,16 +798,19 @@ async def otp_send(body: OTPBody):
 
 
 @api.post("/auth/otp/verify")
-async def otp_verify(body: OTPBody, response: Response):
+async def otp_verify(body: OTPBody):
+    # Iter 71 — SEC-001 hardening. This endpoint ONLY verifies the phone
+    # number for signup. It never issues a session token, because doing so
+    # was a passwordless-login backdoor: anyone could enter the mock OTP
+    # (`123456`) or a real OTP and log in as ANY user by phone match, with
+    # zero password check. Existing users must go through /auth/login with
+    # their password.
     rec = await db.otps.find_one({"phone": body.phone})
     if not rec or body.otp != "123456":
         raise HTTPException(400, "Invalid OTP")
-    # if user exists, log them in. Otherwise return verified flag.
-    user = await db.users.find_one({"phone": body.phone})
-    if user:
-        token = make_token(user["id"], user["role"])
-        _set_auth_cookie(response, token)
-        return {"verified": True, "token": token, "user": clean(user)}
+    await db.otps.update_one(
+        {"phone": body.phone}, {"$set": {"verified": True, "verified_at": utcnow()}},
+    )
     return {"verified": True, "token": None}
 
 
@@ -881,17 +884,18 @@ async def email_otp_verify(body: EmailOTPVerifyBody):
     await db.email_otps.update_one(
         {"email": email}, {"$set": {"verified": True, "verified_at": utcnow()}},
     )
-    # If a user already exists with this email, mark them verified and issue a token
-    user = await db.users.find_one({"email": email})
-    if user:
-        await db.users.update_one(
-            {"id": user["id"]},
-            {"$set": {"email_verified": True, "verified": True}},
-        )
-        token = make_token(user["id"], user["role"])
-        user["email_verified"] = True
-        return {"verified": True, "token": token, "user": clean(user)}
-    # Just verified the email — caller will use it to complete signup
+    # Iter 71 — SEC-001 hardening. This endpoint used to issue a full
+    # session token (and set the auth cookie) whenever the email matched
+    # an existing user. That was a passwordless-account-takeover: because
+    # the mock OTP is `123456` in dev mode (and real OTPs can be captured),
+    # anyone could log in as ANY user (including admin) without ever
+    # supplying a password.
+    #
+    # Fix: this endpoint now ONLY marks the email address as verified. It
+    # never issues a session. If the email already belongs to a registered
+    # user, the caller must go through /auth/login with their password.
+    # The subsequent /auth/register call will reject re-registration with
+    # a "Email already registered" 400 — the correct behaviour.
     return {"verified": True, "token": None}
 
 

@@ -722,19 +722,37 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
             await _log(db, "easebuzz.retrieve.response", txnid, retrieve)
 
             retrieved_status = ""
+            retrieve_ok = False
             try:
                 rd = retrieve.get("msg") or retrieve.get("data") or {}
                 if isinstance(rd, dict):
                     retrieved_status = str(rd.get("status", "")).lower()
+                # Easebuzz retrieve returns `{"status": 1, "msg": {...}}` on
+                # success. We ONLY treat the txn as verified when Easebuzz
+                # explicitly returned `status=1` at the envelope level AND
+                # the inner status is "success". Missing / empty / any
+                # other value → treat as failure (fail-closed).
+                envelope_ok = str(retrieve.get("status", "")).strip() in ("1", "success")
+                retrieve_ok = envelope_ok and retrieved_status == "success"
             except Exception:
-                pass
+                retrieve_ok = False
 
-            if retrieved_status and retrieved_status != "success":
-                # Retrieve disagrees — treat as failure.
+            # Iter 71 — SEC-003 hardening. Previous logic was fail-open:
+            # if the retrieve call errored or returned an unparsable
+            # payload, `retrieved_status` was empty and the guard
+            # `retrieved_status and retrieved_status != "success"` was
+            # false, so the code fell through and marked the payment
+            # completed. A malicious caller could hit the callback with a
+            # forged hash + block the retrieve API to bypass verification.
+            # Now: mark completed ONLY when retrieve positively confirms
+            # success. Otherwise → failed.
+            if not retrieve_ok:
                 await db.payments.update_one(
                     {"id": pay["id"]},
                     {"$set": {"status": "failed",
-                              "failure_reason": f"retrieve_status={retrieved_status}",
+                              "failure_reason": (
+                                  f"retrieve_status={retrieved_status or 'unavailable'}"
+                              ),
                               "gateway_response": form,
                               "gateway_retrieve": retrieve,
                               "verified_at": _now()}},

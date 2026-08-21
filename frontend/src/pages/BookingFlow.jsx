@@ -351,7 +351,7 @@ export default function BookingFlow() {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24 }}>
+        <div className="booking-flow-grid" data-testid="booking-flow-grid">
           <div>
             {step === 1 && (
               <>
@@ -771,11 +771,11 @@ export default function BookingFlow() {
           {step < 6 && (
             <div data-testid="order-summary">
               {isMultiEvent ? (
-                <div style={{ position: "sticky", top: 90 }}>
+                <div className="booking-flow-summary">
                   <BookingCart items={cartItems} pricing={cartPricing} onRemove={removeSecondaryArtist} compact />
                 </div>
               ) : (
-              <div className="card card-pad" style={{ position: "sticky", top: 90 }}>
+              <div className="card card-pad booking-flow-summary">
                 <div className="flex items-center gap-12 mb-16" style={{ padding: 8, background: "var(--glass)", borderRadius: 10 }}>
                   <div className="avatar avatar-lg" style={{ background: "linear-gradient(135deg, var(--purple), var(--gold))", width: 50, height: 50, fontSize: 24 }}>
                     {artist.profile.emoji || "🎤"}

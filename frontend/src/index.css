@@ -864,9 +864,43 @@ option:checked, option:hover {
   .modal-card { width: 92vw !important; max-width: 92vw !important; max-height: 88vh; overflow-y: auto; }
 
   /* ─── Dashboards — 3 pages all use <main className="dash-content"> ─── */
+  /* Iter 71 — Mobile navigation sweep. Previously we hid the sidebar
+     entirely on mobile which stranded users with no way to switch tabs.
+     Now the sidebar collapses into a horizontally-scrollable tab strip
+     stuck to the top so every dashboard remains navigable on phones. */
   .dashboard-shell { flex-direction: column !important; }
   .dashboard-shell .sidebar,
-  aside.sidebar { display: none !important; }
+  aside.sidebar {
+    position: sticky !important; top: 0 !important; z-index: 40;
+    height: auto !important;
+    display: flex !important; flex-direction: row !important;
+    align-items: center;
+    overflow-x: auto !important; overflow-y: hidden;
+    padding: 8px 12px !important;
+    gap: 8px;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--glass-border);
+    background: linear-gradient(180deg, rgba(20,20,43,0.95), rgba(9,9,18,0.95));
+    backdrop-filter: blur(12px);
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  aside.sidebar::-webkit-scrollbar { display: none; }
+  aside.sidebar .logo { flex-shrink: 0; margin: 0 8px 0 0 !important; }
+  aside.sidebar .logo span { display: none; }
+  aside.sidebar .sb-section { display: none !important; }
+  aside.sidebar .sb-item {
+    flex-shrink: 0; white-space: nowrap;
+    padding: 8px 12px !important; font-size: 12px;
+    border-left: 0 !important; border-radius: 999px !important;
+    background: rgba(255,255,255,0.03);
+  }
+  aside.sidebar .sb-item.active {
+    background: linear-gradient(90deg, rgba(212,175,55,0.22), rgba(212,175,55,0.08)) !important;
+    color: var(--gold-light);
+    border-left: 0 !important;
+    padding-left: 12px !important;
+  }
   .dashboard-shell .main,
   .dashboard-shell .dash-content,
   .dash-content {
@@ -2694,3 +2728,29 @@ textarea:-webkit-autofill {
 }
 .modal-body .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Iter 70: Booking Flow responsive layout ─────────────────────────── */
+.booking-flow-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  align-items: flex-start;
+}
+.booking-flow-summary {
+  position: sticky;
+  top: 90px;
+}
+@media (max-width: 900px) {
+  .booking-flow-grid { grid-template-columns: 1fr; }
+  .booking-flow-summary { position: static; order: -1; }
+}
+@media (max-width: 480px) {
+  /* Compact stepper on small phones so 5 circles fit inside the viewport. */
+  .steps { padding: 8px 0 16px; }
+  .step-circle { width: 26px !important; height: 26px !important; font-size: 12px !important; }
+  .step-line { min-width: 12px !important; }
+  .card-pad { padding: 14px !important; }
+  .booking-flow-summary { padding: 14px !important; }
+  /* Fields wrap comfortably. */
+  .field-row { grid-template-columns: 1fr !important; }
+}

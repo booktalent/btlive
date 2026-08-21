@@ -6,6 +6,9 @@ import AvailabilityCalendar from "../components/AvailabilityCalendar";
 import TravelRiderCard from "../components/TravelRiderCard";
 import api, { fmtINRFull, mediaUrl, thumbUrl } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import LoginGate, { useLoginGate } from "../components/LoginGate";
+import { useToast } from "../lib/toast";
+import { Heart, MessageCircle } from "lucide-react";
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,6 +30,28 @@ export default function ArtistProfile() {
   const [outstationAck, setOutstationAck] = useState(false);
   const nav = useNavigate();
   const { user } = useAuth();
+  const toast = useToast();
+  // Iter 70 — Show a friendly guardrail modal when a guest tries to book,
+  // instead of instantly redirecting them to /login and losing context.
+  const [showLoginGate, setShowLoginGate] = React.useState(false);
+  const [loginGateReturnTo, setLoginGateReturnTo] = React.useState(null);
+  // Iter 71 — Extended LoginGate coverage to Favorite / Message Artist /
+  // Availability calendar picks. Uses the shared `useLoginGate` hook so
+  // each guest action gets its own contextual title + message override.
+  const secondaryGate = useLoginGate();
+  // Favorites are stored locally per-browser as an MVP — swap for a real
+  // /api/customer/favorites endpoint when a proper account-scoped list is
+  // needed. localStorage keeps the code side-effect-free for logged-out
+  // browsing sessions too (their picks travel with them if they sign up).
+  const favoritesKey = "bt_favorites";
+  const [isFavorite, setIsFavorite] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(favoritesKey);
+      const list = raw ? JSON.parse(raw) : [];
+      setIsFavorite(list.includes(artistId));
+    } catch { /* ignore */ }
+  }, [artistId]);
 
   useEffect(() => {
     // Support both /artist/:uuid and SEO-friendly /artist/:slug URLs
@@ -137,12 +162,60 @@ export default function ArtistProfile() {
     const back = `/book/${artistId}?${qs.toString()}`;
 
     if (!user) {
-      // Save intent → login → resume on the exact same booking flow.
+      // Iter 70 — Show contextual login modal instead of jumping straight
+      // to /login. Save intent to session storage so we can resume on the
+      // same booking flow post-auth.
       try { sessionStorage.setItem("bt_post_login_redirect", back); } catch { /* ignore */ }
-      nav(`/login?next=${encodeURIComponent(back)}`);
+      setLoginGateReturnTo(back);
+      setShowLoginGate(true);
       return;
     }
     nav(back);
+  };
+
+  // Iter 71 — Guest-gated secondary actions.
+  const toggleFavorite = secondaryGate.requireAuth(() => {
+    try {
+      const raw = localStorage.getItem(favoritesKey);
+      const list = raw ? JSON.parse(raw) : [];
+      const next = list.includes(artistId)
+        ? list.filter((id) => id !== artistId)
+        : [...list, artistId];
+      localStorage.setItem(favoritesKey, JSON.stringify(next));
+      setIsFavorite(next.includes(artistId));
+      toast(next.includes(artistId) ? "Saved to favorites ★" : "Removed from favorites");
+    } catch { /* ignore */ }
+  }, {
+    title: "Save this artist to your favorites",
+    message: "Create a free BookTalent account to save artists you love and revisit them anytime.",
+  });
+
+  const messageArtist = secondaryGate.requireAuth(() => {
+    // Chat unlocks only after a paid booking (business rule). Nudge the
+    // customer to start the booking flow if they want to talk to the
+    // artist directly.
+    toast("Chat unlocks after you book & pay. Please Book Now to continue.");
+  }, {
+    title: "Sign in to contact this artist",
+    message: "You'll need a free BookTalent account to message artists and confirm your booking.",
+  });
+
+  const handleAvailabilityPick = (dateStr) => {
+    if (!user) {
+      secondaryGate.promptLogin({
+        title: "Sign in to check availability",
+        message: "Create a free BookTalent account to reserve a date and start your booking.",
+      });
+      return;
+    }
+    // Logged-in customers → jump straight to booking flow with the date
+    // pre-filled so they don't lose the click.
+    if (user.role === "artist" || user.role === "agency") return;
+    const qs = new URLSearchParams();
+    if (selectedPkg?.id) qs.set("pkg", selectedPkg.id);
+    if (eventCity.trim()) qs.set("city", eventCity.trim());
+    if (dateStr) qs.set("date", dateStr);
+    nav(`/book/${artistId}?${qs.toString()}`);
   };
 
   // ── SEO JSON-LD (Person + Offer for the cheapest package) ───────────
@@ -371,7 +444,7 @@ export default function ArtistProfile() {
                 <div style={{ marginBottom: 12, color: "var(--white-muted)", fontSize: 13 }}>
                   🗓️ Pick a date to check {profile.stage_name.split(" ")[0]}'s live availability. Dates in red are already booked or blocked.
                 </div>
-                <AvailabilityCalendar artistUserId={profile.user_id} onPick={() => {}} />
+                <AvailabilityCalendar artistUserId={profile.user_id} onPick={handleAvailabilityPick} />
               </div>
             )}
 
@@ -511,6 +584,34 @@ export default function ArtistProfile() {
                   >
                     🔐 Book Now
                   </button>
+
+                  {/* Iter 71 — Secondary actions with LoginGate for guests. */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={toggleFavorite}
+                      data-testid="favorite-artist-btn"
+                      aria-pressed={isFavorite}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        color: isFavorite ? "#ff6b81" : undefined,
+                        borderColor: isFavorite ? "rgba(255,107,129,0.5)" : undefined,
+                      }}
+                    >
+                      <Heart size={14} fill={isFavorite ? "#ff6b81" : "none"} />
+                      {isFavorite ? "Saved" : "Favorite"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={messageArtist}
+                      data-testid="message-artist-btn"
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                    >
+                      <MessageCircle size={14} /> Message
+                    </button>
+                  </div>
                   {!cityTouched && (
                     <div className="text-muted fs-11 mt-8" style={{ textAlign: "center" }}>
                       Enter your event city above to unlock booking
@@ -548,6 +649,15 @@ export default function ArtistProfile() {
       {lightbox && (
         <MediaCarousel lightbox={lightbox} onClose={() => setLightbox(null)} onChange={setLightbox} />
       )}
+      <LoginGate
+        open={showLoginGate}
+        onClose={() => setShowLoginGate(false)}
+        title="Login to book this artist"
+        message="You'll need a free BookTalent account to check availability and confirm your booking. We'll bring you right back here after."
+        returnTo={loginGateReturnTo}
+      />
+      {/* Iter 71 — Secondary gate for Favorite / Message / Availability picks. */}
+      {secondaryGate.gate}
 </div>
   );
 }

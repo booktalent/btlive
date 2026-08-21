@@ -1,6 +1,63 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔒 Iter 71 — Security Hardening (SEC-001/002/003) + Guest Gate Expansion + Mobile Dashboard Sweep (2026-08-21)
+
+### Security fixes (P0 → P2)
+- **SEC-001 (P0) — Passwordless Account Takeover CLOSED.** `/api/auth/email/verify` and `/api/auth/otp/verify` used to issue a full JWT + set the httpOnly `access_token` cookie whenever the OTP matched and the email/phone belonged to an existing user. Combined with the dev-mode mock OTP `123456`, ANY user (including admin) could be logged into with zero password knowledge. Both endpoints now only mark the address as verified and return `{verified: true, token: null}`. Existing users must go through `/auth/login` with their password. Verified end-to-end: `curl` with mock OTP against admin email → no cookie set, `/auth/me` returns 401.
+- **SEC-002 (P1) — Default admin password rotated.** `ADMIN_PASSWORD` in `/app/backend/.env` changed from `Admin@123` to `BT!Sec-XW8ANOssw6y0AI7fjVcT-2026`. `seed_admin` re-hashes on startup when the env value changes. Old password now returns 401. `/app/memory/test_credentials.md` updated.
+- **SEC-003 (P2) — Easebuzz fail-open closed.** `routes/easebuzz.py:_handle_callback` retrieve step used to fall through to `completed` whenever the retrieve API errored or returned an unparsable body (empty `retrieved_status` made the guard False). Now: envelope `status ∈ ("1","success")` AND inner status `== "success"` are BOTH required to mark payment complete. Missing / error / any other value → `failed` + `failure_reason=retrieve_status=...`. testing_agent verified with a synthetic hash-valid callback for an unknown txnid — payment ends `failed`, redirect goes to failure page.
+
+### Guest gate expansion (Iter 70 → 71)
+- `ArtistProfile.jsx` now uses the shared `useLoginGate()` hook alongside the original Book-Now gate. Two new sticky-sidebar buttons:
+  - `favorite-artist-btn` (♥) — For guests: `LoginGate` with "Save this artist to your favorites". For customers: toggles `bt_favorites` localStorage entry both ways with a toast confirmation.
+  - `message-artist-btn` (💬) — For guests: `LoginGate` with "Sign in to contact this artist". For customers: toast "Chat unlocks after you book & pay. Please Book Now to continue." (chat is booking-scoped by business rule).
+- **Availability calendar `onPick`** — Previously a no-op. Now: guests get the `LoginGate` with "Sign in to check availability" contextual copy; logged-in customers navigate to `/book/{artistId}?pkg=…&city=…&date=YYYY-MM-DD` so the date is preserved through booking flow.
+
+### Mobile dashboard sweep
+- Previously the `@media (max-width: 767px)` block set `aside.sidebar { display: none !important; }` — stranding mobile users on Customer / Artist / Admin dashboards with no way to switch tabs.
+- Rewritten to convert the sidebar into a sticky horizontal-scroll pill nav at the top of the viewport. Sections hidden, items styled as pills, active state marked with gold-gradient background. testing_agent verified 6 pills on Customer, 14 on Artist, 29 on Admin — all visible + tappable at 390×844.
+- Agency dashboard was already responsive (its own agency.css block).
+
+### Verified
+- testing_agent iteration_71: PHASE 1 all SEC items PASS + full signup/login regression. PHASE 2 guest-gate on favorite / message / availability all PASS, mobile pill nav PASS across 3 dashboards.
+- `pytest tests/test_iter64_refunds.py`: 2/2 pass (no refund regression).
+- Test files added by testing_agent: `test_iter71_security.py`, `test_iter71_easebuzz_failclosed.py`.
+
+### Known follow-ups (backlog)
+- Add login rate-limiting / lockout on `/api/auth/login` — now the only brute-forceable entry point.
+- Replace `CORS_ORIGINS="*"` with explicit origins (allow_credentials=True + wildcard is rejected by strict browsers anyway).
+- Update older test files that still hardcode `Admin@123` to read from `TEST_ADMIN_PASSWORD` env or `/app/memory/test_credentials.md`.
+- Fix minor UI: empty artist name in booking step-1 banner + `<span>` inside `<option>` DOM warning.
+
+
+
+## 🎯 Iter 70 — Guest UX, Artist Sidebar Sub-Nav, Mobile Booking Flow (2026-08-21)
+
+### 1) Artist profiles open in a new tab
+All artist card `<Link>` components across Search results, Search suggest dropdown, CityLanding, CategoryLanding, and Landing (Spotlight + Rails) now have `target="_blank"` + `rel="noopener noreferrer"`. Guests browsing a list can preview many profiles without losing their scroll position or filters.
+
+### 2) Contextual `LoginGate` guardrail for guest actions
+- New shared component `/app/frontend/src/components/LoginGate.jsx` with modal (backdrop + esc-to-close + body-scroll lock), title + message override, Sign In / Create Account CTAs that preserve `?next=<returnTo>`, plus a `useLoginGate()` hook returning `requireAuth(fn, opts)`.
+- Wired into `ArtistProfile.jsx` "Book Now" (both desktop button and mobile sticky bar). Guests now see a friendly modal ("Login to book this artist") instead of a hard redirect that loses context.
+- Guests can still view every profile / package / gallery / review — only auth-required actions trigger the gate.
+
+### 3) Artist Dashboard Questionnaire sidebar dropdown
+- Sidebar `Questionnaire` item is now expandable — clicking it toggles a submenu listing every questionnaire section (Tell us about yourself, Performance Packages, Travel, Technical Requirements, Performance, Hospitality, Commercial, Event Types, Legal, plus category-specific).
+- Sections are fetched once from `GET /api/questionnaire/universal` and grouped by `section`. Clicking any section sets `tab=questionnaire` + `wizardStartSection=<name>` so the wizard jumps directly to that question set (uses the existing `startSection` prop the `QuestionnaireWizard` already supported).
+- data-testids: `sb-questionnaire`, `sb-questionnaire-sections`, `sb-q-<slug>`.
+
+### 4) Booking Flow mobile responsiveness
+- Replaced inline `gridTemplateColumns: "1fr 340px"` on BookingFlow with a CSS class `.booking-flow-grid` that collapses to single column below 900px. Summary card `order: -1` on mobile so pricing is visible first.
+- Sticky summary panel now uses `.booking-flow-summary` (sticky on desktop, static on mobile).
+- 480px breakpoint tightens padding + shrinks the 5-node stepper circles so they don't overflow narrow phones. Field rows collapse to single-column.
+
+### Verified
+- Playwright — Artist Dashboard sidebar: 9 questionnaire section links render under an expandable Questionnaire nav item, clicking each takes the wizard directly there.
+- Artist profile page renders cleanly on 390×844 mobile viewport (hamburger nav, hero image, ratings card, sticky Book Now bar).
+- Webpack compiles clean.
+
+
 ## 🎯 Iter 68 — Agency: Artist-wise Schedule & Booking Console (2026-08-11)
 
 New page: **Agency Dashboard → Artists → [View Schedule] → `/agency/artist/:artistId/schedule`**
