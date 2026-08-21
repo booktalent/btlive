@@ -21,6 +21,9 @@ export default function CustomerDashboard() {
   const [bookings, setBookings] = useState([]);
   const [analytics, setAnalytics] = useState({});
   const [reviewModal, setReviewModal] = useState(null);
+  // Iter 74 — In-progress booking drafts + Recently Viewed artists.
+  const [drafts, setDrafts] = useState([]);
+  const [recentViews, setRecentViews] = useState([]);
 
   useEffect(() => {
     if (!user) { nav("/login"); return; }
@@ -35,17 +38,29 @@ export default function CustomerDashboard() {
 
   const refresh = async () => {
     try {
-      const [b, a] = await Promise.all([
+      const [b, a, d, rv] = await Promise.all([
         api.get("/bookings/mine"),
         api.get("/analytics/me"),
+        api.get("/customer/booking-drafts").catch(() => ({ data: [] })),
+        api.get("/customer/recent-views").catch(() => ({ data: [] })),
       ]);
       setBookings(b.data);
       setAnalytics(a.data);
+      setDrafts(d.data || []);
+      setRecentViews(rv.data || []);
     } catch (e) {
       // 401 during a stale-session race is expected — auth.jsx will redirect
       // once /auth/me settles. Anything else, surface it.
       if (e?.response?.status !== 401) toast(formatApiError(e), "error");
     }
+  };
+
+  const discardDraft = async (artistId) => {
+    try {
+      await api.delete(`/customer/booking-drafts/${artistId}`);
+      setDrafts((prev) => prev.filter((d) => d.artist_id !== artistId));
+      toast("Draft discarded");
+    } catch (e) { toast(formatApiError(e), "error"); }
   };
 
   const doAction = async (bid, action) => {
@@ -77,6 +92,7 @@ export default function CustomerDashboard() {
         <div className="sb-section">Main</div>
         {[
           { id: "overview", label: "📊 Overview" },
+          { id: "drafts", label: `💾 Drafts${drafts.length ? ` (${drafts.length})` : ""}` },
           { id: "bookings", label: "🎟️ My Bookings" },
           { id: "events", label: "🎪 My Events" },
           { id: "reviews", label: "⭐ Reviews" },
@@ -113,9 +129,33 @@ export default function CustomerDashboard() {
           <PendingEventCarts />
 
           {tab === "overview" && (
-            <div className="card" data-testid="cust-overview">
-              <div className="card-head"><div className="card-title">📋 Recent Bookings</div></div>
-              <BookingsTable bookings={bookings.slice(0, 6)} role="customer" onAction={doAction} onReview={setReviewModal} />
+            <>
+              <div className="card" data-testid="cust-overview">
+                <div className="card-head"><div className="card-title">📋 Recent Bookings</div></div>
+                <BookingsTable bookings={bookings.slice(0, 6)} role="customer" onAction={doAction} onReview={setReviewModal} />
+              </div>
+              {/* Iter 74 — Recently Viewed strip on Overview so customers
+                  see the artists they explored and jump back with one tap. */}
+              {recentViews.length > 0 && (
+                <RecentViewedStrip items={recentViews} />
+              )}
+              {/* Iter 74 — Drafts teaser on Overview so customers never
+                  forget an in-progress booking. */}
+              {drafts.length > 0 && (
+                <DraftsList
+                  drafts={drafts.slice(0, 3)}
+                  onDiscard={discardDraft}
+                  compact
+                  onShowAll={() => setTab("drafts")}
+                />
+              )}
+            </>
+          )}
+
+          {tab === "drafts" && (
+            <div className="card" data-testid="cust-drafts">
+              <div className="card-head"><div className="card-title">💾 In-Progress Bookings</div></div>
+              <DraftsList drafts={drafts} onDiscard={discardDraft} />
             </div>
           )}
 
@@ -153,6 +193,146 @@ const Kpi = ({ icon, cls, num, label, change }) => (
     <div className="kpi-label">{label}</div>
   </div>
 );
+
+
+// Iter 74 — Renders the in-progress booking drafts list.
+const stepLabel = (n) => {
+  const map = { 1: "Package", 2: "Schedule", 3: "Details", 4: "Review", 5: "Payment" };
+  return map[n] || `Step ${n}`;
+};
+const relativeTime = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+};
+const DraftsList = ({ drafts, onDiscard, compact = false, onShowAll = null }) => (
+  <div className={`draft-list${compact ? " draft-list-compact" : ""}`} data-testid="drafts-list" style={{ padding: compact ? "8px 0 0" : 4 }}>
+    {compact && (
+      <div className="card-head" style={{ padding: "16px 8px 6px" }}>
+        <div className="card-title">💾 Continue Where You Left Off</div>
+        {onShowAll && drafts.length ? (
+          <button className="btn btn-ghost btn-sm" onClick={onShowAll} data-testid="drafts-show-all">See all →</button>
+        ) : null}
+      </div>
+    )}
+    {drafts.length === 0 ? (
+      <div className="empty" style={{ padding: 32, textAlign: "center" }}>
+        <div className="empty-icon">💾</div>
+        <div>No in-progress bookings — every completed cart lives under My Bookings.</div>
+      </div>
+    ) : (
+      <div style={{ display: "grid", gap: 10, padding: compact ? "0 8px" : "12px 4px" }}>
+        {drafts.map((d) => {
+          const s = d.artist_snapshot || {};
+          return (
+            <div
+              key={d.id || d.artist_id}
+              className="draft-row"
+              data-testid={`draft-${d.artist_id}`}
+              style={{
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "12px 14px", borderRadius: 12,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(212,175,55,0.18)",
+              }}
+            >
+              <div style={{
+                width: 44, height: 44, borderRadius: "50%",
+                background: s.profile_image
+                  ? `url(${API}/media/${s.profile_image}/thumb) center/cover`
+                  : "linear-gradient(135deg, #d4af37, #6a3ad4)",
+                flexShrink: 0,
+              }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {s.stage_name || "Artist"}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--white-muted, rgba(255,255,255,0.55))" }}>
+                  {s.category || "—"}{s.city ? ` · ${s.city}` : ""}
+                  {" · "}
+                  <span style={{ color: "var(--gold)" }}>{stepLabel(d.step)}</span>
+                  {" · "}
+                  {relativeTime(d.updated_at)}
+                </div>
+              </div>
+              <Link
+                to={`/book/${d.artist_id}`}
+                className="btn btn-gold btn-sm"
+                data-testid={`draft-continue-${d.artist_id}`}
+              >Continue →</Link>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                data-testid={`draft-discard-${d.artist_id}`}
+                onClick={() => onDiscard(d.artist_id)}
+                title="Discard draft"
+                aria-label="Discard draft"
+              >✕</button>
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+);
+
+// Iter 74 — Horizontal strip of the last 8 artists this customer viewed.
+const RecentViewedStrip = ({ items }) => (
+  <div className="card" data-testid="recent-viewed-strip" style={{ marginTop: 16 }}>
+    <div className="card-head">
+      <div className="card-title">👀 Recently Viewed</div>
+      <span className="text-muted fs-13">{items.length} artists</span>
+    </div>
+    <div style={{
+      display: "flex", gap: 12, padding: "8px 8px 12px",
+      overflowX: "auto", scrollbarWidth: "thin",
+    }}>
+      {items.map((v) => {
+        const s = v.artist_snapshot || {};
+        const targetSlug = s.slug || s.user_id || v.artist_id;
+        return (
+          <Link
+            key={v.id || v.artist_id}
+            to={`/artist/${targetSlug}`}
+            data-testid={`recent-view-${v.artist_id}`}
+            style={{
+              flexShrink: 0, width: 128,
+              textDecoration: "none", color: "inherit",
+              padding: 8, borderRadius: 12,
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              transition: "border-color 200ms ease, transform 200ms ease",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(212,175,55,0.35)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; e.currentTarget.style.transform = "none"; }}
+          >
+            <div style={{
+              width: "100%", height: 96, borderRadius: 8,
+              background: s.profile_image
+                ? `url(${API}/media/${s.profile_image}/thumb) center/cover`
+                : "linear-gradient(135deg, #d4af37, #6a3ad4)",
+              marginBottom: 8,
+            }} />
+            <div style={{
+              fontSize: 12, fontWeight: 600,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}>{s.stage_name || "Artist"}</div>
+            <div style={{
+              fontSize: 10, color: "var(--white-muted, rgba(255,255,255,0.55))",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}>{s.category || ""}{s.city ? ` · ${s.city}` : ""}</div>
+          </Link>
+        );
+      })}
+    </div>
+  </div>
+);
+
+
 
 const STATUS_MAP = {
   pending_payment: ["sp-pending", "Pending payment"],

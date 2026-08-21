@@ -80,6 +80,12 @@ export default function ArtistProfile() {
         // preferences…). This endpoint is public — same access rules as
         // the profile itself.
         api.get(`/artists/${uid}/about`).then((ar) => setAbout(ar.data)).catch(() => setAbout(null));
+        // Iter 74 — Silently record the view for logged-in customers so
+        // their dashboard can surface "Recently Viewed" artists across
+        // any device. Failures are non-fatal (401 = guest browsing).
+        if (user && (user.role === "customer" || user.role === "corporate")) {
+          api.post(`/customer/recent-views/${uid}`).catch(() => {});
+        }
       } catch (_) { setData({ notFound: true }); }
     };
     load();

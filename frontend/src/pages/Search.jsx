@@ -267,6 +267,90 @@ export default function Search() {
           ))}
         </div>
 
+        {/* Iter 74 — Active filter chips. Each active filter renders as a
+            removable pill so customers see exactly what's narrowing the
+            results and can dismiss individual filters with one tap. */}
+        {(() => {
+          const chips = [];
+          if (q) chips.push({ key: "q", label: `“${q}”`, clear: () => setQ("") });
+          if (category) chips.push({ key: "category", label: `🎭 ${category}`, clear: () => setCategory("") });
+          if (city) chips.push({ key: "city", label: `📍 ${city}`, clear: () => setCity("") });
+          if (minPrice || maxPrice) chips.push({
+            key: "price",
+            label: `₹ ${minPrice ? Number(minPrice).toLocaleString("en-IN") : "0"}${maxPrice ? "–" + Number(maxPrice).toLocaleString("en-IN") : "+"}`,
+            clear: () => { setMinPrice(""); setMaxPrice(""); },
+          });
+          if (language) chips.push({ key: "language", label: `🗣 ${language}`, clear: () => setLanguage("") });
+          if (eventType) chips.push({ key: "eventType", label: `🎪 ${eventType}`, clear: () => setEventType("") });
+          if (minRating) chips.push({ key: "minRating", label: `⭐ ${minRating}+`, clear: () => setMinRating("") });
+          if (minExperience) chips.push({ key: "minExperience", label: `📅 ${minExperience}+ yrs`, clear: () => setMinExperience("") });
+          if (gender) chips.push({ key: "gender", label: `👤 ${gender[0].toUpperCase()}${gender.slice(1)}`, clear: () => setGender("") });
+          if (featuredOnly) chips.push({ key: "featured", label: "⭐ Featured", clear: () => setFeaturedOnly(false) });
+          if (verifiedOnly) chips.push({ key: "verified", label: "✓ Verified KYC", clear: () => setVerifiedOnly(false) });
+          if (premiumOnly) chips.push({ key: "premium", label: "💎 Premium", clear: () => setPremiumOnly(false) });
+          if (instantOnly) chips.push({ key: "instant", label: "⚡ Instant", clear: () => setInstantOnly(false) });
+          if (chips.length === 0) return null;
+          return (
+            <div
+              data-testid="active-filter-chips"
+              style={{
+                display: "flex", flexWrap: "wrap", gap: 8,
+                marginBottom: 14, padding: "10px 12px",
+                borderRadius: 12,
+                background: "rgba(212,175,55,0.05)",
+                border: "1px solid rgba(212,175,55,0.15)",
+              }}
+            >
+              <span style={{ fontSize: 12, color: "var(--white-muted, rgba(255,255,255,0.55))", alignSelf: "center", marginRight: 4 }}>
+                Filters:
+              </span>
+              {chips.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  data-testid={`filter-chip-${c.key}`}
+                  onClick={c.clear}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "5px 10px 5px 12px",
+                    borderRadius: 999,
+                    background: "rgba(212,175,55,0.12)",
+                    color: "var(--gold-light, #f5d47a)",
+                    border: "1px solid rgba(212,175,55,0.3)",
+                    fontSize: 12, fontWeight: 600,
+                    cursor: "pointer",
+                    transition: "background 150ms ease, border-color 150ms ease",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(212,175,55,0.22)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(212,175,55,0.12)"; }}
+                  title="Remove this filter"
+                  aria-label={`Remove ${c.label}`}
+                >
+                  {c.label}
+                  <span style={{ marginLeft: 2, opacity: 0.75, fontSize: 13, lineHeight: 1 }}>✕</span>
+                </button>
+              ))}
+              {chips.length > 1 && (
+                <button
+                  type="button"
+                  data-testid="filter-chip-clear-all"
+                  onClick={reset}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: 999,
+                    background: "transparent",
+                    color: "var(--white-muted, rgba(255,255,255,0.7))",
+                    border: "1px dashed rgba(255,255,255,0.2)",
+                    fontSize: 11, cursor: "pointer",
+                  }}
+                >Clear all</button>
+              )}
+            </div>
+          );
+        })()}
+
+
+
         {showAdvanced && (
           <div className="card card-pad mb-16" data-testid="advanced-filters">
             <div className="grid grid-4 gap-12">

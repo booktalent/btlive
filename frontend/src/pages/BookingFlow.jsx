@@ -120,6 +120,21 @@ export default function BookingFlow() {
         setForm((f) => ({ ...f, package_id: pop.id }));
       }
     });
+    // Iter 74 — Cross-device draft restore. Only apply the server draft
+    // when we DON'T have a local sessionStorage state (that always wins
+    // because it's more recent) AND no URL params provided pkg/city/date
+    // (a shared deep-link must also win). This makes "start on desktop,
+    // finish on phone" work seamlessly.
+    if (!restored && !params.get("pkg") && !params.get("city") && !params.get("date")) {
+      api.get(`/customer/booking-drafts/${id}`).then((r) => {
+        if (r.data?.form) {
+          setForm((f) => ({ ...f, ...r.data.form }));
+          if (typeof r.data.step === "number" && r.data.step > 1 && r.data.step < 6) {
+            setStep(r.data.step);
+          }
+        }
+      }).catch(() => { /* no draft — normal path */ });
+    }
     // Sprint 3 — load artist-defined add-ons
     api.get(`/artists/${id}/addons`).then((r) => {
       setArtistAddons(r.data || []);
@@ -164,6 +179,28 @@ export default function BookingFlow() {
       }
     } catch { /* private-mode / quota — silently ignore */ }
   }, [form, step, storageKey]);
+
+  // Iter 74 — Cross-device draft sync. Debounce writes 1.2s so we don't
+  // spam the backend on every keystroke, but still preserve on nav-away
+  // or unmount. Cleared server-side once the booking hits step 6.
+  const draftSyncTimer = React.useRef(null);
+  React.useEffect(() => {
+    if (!user || step === 6 || !id) return;
+    // Only push meaningful drafts — skip the mount-time no-op call.
+    if (step === 1 && !form.package_id && !form.city && !form.event_date) return;
+    clearTimeout(draftSyncTimer.current);
+    draftSyncTimer.current = setTimeout(() => {
+      api.post("/customer/booking-drafts", { artist_id: id, form, step })
+        .catch(() => {}); // silent — sessionStorage still holds the state
+    }, 1200);
+    return () => clearTimeout(draftSyncTimer.current);
+  }, [form, step, id, user]);
+
+  React.useEffect(() => {
+    if (step === 6 && id) {
+      api.delete(`/customer/booking-drafts/${id}`).catch(() => {});
+    }
+  }, [step, id]);
 
   // Iter 74 — Browser-Back walks the wizard. Every step change (except
   // the initial mount) pushes a new history entry keyed with `{step}`.
@@ -431,6 +468,26 @@ export default function BookingFlow() {
                 {i < 4 && <div className={`step-line ${step > n ? "done" : ""}`} />}
               </React.Fragment>
             ))}
+          </div>
+        )}
+        {step > 1 && step < 6 && (
+          /* Iter 74 — Save & Finish Later. The draft is already being
+             synced in the background, so this button just flushes any
+             pending debounce and takes the customer to their dashboard
+             where the "Continue Booking" strip is waiting. */
+          <div style={{ display: "flex", justifyContent: "flex-end", margin: "-8px 0 10px" }}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              data-testid="save-and-finish-later"
+              onClick={async () => {
+                try {
+                  await api.post("/customer/booking-drafts", { artist_id: id, form, step });
+                } catch { /* ignore — sessionStorage still has it */ }
+                nav("/customer?tab=drafts");
+              }}
+              title="Your progress is saved. Pick it up later from any device."
+            >💾 Save & Finish Later</button>
           </div>
         )}
 

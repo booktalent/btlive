@@ -1,6 +1,31 @@
 # BookTalent — Product Requirements Document
 
 
+## 🗂 Iter 74.5 — Draft Bookings, Recent Views, Filter Chips (2026-08-21)
+
+### Draft Bookings (cross-device)
+- New Mongo collection `booking_drafts` keyed uniquely on `(user_id, artist_id)` with `{form, step, artist_snapshot, updated_at}`.
+- Endpoints: `POST/GET/DELETE /api/customer/booking-drafts[/{artist_id}]`. `POST` upserts (400 for non-customers), `GET` returns newest-first with artist card snapshot.
+- **BookingFlow.jsx** debounces server sync at 1.2s per keystroke and clears the draft when the booking hits step 6. On mount, if there's no sessionStorage AND URL has no pkg/city/date, we hydrate from the server draft so a customer can start on desktop and finish on their phone.
+- New **"💾 Save & Finish Later"** button in the wizard header (steps 2–5) flushes any pending debounce and lands the customer on `/customer?tab=drafts`.
+- **CustomerDashboard.jsx** adds a `Drafts` sidebar tab (with count badge), a compact "Continue Where You Left Off" teaser on Overview, and a full `DraftsList` on the tab. Each row shows artist thumb, category · city, current step label, relative time, `Continue →` link, and `✕ Discard`.
+
+### Recent Views
+- New Mongo collection `recent_views` per `(user_id, artist_id)`, capped to the most recent 8 per user (excess trimmed on write).
+- Endpoint: `POST /api/customer/recent-views/{artist_id}` (silent no-op for non-customers), `GET /api/customer/recent-views`.
+- **ArtistProfile.jsx** silently records a view for logged-in customers on mount.
+- **CustomerDashboard.jsx** renders a horizontal `👀 Recently Viewed` strip (8 cards, click to open the artist).
+
+### Filter Chips
+- **Search.jsx** now shows a `[data-testid=active-filter-chips]` strip above results whenever any filter is active. Chips: q, category, city, price range, language, event type, min rating, min experience, gender, and the boolean toggles (Featured / Verified / Premium / Instant).
+- Each chip is a gold-tinted pill with a ✕; click to remove that single filter. `Clear all` link appears when 2+ chips are active — it calls the existing `reset()` (also wipes the `bt_last_search_filters` snapshot from Iter 74).
+
+### Verification
+- Curl: draft upsert / list / delete + recent-view record / list all pass. Draft carries live `artist_snapshot: {stage_name, category, city, slug, profile_image}`.
+- Screenshot: dashboard shows Priya Sharma draft at "Details" step 4 min ago; Discover shows removable Bollywood Vocalist chip; removing city takes results from 1 → 7.
+
+
+
 ## 🚀 Iter 74 — Continuity UX: history-aware BookingFlow, Discover persist, Auth redirect (2026-08-21)
 
 - **Browser Back walks BookingFlow.** Each step transition (except mount + terminal step 6) pushes `{__bt_step, __bt_artist}` to `window.history`. A `popstate` listener in BookingFlow intercepts Back — if the state carries a step for this artist, we `setStep(s)`; if state is null but we're mid-wizard, we decrement one step + re-push so a single Back never blows up the flow. Step 6 skips the push so Back correctly exits the success screen. Verified: `/book/{id}?pkg&city` → click `step1-next` → browser Back → user is back on step 1, form intact.

@@ -1951,6 +1951,116 @@ async def my_bookings(status: Optional[str] = None, user: dict = Depends(get_cur
     return out
 
 
+# ─── Iter 74 — Booking Drafts + Recent Views ─────────────────────────────
+#
+# * booking_drafts: one row per (user_id, artist_id). Upserted every time
+#   the customer taps "Save & Finish Later" or (later) via a debounced
+#   auto-save from BookingFlow. Restored on next visit so the customer
+#   picks up on ANY device.
+# * recent_views: capped log per user of the last artists they viewed.
+#   Only 8 kept per user, oldest evicted. Rendered on the Customer
+#   Dashboard as "Recently Viewed" so they can jump back with one tap.
+
+class BookingDraftBody(BaseModel):
+    artist_id: str
+    form: Dict[str, Any] = {}
+    step: int = 1
+
+async def _artist_snapshot(user_id: str) -> Dict[str, Any]:
+    """Compact artist card used inside drafts & recent-view lists."""
+    profile = await db.artist_profiles.find_one({"user_id": user_id})
+    user = await db.users.find_one({"id": user_id})
+    if not profile or not user:
+        return {"user_id": user_id, "stage_name": "Artist", "category": "", "city": "",
+                "profile_image": None, "slug": None}
+    return {
+        "user_id": user_id,
+        "stage_name": profile.get("stage_name") or f"{user.get('first_name','')} {user.get('last_name','')}".strip(),
+        "category": profile.get("category", ""),
+        "city": profile.get("city", ""),
+        "profile_image": profile.get("profile_image"),
+        "slug": profile.get("slug"),
+    }
+
+
+@api.post("/customer/booking-drafts")
+async def upsert_booking_draft(body: BookingDraftBody, user: dict = Depends(get_current_user)):
+    if user["role"] not in ("customer", "corporate"):
+        raise HTTPException(403, "Only customers can save booking drafts")
+    now = utcnow()
+    snap = await _artist_snapshot(body.artist_id)
+    payload = {
+        "user_id": user["id"],
+        "artist_id": body.artist_id,
+        "form": body.form or {},
+        "step": max(1, min(int(body.step or 1), 5)),
+        "artist_snapshot": snap,
+        "updated_at": now,
+    }
+    await db.booking_drafts.update_one(
+        {"user_id": user["id"], "artist_id": body.artist_id},
+        {"$set": payload, "$setOnInsert": {"id": new_id(), "created_at": now}},
+        upsert=True,
+    )
+    return {"ok": True, "updated_at": now}
+
+
+@api.get("/customer/booking-drafts")
+async def list_booking_drafts(user: dict = Depends(get_current_user)):
+    if user["role"] not in ("customer", "corporate"):
+        return []
+    docs = await db.booking_drafts.find({"user_id": user["id"]}).sort("updated_at", -1).to_list(30)
+    return [clean(d) for d in docs]
+
+
+@api.get("/customer/booking-drafts/{artist_id}")
+async def get_booking_draft(artist_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.booking_drafts.find_one({"user_id": user["id"], "artist_id": artist_id})
+    if not doc:
+        raise HTTPException(404, "No draft for this artist")
+    return clean(doc)
+
+
+@api.delete("/customer/booking-drafts/{artist_id}")
+async def delete_booking_draft(artist_id: str, user: dict = Depends(get_current_user)):
+    r = await db.booking_drafts.delete_one({"user_id": user["id"], "artist_id": artist_id})
+    return {"ok": True, "deleted": r.deleted_count}
+
+
+@api.post("/customer/recent-views/{artist_id}")
+async def record_recent_view(artist_id: str, user: dict = Depends(get_current_user)):
+    # Only track for customers so we don't clutter artists/admins.
+    if user["role"] not in ("customer", "corporate"):
+        return {"ok": True, "tracked": False}
+    now = utcnow()
+    snap = await _artist_snapshot(artist_id)
+    if not snap.get("stage_name"):
+        return {"ok": True, "tracked": False}
+    # Upsert — reset viewed_at so re-viewing the same artist bumps them up.
+    await db.recent_views.update_one(
+        {"user_id": user["id"], "artist_id": artist_id},
+        {"$set": {"viewed_at": now, "artist_snapshot": snap},
+         "$setOnInsert": {"id": new_id(), "user_id": user["id"], "artist_id": artist_id, "created_at": now}},
+        upsert=True,
+    )
+    # Trim to the 8 most recent so the collection stays tiny per user.
+    keep = await db.recent_views.find({"user_id": user["id"]}).sort("viewed_at", -1).skip(8).to_list(200)
+    if keep:
+        await db.recent_views.delete_many({"_id": {"$in": [k["_id"] for k in keep]}})
+    return {"ok": True, "tracked": True}
+
+
+@api.get("/customer/recent-views")
+async def list_recent_views(user: dict = Depends(get_current_user)):
+    if user["role"] not in ("customer", "corporate"):
+        return []
+    docs = await db.recent_views.find({"user_id": user["id"]}).sort("viewed_at", -1).limit(8).to_list(8)
+    return [clean(d) for d in docs]
+
+
+
+
+
 @api.get("/bookings/{bid}")
 async def get_booking(bid: str, user: dict = Depends(get_current_user)):
     doc = await db.bookings.find_one({"id": bid})
@@ -3277,6 +3387,11 @@ async def startup():
     await db.coupons.create_index("code", unique=True)
     await db.media.create_index("user_id")
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+    # Iter 74 — Booking drafts & Recent views indexes.
+    await db.booking_drafts.create_index([("user_id", 1), ("artist_id", 1)], unique=True)
+    await db.booking_drafts.create_index([("user_id", 1), ("updated_at", -1)])
+    await db.recent_views.create_index([("user_id", 1), ("artist_id", 1)], unique=True)
+    await db.recent_views.create_index([("user_id", 1), ("viewed_at", -1)])
 
     # Iter 73 — Backfill `order: 0` on legacy media docs that predate the
     # order field. MongoDB sorts missing values BEFORE numeric 0, so
