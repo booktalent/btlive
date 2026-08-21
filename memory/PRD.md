@@ -1,6 +1,36 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎬 Iter 76.5 — Video posters, chunk retry, featured reel, boost insights (2026-08-21)
+
+### Video Poster Frames (client-captured, since ffmpeg is unavailable)
+- MediaManager now runs `capturePoster(file)`: hidden `<video>` seeks to 0.5s, `<canvas>` snapshots the frame → JPEG data URL (quality 0.72, max 640px wide).
+- `POST /api/media/video/finish` now accepts an optional `poster_data_url` form field. Backend decodes → `make_thumbnail()` → base64 into the `thumb` field, so `GET /media/{id}/thumb` immediately serves the poster.
+- Frontend `<video poster={...}/>` attribute set on gallery tiles → no more blank tiles waiting for metadata.
+
+### Chunk Retry (network-resilience)
+- New `withRetry(fn, attempts=3)` helper wraps every chunk POST and the finish POST. Retries on network errors / 5xx / 429 with exponential backoff (1s → 2s → 4s, capped 8s). 4xx errors bubble up immediately so bad requests fail fast.
+- A single dropped chunk on a 1 GB upload no longer restarts the whole session — the same chunk_index simply overwrites the same tmp file on the backend.
+
+### Featured Reel (hero autoplay video)
+- New endpoint `POST /api/media/{id}/feature-reel` (artist-only) — toggles `artist_profiles.featured_video_id`. Passing the currently-featured id again clears it.
+- MediaManager tile shows a "🎬 Set as Reel" / "🎬 Reel Active" toggle button on every video, plus a "🎬 REEL" corner badge on the currently active reel.
+- Public `ArtistProfile.jsx` cover banner: when `profile.featured_video_id` is set, renders a full-cover `<video autoPlay muted loop playsInline>` sitting under a dark gradient. Falls back gracefully to `cover_image` → emoji when no reel.
+- Verified: reel activated for Priya → `featured-reel-video` element present, autoplays on public profile.
+
+### Boost Insights (ROI mini-chart)
+- New endpoint `GET /api/boost/insights` returns:
+  - `days: [{date, views, bookings}]` — 14-day timeline from `analytics_events` (profile_view) + `bookings` collections.
+  - `active_boosts` — 5 most recent boost subscriptions with `starts_at`, `expires_at`, `package_name`.
+  - `totals: {views_14d, bookings_14d}`.
+- New "📊 Last 14 Days · Boost Impact" card at top of the Boost tab renders a pure-CSS bar chart (no chart library dependency) — gold bars for views, purple bars for booking requests, with a legend and totals header.
+- Verified: card renders on Priya's dashboard with legend + empty-state bars (no events in 14-day window on this dataset yet).
+
+### Known follow-ups
+- Server-side ffmpeg install would enable dark-video fallback posters (currently relies on client capture).
+
+
+
 ## 🚀 Iter 76 — Boost audit + 1 GB video uploads (2026-08-21)
 
 ### Boost / Profile Promotion — NOT missing, ALREADY WORKING

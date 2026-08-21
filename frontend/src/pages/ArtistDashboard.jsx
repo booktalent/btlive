@@ -1256,6 +1256,61 @@ function MediaManager({ data, refresh, toast }) {
     r.readAsDataURL(f);
   });
 
+  // Iter 76.5 — Capture the first frame of an uploaded video in a hidden
+  // <canvas>. Returned as a small JPEG data URL that the finish() call
+  // uploads as a server-side poster so gallery tiles have an instant
+  // preview instead of waiting for the browser to load metadata.
+  const capturePoster = (file) => new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.src = url;
+      video.crossOrigin = "anonymous";
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      const cleanup = () => { try { URL.revokeObjectURL(url); } catch {} };
+      const timer = setTimeout(() => { cleanup(); resolve(null); }, 8000);
+      video.onloadedmetadata = () => {
+        // Seek 0.5s in — first frame is often black on many codecs.
+        video.currentTime = Math.min(0.5, (video.duration || 1) / 3);
+      };
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const w = Math.min(video.videoWidth || 640, 640);
+          const h = Math.round(w * (video.videoHeight / video.videoWidth) || 360);
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+          clearTimeout(timer);
+          resolve(canvas.toDataURL("image/jpeg", 0.72));
+        } catch { clearTimeout(timer); resolve(null); }
+        cleanup();
+      };
+      video.onerror = () => { clearTimeout(timer); cleanup(); resolve(null); };
+    } catch { resolve(null); }
+  });
+
+  // Iter 76.5 — Wrap any promise-returning fn in exponential-backoff
+  // retries so a single chunk network blip doesn't nuke a multi-GB
+  // upload. Retries only on network errors / 5xx / 429; user errors
+  // (4xx) bubble up immediately.
+  const withRetry = async (fn, attempts = 3) => {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fn();
+      } catch (e) {
+        const s = e?.response?.status;
+        const retryable = !s || s >= 500 || s === 429;
+        if (!retryable || i === attempts - 1) throw e;
+        lastErr = e;
+        await new Promise((r) => setTimeout(r, Math.min(1000 * (2 ** i), 8000)));
+      }
+    }
+    throw lastErr;
+  };
+
   const upload = async (files, type) => {
     if (!files || files.length === 0) return;
     setBusy(true);
@@ -1294,6 +1349,9 @@ function MediaManager({ data, refresh, toast }) {
         try {
           if (isVideo) {
             // ── Chunked upload path ────────────────────────────────
+            // Capture the first-frame poster BEFORE we start chunking
+            // so it's ready to include in the finish() call.
+            const posterPromise = capturePoster(f);
             const start = await api.post("/media/video/start", {
               filename: f.name, mime: f.type || "video/mp4",
               size: f.size, type, title: f.name,
@@ -1303,25 +1361,31 @@ function MediaManager({ data, refresh, toast }) {
             const totalChunks = Math.ceil(f.size / chunkSize);
             for (let ci = 0; ci < totalChunks; ci++) {
               const slice = f.slice(ci * chunkSize, (ci + 1) * chunkSize);
-              const fd = new FormData();
-              fd.append("session_id", sessionId);
-              fd.append("chunk_index", String(ci));
-              fd.append("chunk", slice, `${f.name}.part${ci}`);
-              await api.post("/media/video/chunk", fd, {
-                headers: { "Content-Type": "multipart/form-data" },
-                // Per-file progress = completed chunks + in-flight chunk fraction.
-                onUploadProgress: (e) => {
-                  const chunkProg = e.total ? (e.loaded / e.total) : 0;
-                  const fileProg = (ci + chunkProg) / totalChunks;
-                  setProgress(Math.round(((i + fileProg) / list.length) * 100));
-                },
+              // Iter 76.5 — Retry each chunk up to 3× on transient
+              // network / 5xx errors so a phone losing signal for a
+              // second doesn't torpedo a 1 GB upload.
+              await withRetry(() => {
+                const fd = new FormData();
+                fd.append("session_id", sessionId);
+                fd.append("chunk_index", String(ci));
+                fd.append("chunk", slice, `${f.name}.part${ci}`);
+                return api.post("/media/video/chunk", fd, {
+                  headers: { "Content-Type": "multipart/form-data" },
+                  onUploadProgress: (e) => {
+                    const chunkProg = e.total ? (e.loaded / e.total) : 0;
+                    const fileProg = (ci + chunkProg) / totalChunks;
+                    setProgress(Math.round(((i + fileProg) / list.length) * 100));
+                  },
+                });
               });
             }
+            const posterUrl = await posterPromise;
             const fin = new FormData();
             fin.append("session_id", sessionId);
-            await api.post("/media/video/finish", fin, {
+            if (posterUrl) fin.append("poster_data_url", posterUrl);
+            await withRetry(() => api.post("/media/video/finish", fin, {
               headers: { "Content-Type": "multipart/form-data" },
-            });
+            }));
           } else {
             // ── Legacy small-file base64 path (unchanged) ─────────
             const dataUrl = await fileToDataUrl(f);
@@ -1466,10 +1530,15 @@ function MediaManager({ data, refresh, toast }) {
         </div>
       )}
       <div className="media-grid">
-        {galleryItems.map((m, idx) => (
+        {galleryItems.map((m, idx) => {
+          const isVideo = (m.mime || "").startsWith("video/");
+          const isReel = data?.profile?.featured_video_id === m.id;
+          return (
           <div key={m.id} className="media-tile" data-testid={`media-tile-${m.id}`}>
-            {m.mime?.startsWith("video/") ? (
-              <video src={mediaUrl(m.id)} muted />
+            {isVideo ? (
+              /* Iter 76.5 — Server-supplied poster (client-captured
+                 first frame) shows instantly instead of a black tile. */
+              <video src={mediaUrl(m.id)} poster={m.thumb ? `${api.defaults.baseURL}/media/${m.id}/thumb` : undefined} muted preload="metadata" />
             ) : m.mime?.startsWith("audio/") ? (
               <div style={{ display: "grid", placeItems: "center", height: "100%", fontSize: 48 }}>🎵</div>
             ) : m.mime === "application/pdf" ? (
@@ -1481,6 +1550,10 @@ function MediaManager({ data, refresh, toast }) {
             )}
             {m.is_featured && (
               <div style={{ position: "absolute", top: 6, left: 6, padding: "2px 7px", background: "var(--gold)", color: "#000", fontSize: 10, fontWeight: 700, borderRadius: 5 }}>★ FEATURED</div>
+            )}
+            {isReel && (
+              /* Iter 76.5 — Featured Reel badge (hero autoplay video). */
+              <div data-testid={`reel-badge-${m.id}`} style={{ position: "absolute", top: 6, right: 6, padding: "2px 7px", background: "linear-gradient(135deg,#6a3ad4,#d4af37)", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 5 }}>🎬 REEL</div>
             )}
             <div className="media-tile-overlay" style={{ opacity: 1, background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 60%)", padding: 6, flexDirection: "column", gap: 4 }}>
               <div className="flex gap-4" style={{ width: "100%", justifyContent: "space-between" }}>
@@ -1510,9 +1583,26 @@ function MediaManager({ data, refresh, toast }) {
                 />
                 <button className="btn btn-red btn-xs" onClick={(e) => { e.stopPropagation(); del(m.id); }} data-testid={`del-media-${m.id}`} title="Delete" style={{ flex: 1 }}>✕</button>
               </div>
+              {/* Iter 76.5 — Featured Reel toggle (videos only). */}
+              {isVideo && (
+                <button
+                  className={`btn btn-xs ${isReel ? "btn-gold" : "btn-ghost"}`}
+                  style={{ width: "100%" }}
+                  data-testid={`reel-toggle-${m.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const r = await api.post(`/media/${m.id}/feature-reel`);
+                      toast(r.data.featured_video_id ? "Set as Featured Reel 🎬" : "Removed from Reel");
+                      await refresh();
+                    } catch (err) { toast(formatApiError(err), "error"); }
+                  }}
+                  title="Featured Reel autoplays muted at the top of your public profile"
+                >{isReel ? "🎬 Reel Active" : "🎬 Set as Reel"}</button>
+              )}
             </div>
           </div>
-        ))}
+        );})}
       </div>
     </div>
   );
@@ -1629,11 +1719,18 @@ function Boost({ refresh, toast }) {
   const [mine, setMine] = useState([]);
   const [busy, setBusy] = useState(null);
   const [filter, setFilter] = useState("all");
+  // Iter 76.5 — Boost insights: 14-day views & bookings + active windows.
+  const [insights, setInsights] = useState(null);
 
   const load = async () => {
-    const [p, m] = await Promise.all([api.get("/boost/packages"), api.get("/boost/mine")]);
+    const [p, m, ins] = await Promise.all([
+      api.get("/boost/packages"),
+      api.get("/boost/mine"),
+      api.get("/boost/insights").catch(() => ({ data: null })),
+    ]);
     setPackages(p.data);
     setMine(m.data);
+    setInsights(ins.data);
   };
   useEffect(() => { load(); }, []);
 
@@ -1691,6 +1788,45 @@ function Boost({ refresh, toast }) {
                 <div className="text-muted fs-11 mt-4">Expires {s.expires_at?.slice(0, 10)}</div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Iter 76.5 — Boost Insights: 14-day mini bar-chart of profile
+          views + booking requests so artists see the ROI of their
+          active promotions. Renders as pure CSS bars — no charting
+          library dependency. */}
+      {insights && insights.days && insights.days.length > 0 && (
+        <div className="card card-pad mb-16" data-testid="boost-insights">
+          <div className="flex justify-between items-center mb-8">
+            <div className="fw-700">📊 Last 14 Days · Boost Impact</div>
+            <div className="fs-12 text-muted">
+              <span data-testid="insight-views-14d">{insights.totals?.views_14d ?? 0}</span> views ·{" "}
+              <span data-testid="insight-bookings-14d">{insights.totals?.bookings_14d ?? 0}</span> booking requests
+            </div>
+          </div>
+          {(() => {
+            const maxV = Math.max(1, ...insights.days.map((d) => d.views));
+            const maxB = Math.max(1, ...insights.days.map((d) => d.bookings));
+            return (
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 96, marginTop: 6 }} data-testid="insights-chart">
+                {insights.days.map((d) => (
+                  <div key={d.date} title={`${d.date} · ${d.views} views · ${d.bookings} bookings`}
+                    style={{ flex: 1, display: "flex", flexDirection: "column-reverse", alignItems: "stretch", gap: 2, minWidth: 12 }}>
+                    <div style={{ height: `${(d.views / maxV) * 66}px`, background: "linear-gradient(180deg,#d4af37,rgba(212,175,55,0.35))", borderRadius: "3px 3px 0 0", minHeight: d.views ? 2 : 0 }} />
+                    <div style={{ height: `${(d.bookings / maxB) * 26}px`, background: "linear-gradient(180deg,#6a3ad4,rgba(106,58,212,0.45))", borderRadius: "3px 3px 0 0", minHeight: d.bookings ? 2 : 0 }} />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 11, color: "var(--white-muted, rgba(255,255,255,0.6))" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 10, height: 10, background: "#d4af37", borderRadius: 2 }} /> Profile Views
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 10, height: 10, background: "#6a3ad4", borderRadius: 2 }} /> Booking Requests
+            </span>
           </div>
         </div>
       )}

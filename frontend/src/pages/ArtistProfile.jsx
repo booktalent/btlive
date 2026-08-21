@@ -306,8 +306,23 @@ export default function ArtistProfile() {
           fontSize: profile.cover_image ? 0 : 100,
           position: "relative", overflow: "hidden",
         }} data-testid="profile-cover-banner">
-          {!profile.cover_image && (profile.emoji || "🎤")}
-          <div style={{ position: "absolute", inset: 0, background: profile.cover_image ? "transparent" : "linear-gradient(180deg, transparent 40%, rgba(9,9,18,0.8))" }} />
+          {/* Iter 76.5 — Featured Reel: the artist's hero video plays
+              muted + looped over the cover image. Falls back gracefully
+              when no reel is set. */}
+          {profile.featured_video_id && (
+            <video
+              data-testid="featured-reel-video"
+              src={mediaUrl(profile.featured_video_id)}
+              poster={`${api.defaults.baseURL}/media/${profile.featured_video_id}/thumb`}
+              autoPlay muted loop playsInline preload="metadata"
+              style={{
+                position: "absolute", inset: 0, width: "100%", height: "100%",
+                objectFit: "cover", zIndex: 0,
+              }}
+            />
+          )}
+          {!profile.cover_image && !profile.featured_video_id && (profile.emoji || "🎤")}
+          <div style={{ position: "absolute", inset: 0, background: profile.featured_video_id ? "linear-gradient(180deg, rgba(9,9,18,0.15) 40%, rgba(9,9,18,0.75))" : (profile.cover_image ? "transparent" : "linear-gradient(180deg, transparent 40%, rgba(9,9,18,0.8))"), zIndex: 1 }} />
         </div>
 
         <div className="profile-header-row" data-testid="profile-header">

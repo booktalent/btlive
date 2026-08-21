@@ -1255,6 +1255,7 @@ async def video_upload_chunk(
 @api.post("/media/video/finish")
 async def video_upload_finish(
     session_id: str = Form(...),
+    poster_data_url: Optional[str] = Form(None),
     user: dict = Depends(get_current_user),
 ):
     sess = await db.video_upload_sessions.find_one({"id": session_id, "user_id": user["id"]})
@@ -1302,6 +1303,22 @@ async def video_upload_finish(
         except Exception:
             pass
 
+    # Iter 76.5 — Client-supplied poster frame. Client captures the first
+    # frame in a <canvas> and passes a small JPEG data URL. Stored in the
+    # `thumb` field so existing `/api/media/{id}/thumb` serves it with
+    # zero extra endpoints. Silently skips on failure.
+    thumb_b64 = None
+    if poster_data_url and poster_data_url.startswith("data:image/"):
+        try:
+            _hdr, _b64 = poster_data_url.split(",", 1)
+            poster_raw = base64.b64decode(_b64)
+            # Normalise + clip to square 400x400 using the existing helper.
+            tbytes, _tm = make_thumbnail(poster_raw, "image/jpeg")
+            if tbytes:
+                thumb_b64 = base64.b64encode(tbytes).decode()
+        except Exception as _e:
+            log.warning("Video poster decode failed for %s: %s", mid, _e)
+
     doc = {
         "id": mid, "user_id": user["id"],
         "type": sess.get("type") or "gallery",
@@ -1310,10 +1327,7 @@ async def video_upload_finish(
         "title": sess.get("title") or sess["filename"],
         "is_featured": False,
         "storage_path": storage_path,
-        # No `data` field for object-storage-backed rows. Thumb generation
-        # for large video is deferred; frontend renders the <video> tag
-        # with the streaming URL so users see confirmation.
-        "thumb": None,
+        "thumb": thumb_b64,  # base64 jpeg first-frame poster (client-captured)
         "order": 0,
         "created_at": utcnow(),
     }
@@ -1321,7 +1335,102 @@ async def video_upload_finish(
     await db.video_upload_sessions.update_one(
         {"id": session_id}, {"$set": {"assembled": True, "media_id": mid, "assembled_at": utcnow()}},
     )
-    return {"ok": True, "id": mid, "size": total_size, "storage_path": storage_path}
+    return {"ok": True, "id": mid, "size": total_size, "storage_path": storage_path, "has_poster": bool(thumb_b64)}
+
+
+# ─── Iter 76.5 — Featured Reel (hero video on artist profile) ────────────
+
+@api.post("/media/{media_id}/feature-reel")
+async def media_feature_reel(media_id: str, user: dict = Depends(get_current_user)):
+    """Toggle an artist's featured reel — the muted-autoplay hero video
+    at the top of their public profile. Only videos are eligible.
+    Passing the currently-featured id again clears the reel."""
+    if user["role"] != "artist":
+        raise HTTPException(403, "Only artists have a featured reel.")
+    doc = await db.media.find_one({"id": media_id, "user_id": user["id"]})
+    if not doc:
+        raise HTTPException(404, "Media not found")
+    if not (doc.get("mime") or "").startswith("video/"):
+        raise HTTPException(400, "Only videos can be a featured reel.")
+
+    profile = await db.artist_profiles.find_one({"user_id": user["id"]}) or {}
+    current = profile.get("featured_video_id")
+    new_value = None if current == media_id else media_id
+    await db.artist_profiles.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"featured_video_id": new_value, "updated_at": utcnow()}},
+    )
+    return {"ok": True, "featured_video_id": new_value}
+
+
+# ─── Iter 76.5 — Boost Insights (ROI mini-chart) ─────────────────────────
+
+@api.get("/boost/insights")
+async def boost_insights(user: dict = Depends(get_current_user)):
+    """Return the artist's last-14-days profile views + booking requests,
+    plus the active-boost windows overlaid so the artist can see the ROI
+    of every purchase.
+
+    Uses aggregate counts from the notifications + bookings + analytics
+    collections we already write to — no schema changes needed.
+    """
+    if user["role"] != "artist":
+        return {"active_boosts": [], "days": []}
+
+    # Build a 14-day timeline ending today (UTC).
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    today = _dt.now(_tz.utc).date()
+    day_keys = [(today - _td(days=i)).isoformat() for i in range(13, -1, -1)]
+
+    # Views — pulled from analytics_events "profile_view" if available;
+    # fall back to profile_views counter increments (zero'd per day).
+    daily_views: Dict[str, int] = {d: 0 for d in day_keys}
+    async for ev in db.analytics_events.find({
+        "user_id": user["id"], "event": "profile_view",
+        "created_at": {"$gte": (today - _td(days=13)).isoformat()},
+    }, {"created_at": 1, "_id": 0}):
+        try:
+            d = str(ev.get("created_at", ""))[:10]
+            if d in daily_views:
+                daily_views[d] += 1
+        except Exception:
+            pass
+
+    # Booking requests — count bookings that referenced this artist per day.
+    daily_bookings: Dict[str, int] = {d: 0 for d in day_keys}
+    async for b in db.bookings.find({
+        "artist_id": user["id"],
+        "created_at": {"$gte": (today - _td(days=13)).isoformat()},
+    }, {"created_at": 1, "_id": 0}):
+        try:
+            d = str(b.get("created_at", ""))[:10]
+            if d in daily_bookings:
+                daily_bookings[d] += 1
+        except Exception:
+            pass
+
+    # Active boost windows — used to shade the chart client-side.
+    active = []
+    async for sub in db.boost_subscriptions.find({
+        "user_id": user["id"], "status": {"$in": ["active", "expired"]},
+    }, {"_id": 0}):
+        active.append({
+            "id": sub.get("id"),
+            "package_name": (sub.get("package_snapshot") or {}).get("name") or sub.get("plan"),
+            "starts_at": sub.get("starts_at") or sub.get("created_at"),
+            "expires_at": sub.get("expires_at"),
+            "status": sub.get("status"),
+        })
+
+    days = [{"date": d, "views": daily_views[d], "bookings": daily_bookings[d]} for d in day_keys]
+    return {
+        "active_boosts": active[-5:],  # latest 5 for compact rendering
+        "days": days,
+        "totals": {
+            "views_14d": sum(daily_views.values()),
+            "bookings_14d": sum(daily_bookings.values()),
+        },
+    }
 
 
 @api.get("/media")
