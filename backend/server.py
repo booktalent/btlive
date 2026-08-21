@@ -3192,7 +3192,9 @@ async def admin_audit_log_list(
 
 @api.get("/admin/admins")
 async def admin_list_admins(_: dict = Depends(require_permission("admins.manage"))):
-    docs = await db.users.find({"role": "admin", "deleted": {"$ne": True}}).sort("created_at", 1).to_list(200)
+    # Iter 76.6 — Latest admin first (matches every other chronological
+    # list in the app: newest entry on top).
+    docs = await db.users.find({"role": "admin", "deleted": {"$ne": True}}).sort("created_at", -1).to_list(200)
     return [{
         "id": d["id"],
         "email": d["email"],
