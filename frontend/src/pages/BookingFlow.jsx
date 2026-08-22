@@ -536,27 +536,18 @@ export default function BookingFlow() {
                     </div>
                   </div>
                 ))}
-                <h3 className="fs-13 fw-600 mt-24 mb-12 text-muted" style={{ textTransform: "uppercase", letterSpacing: 1 }}>Optional Add-ons</h3>
-                <div className="grid grid-2 gap-10">
-                  {ADDONS.map((a) => (
-                    <div
-                      key={a.id} onClick={() => toggleAddon(a.id)}
-                      className={`pkg-card ${form.addons.includes(a.id) ? "selected" : ""}`}
-                      style={{ padding: 14 }}
-                      data-testid={`addon-${a.id}`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div className="fw-600 fs-13">{a.label}</div>
-                        <div className="text-gold fw-600 fs-13">+{fmtINRFull(a.price)}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Sprint 3 — Artist-defined add-ons */}
+                {/* Iter 76.7 — Add-ons now come EXCLUSIVELY from what the
+                    artist configured. The old "Optional Add-ons" grid
+                    (Dhol / Anchor / Photography / Extra Hour) was a
+                    hard-coded placeholder that appeared for every
+                    artist even when they had no real add-ons — and
+                    its ids never mapped to real DB rows so the
+                    backend snapshot ignored them. If the artist
+                    hasn't set any add-ons, the section is simply
+                    hidden. */}
                 {artistAddons.length > 0 && (
                   <>
-                    <h3 className="fs-13 fw-600 mt-24 mb-12 text-gold" style={{ textTransform: "uppercase", letterSpacing: 1 }}>🎁 Artist Add-ons</h3>
+                    <h3 className="fs-13 fw-600 mt-24 mb-12 text-gold" style={{ textTransform: "uppercase", letterSpacing: 1 }}>🎁 Optional Add-ons</h3>
                     <div className="flex-col gap-10">
                       {artistAddons.map((a) => {
                         const selected = isAddonSelected(a.id);
