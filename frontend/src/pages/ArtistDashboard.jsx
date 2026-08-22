@@ -311,7 +311,12 @@ export default function ArtistDashboard() {
           {tab === "profile" && <ProfileEditor user={user} refreshMe={refreshMe} toast={toast} />}
           {tab === "questionnaire" && (
             <QuestionnaireWizard
-              category={data.profile?.category}
+              /* Iter 76.6 — /auth/me returns the full artist_profile with
+                 `category`; the local `data` object never held it, so the
+                 wizard used to boot with an empty category and skipped
+                 the Layer 2 fetch entirely. This fixes the "only Layer 1
+                 shows" bug the artist reported. */
+              category={user?.artist_profile?.category || data.profile?.category}
               startSection={wizardStartSection}
               onComplete={() => { toast("Questionnaire saved 🎉"); setWizardStartSection(null); refresh(); }}
             />

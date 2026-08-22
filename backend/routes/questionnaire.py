@@ -290,6 +290,48 @@ class AnswerBody(BaseModel):
 def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, clean: Callable, utcnow: Callable, **_: Any) -> APIRouter:
     r = APIRouter()
 
+    # ── Iter 76.6 ────────────────────────────────────────────────────────
+    # Shared alias resolver used by BOTH the artist-facing wizard endpoint
+    # AND the customer-facing /about renderer. Previously only /about had
+    # the alias logic, so artists with rich category names like
+    # "Bollywood Vocalist" or "DJ / Music Producer" would get an empty
+    # Layer 2 in the wizard — even though the same artist's customer
+    # profile page rendered the questions correctly.
+    _ALIASES = {
+        "vocalist": "Singer", "singer": "Singer",
+        "dj": "DJ", "band": "Band", "dancer": "Dancer",
+        "comedian": "Stand-up Comedian",
+        "emcee": "Anchor / Emcee", "anchor": "Anchor / Emcee", "host": "Anchor / Emcee",
+        "magic": "Magician", "influencer": "Influencer",
+        "instrumentalist": "Instrumentalist", "sitar": "Instrumentalist",
+        "tabla": "Instrumentalist", "guitar": "Instrumentalist",
+        "kid": "Kids Entertainer", "children": "Kids Entertainer",
+        "motivational": "Motivational Speaker", "speaker": "Motivational Speaker",
+        "celebrity": "Celebrity",
+    }
+
+    async def _resolve_category_questions(cat_raw: str):
+        """Return the best-matching Layer 2 questions list for a free-form
+        category label. Order: DB override by slug → DB override by full
+        label → exact seed key → substring alias."""
+        if not cat_raw:
+            return []
+        cat_raw = cat_raw.strip()
+        candidate_slug = cat_raw.lower().replace(" ", "-").replace("/", "-")
+        m = await db.questionnaire_meta.find_one({"id": f"cat:{candidate_slug}"})
+        if m and m.get("questions"):
+            return sorted(m["questions"], key=lambda q: q.get("order", 999))
+        m = await db.questionnaire_meta.find_one({"id": f"cat:{cat_raw}"})
+        if m and m.get("questions"):
+            return sorted(m["questions"], key=lambda q: q.get("order", 999))
+        if cat_raw in CATEGORY_QUESTIONS and CATEGORY_QUESTIONS[cat_raw]:
+            return sorted(CATEGORY_QUESTIONS[cat_raw], key=lambda q: q.get("order", 999))
+        cat_lo = cat_raw.lower()
+        for alias, target in _ALIASES.items():
+            if alias in cat_lo and target in CATEGORY_QUESTIONS and CATEGORY_QUESTIONS[target]:
+                return sorted(CATEGORY_QUESTIONS[target], key=lambda q: q.get("order", 999))
+        return []
+
     @r.get("/questionnaire/universal")
     async def get_universal() -> List[Dict[str, Any]]:
         """Public read of Layer 1 questions. Prefers DB overrides if seeded."""
@@ -298,13 +340,16 @@ def make_router(*, get_current_user: Callable, admin_only: Callable, db: Any, cl
             return sorted(override["questions"], key=lambda q: q.get("order", 999))
         return UNIVERSAL_QUESTIONS
 
-    @r.get("/questionnaire/category/{slug}")
+    @r.get("/questionnaire/category/{slug:path}")
     async def get_category(slug: str) -> List[Dict[str, Any]]:
-        """Public read of Layer 2 questions for a specific category slug."""
-        override = await db.questionnaire_meta.find_one({"id": f"cat:{slug}"})
-        if override and override.get("questions"):
-            return sorted(override["questions"], key=lambda q: q.get("order", 999))
-        return CATEGORY_QUESTIONS.get(slug, [])
+        """Public read of Layer 2 questions for a category label. Aliases
+        rich names ('Bollywood Vocalist' → Singer, 'DJ / Music Producer'
+        → DJ, 'Dancer / Troupe' → Dancer, etc.) so every artist reaches
+        the right Layer 2 no matter how their profile category is worded.
+
+        Uses `:path` so category labels containing a slash — like
+        "DJ / Music Producer" — round-trip cleanly through the URL."""
+        return await _resolve_category_questions(slug)
 
     @r.get("/questionnaire/categories")
     async def list_categories() -> List[str]:
