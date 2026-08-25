@@ -23,7 +23,7 @@ def utcnow() -> str:
 # Channel "enabled" gates — driven by env keys
 def _channels_enabled() -> Dict[str, bool]:
     return {
-        "email": bool(os.environ.get("RESEND_API_KEY", "").strip()),
+        "email": bool(os.environ.get("SMTP_USER", "").strip() and os.environ.get("SMTP_PASSWORD", "").strip()),
         "sms": bool(os.environ.get("TWILIO_AUTH_TOKEN", "").strip()),
         "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN", "").strip()),
         "push": bool(os.environ.get("FCM_SERVER_KEY", "").strip()),

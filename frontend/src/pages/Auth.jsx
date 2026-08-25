@@ -287,6 +287,16 @@ export default function Auth({ mode = "signin" }) {
             <button type="submit" className="btn btn-gold btn-block" disabled={busy} data-testid="signin-submit">
               {busy ? "Signing in…" : "Sign In →"}
             </button>
+            <div className="mt-12" style={{ textAlign: "center" }}>
+              <Link
+                to="/forgot-password"
+                className="text-muted fs-13"
+                style={{ textDecoration: "underline", opacity: 0.75 }}
+                data-testid="login-forgot-password-link"
+              >
+                Forgot your password?
+              </Link>
+            </div>
           </form>
         ) : (
           <div data-testid="signup-form">
@@ -576,8 +586,7 @@ export default function Auth({ mode = "signin" }) {
               <>
                 <div className="auth-title">Verify your <span className="gold-grad" style={{ background: "linear-gradient(135deg, var(--gold-light), var(--gold))", WebkitBackgroundClip: "text", color: "transparent" }}>Email</span></div>
                 <div className="auth-sub">
-                  We sent a 6-digit code to <b style={{ color: "var(--gold-light)" }}>{form.email}</b>.{" "}
-                  {emailProviderEnabled ? "Check your inbox (and spam folder)." : `Test code: ${mockOtpHint || "123456"}`}
+                  We sent a 6-digit code to <b style={{ color: "var(--gold-light)" }}>{form.email}</b>. Check your inbox (and spam folder).
                 </div>
                 <div className="field">
                   <div className="field-label">Verification Code</div>

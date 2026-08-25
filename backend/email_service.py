@@ -1,46 +1,98 @@
 """
-Email service — sends transactional emails via Resend.
-Falls back to console-log when RESEND_API_KEY is empty (test mode).
+Email service — sends transactional emails via Gmail SMTP.
+
+Requires the following env vars (set in backend/.env):
+    SMTP_HOST         - smtp.gmail.com
+    SMTP_PORT         - 587 (STARTTLS)
+    SMTP_USER         - Gmail address used to authenticate
+    SMTP_PASSWORD     - 16-char Google App Password (2FA required on the account)
+    SMTP_FROM_EMAIL   - address that appears in the From header
+    SMTP_FROM_NAME    - display name shown next to the address
+
+If SMTP_USER / SMTP_PASSWORD are missing, we degrade to mock mode: emails
+are logged instead of sent. Mock mode never returns the OTP to the caller —
+the OTP is only visible in server logs (this closes the previous
+"passwordless-login" backdoor).
 """
 import os
+import ssl
 import asyncio
 import logging
 import secrets
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr, make_msgid
 from typing import Optional
 
 log = logging.getLogger("booktalent.email")
 
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "BookTalent <onboarding@resend.dev>").strip()
-RESEND_ENABLED = bool(RESEND_API_KEY)
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587").strip() or "587")
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASSWORD = (os.environ.get("SMTP_PASSWORD", "") or "").replace(" ", "").strip()
+SMTP_FROM_EMAIL = os.environ.get("SMTP_FROM_EMAIL", SMTP_USER).strip()
+SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "BookTalent").strip()
 
-if RESEND_ENABLED:
-    try:
-        import resend
-        resend.api_key = RESEND_API_KEY
-        log.info("Resend configured (sender=%s)", SENDER_EMAIL)
-    except Exception as e:
-        log.error("Resend init failed: %s", e)
-        RESEND_ENABLED = False
+SMTP_ENABLED = bool(SMTP_USER and SMTP_PASSWORD)
+
+if SMTP_ENABLED:
+    log.info("Gmail SMTP configured host=%s port=%s user=%s", SMTP_HOST, SMTP_PORT, SMTP_USER)
+else:
+    log.warning("SMTP disabled — SMTP_USER / SMTP_PASSWORD env vars missing. Emails will be mocked.")
 
 
 def is_email_enabled() -> bool:
-    return RESEND_ENABLED
+    return SMTP_ENABLED
 
 
 def generate_otp() -> str:
-    """6-digit numeric OTP.
+    """Cryptographically secure 6-digit numeric OTP.
 
-    Uses the ``secrets`` module (cryptographically secure) rather than ``random``
-    to avoid predictable OTPs. In mock mode we still return the deterministic
-    ``123456`` so local tests and E2E automation stay reproducible.
+    The previous implementation returned a hard-coded ``123456`` when the
+    provider was disabled — that was a passwordless-login backdoor. We now
+    always return a fresh random code regardless of provider state.
     """
-    if not RESEND_ENABLED:
-        return "123456"
     return f"{secrets.randbelow(900000) + 100000}"
 
 
-def _otp_html(name: str, otp: str) -> str:
+def _send_sync(to_email: str, subject: str, html: str, text_fallback: Optional[str] = None) -> dict:
+    """Blocking SMTP send. Wrapped by :func:`asyncio.to_thread` in the async helpers."""
+    if not SMTP_ENABLED:
+        log.info("[MOCK email] to=%s subject=%s", to_email, subject)
+        return {"sent": True, "mock": True}
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = formataddr((SMTP_FROM_NAME, SMTP_FROM_EMAIL))
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg["Message-ID"] = make_msgid(domain=SMTP_FROM_EMAIL.split("@")[-1] if "@" in SMTP_FROM_EMAIL else "booktalent.in")
+    # Plain-text fallback — some clients (Apple Mail preview, screen readers)
+    # rely on this even when HTML is present.
+    plain = text_fallback or "This email requires an HTML-capable client to view."
+    msg.attach(MIMEText(plain, "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    context = ssl.create_default_context()
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_FROM_EMAIL, [to_email], msg.as_string())
+        log.info("SMTP OK to=%s subject=%s", to_email, subject)
+        return {"sent": True, "mock": False}
+    except smtplib.SMTPAuthenticationError as e:
+        log.error("SMTP auth failed (%s). Check SMTP_PASSWORD is a Gmail App Password.", e)
+        return {"sent": False, "mock": False, "error": "SMTP authentication failed — check App Password"}
+    except Exception as e:  # noqa: BLE001
+        log.error("SMTP send failed to=%s subject=%s error=%s", to_email, subject, e)
+        return {"sent": False, "mock": False, "error": str(e)}
+
+
+# ─── Templates ─────────────────────────────────────────────────────────────
+def _otp_html(name: str, otp: str, purpose: str = "Verify your email") -> str:
     """Premium dark-luxury OTP email template using inline CSS + tables."""
     return f"""<!doctype html>
 <html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#F0EEFF;">
@@ -57,10 +109,10 @@ def _otp_html(name: str, otp: str) -> str:
         </td></tr>
         <tr><td style="padding:32px 40px;">
           <div style="font-family:'Times New Roman',serif;font-size:28px;font-weight:700;color:#F0EEFF;line-height:1.2;margin-bottom:10px;">
-            Verify your <span style="color:#D4AF37;">email</span>
+            {purpose}
           </div>
           <p style="font-size:14px;color:rgba(240,238,255,0.6);line-height:1.6;margin:0 0 24px;">
-            Hi {name or 'there'}, welcome to BookTalent — India's #1 talent marketplace. Please use the verification code below to activate your account. This code expires in <b>10 minutes</b>.
+            Hi {name or 'there'}, use the verification code below to continue. This code expires in <b>10 minutes</b>.
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;">
             <tr><td align="center" style="background:linear-gradient(135deg,rgba(212,175,55,0.12),rgba(109,40,217,0.08));border:1px solid rgba(212,175,55,0.3);border-radius:14px;padding:24px;">
@@ -84,51 +136,91 @@ def _otp_html(name: str, otp: str) -> str:
 </body></html>"""
 
 
-async def send_otp_email(to_email: str, otp: str, name: str = "") -> dict:
-    """Send an OTP email. Returns {sent, mock, error?}."""
-    if not RESEND_ENABLED:
-        log.info("📧 [MOCK email] to=%s name=%s otp=%s", to_email, name, otp)
-        return {"sent": True, "mock": True}
+def _password_reset_html(name: str, otp: str, reset_link: str) -> str:
+    return f"""<!doctype html>
+<html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#F0EEFF;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#09090F;padding:32px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#0F0F1B;border:1px solid rgba(255,255,255,0.08);border-radius:18px;overflow:hidden;">
+        <tr><td style="padding:32px 40px 16px;">
+          <div style="display:inline-block;font-family:'Times New Roman',serif;font-size:24px;font-weight:700;color:#F0EEFF;">
+            Book<span style="color:#D4AF37;">Talent</span>
+          </div>
+        </td></tr>
+        <tr><td style="padding:0 40px;">
+          <div style="height:1px;background:linear-gradient(to right,transparent,#D4AF37,transparent);"></div>
+        </td></tr>
+        <tr><td style="padding:32px 40px;">
+          <div style="font-family:'Times New Roman',serif;font-size:28px;font-weight:700;color:#F0EEFF;line-height:1.2;margin-bottom:10px;">
+            Reset your <span style="color:#D4AF37;">password</span>
+          </div>
+          <p style="font-size:14px;color:rgba(240,238,255,0.6);line-height:1.6;margin:0 0 20px;">
+            Hi {name or 'there'}, we received a request to reset your BookTalent password. You can either click the button below or enter the 6-digit code on the reset page. Both expire in <b>10 minutes</b>.
+          </p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 4px;">
+            <tr><td align="center">
+              <a href="{reset_link}" style="display:inline-block;background:linear-gradient(135deg,#D4AF37,#B8931F);color:#0F0F1B;text-decoration:none;font-weight:700;padding:14px 32px;border-radius:10px;font-size:14px;letter-spacing:0.5px;">Reset Password →</a>
+            </td></tr>
+          </table>
+          <p style="font-size:12px;color:rgba(240,238,255,0.45);text-align:center;margin:8px 0 24px;">Or copy this link: <span style="color:rgba(240,238,255,0.65);word-break:break-all;">{reset_link}</span></p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 0;">
+            <tr><td align="center" style="background:linear-gradient(135deg,rgba(212,175,55,0.12),rgba(109,40,217,0.08));border:1px solid rgba(212,175,55,0.3);border-radius:14px;padding:24px;">
+              <div style="font-size:11px;color:rgba(240,238,255,0.5);letter-spacing:2px;margin-bottom:10px;">RESET CODE</div>
+              <div style="font-family:'Courier New',monospace;font-size:38px;font-weight:700;color:#F1D17A;letter-spacing:10px;">{otp}</div>
+            </td></tr>
+          </table>
+          <p style="font-size:13px;color:rgba(240,238,255,0.6);line-height:1.6;margin:18px 0 0;">
+            Didn't request a password reset? You can safely ignore this email — your password stays the same.
+          </p>
+        </td></tr>
+        <tr><td style="padding:0 40px 28px;">
+          <div style="height:1px;background:rgba(255,255,255,0.08);margin:16px 0;"></div>
+          <p style="font-size:11px;color:rgba(240,238,255,0.4);margin:0;text-align:center;">
+            © 2026 BookTalent · India's Premium Talent Marketplace
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
 
-    import resend
-    params = {
-        "from": SENDER_EMAIL,
-        "to": [to_email],
-        "subject": f"Your BookTalent verification code: {otp}",
-        "html": _otp_html(name, otp),
-    }
-    try:
-        result = await asyncio.to_thread(resend.Emails.send, params)
-        log.info("Resend OK id=%s to=%s", result.get("id"), to_email)
-        return {"sent": True, "mock": False, "id": result.get("id")}
-    except Exception as e:
-        log.error("Resend failed: %s", e)
-        return {"sent": False, "mock": False, "error": str(e)}
+
+# ─── Public async helpers ──────────────────────────────────────────────────
+async def send_otp_email(to_email: str, otp: str, name: str = "", purpose: str = "Verify your email") -> dict:
+    """Send an OTP email for signup / email verification."""
+    subject = f"Your BookTalent verification code: {otp}"
+    html = _otp_html(name, otp, purpose=purpose)
+    text = f"Your BookTalent verification code is {otp}. It expires in 10 minutes."
+    return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
+
+
+async def send_password_reset_email(to_email: str, name: str, otp: str, reset_link: str) -> dict:
+    """Send a password-reset email containing both a magic link and a 6-digit OTP."""
+    subject = "Reset your BookTalent password"
+    html = _password_reset_html(name, otp, reset_link)
+    text = (
+        f"Hi {name or 'there'},\n\n"
+        f"Reset your BookTalent password using this link (valid 10 minutes):\n{reset_link}\n\n"
+        f"Or enter this code on the reset page: {otp}\n\n"
+        "If you didn't request this, you can ignore this email."
+    )
+    return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
 
 
 async def send_booking_confirmation_email(to_email: str, name: str, booking_ref: str, artist_name: str, event_date: str) -> dict:
-    if not RESEND_ENABLED:
-        log.info("📧 [MOCK booking-email] to=%s booking=%s", to_email, booking_ref)
-        return {"sent": True, "mock": True}
-    import resend
+    subject = f"Booking Confirmed — {booking_ref}"
     html = f"""<!doctype html><html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,sans-serif;color:#F0EEFF;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#09090F;padding:32px 0;"><tr><td align="center">
-    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#0F0F1B;border:1px solid rgba(255,255,255,0.08);border-radius:18px;">
-      <tr><td style="padding:36px;">
-        <div style="font-family:'Times New Roman',serif;font-size:22px;font-weight:700;color:#F0EEFF;margin-bottom:18px;">Book<span style="color:#D4AF37;">Talent</span></div>
-        <h2 style="font-family:'Times New Roman',serif;font-size:28px;color:#F0EEFF;margin:0 0 8px;">Booking <span style="color:#D4AF37;">Confirmed</span> ✨</h2>
-        <p style="color:rgba(240,238,255,0.7);font-size:14px;line-height:1.6;">Hi {name}, your booking with <b>{artist_name}</b> on <b>{event_date}</b> is confirmed.</p>
-        <p style="color:rgba(240,238,255,0.7);font-size:14px;">Booking Reference: <code style="color:#F1D17A;background:rgba(212,175,55,0.12);padding:3px 9px;border-radius:6px;">{booking_ref}</code></p>
-      </td></tr>
-    </table></td></tr></table></body></html>"""
-    try:
-        result = await asyncio.to_thread(resend.Emails.send, {
-            "from": SENDER_EMAIL, "to": [to_email],
-            "subject": f"Booking Confirmed — {booking_ref}", "html": html,
-        })
-        return {"sent": True, "mock": False, "id": result.get("id")}
-    except Exception as e:
-        return {"sent": False, "mock": False, "error": str(e)}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#09090F;padding:32px 0;"><tr><td align="center">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#0F0F1B;border:1px solid rgba(255,255,255,0.08);border-radius:18px;">
+  <tr><td style="padding:36px;">
+    <div style="font-family:'Times New Roman',serif;font-size:22px;font-weight:700;color:#F0EEFF;margin-bottom:18px;">Book<span style="color:#D4AF37;">Talent</span></div>
+    <h2 style="font-family:'Times New Roman',serif;font-size:28px;color:#F0EEFF;margin:0 0 8px;">Booking <span style="color:#D4AF37;">Confirmed</span></h2>
+    <p style="color:rgba(240,238,255,0.7);font-size:14px;line-height:1.6;">Hi {name}, your booking with <b>{artist_name}</b> on <b>{event_date}</b> is confirmed.</p>
+    <p style="color:rgba(240,238,255,0.7);font-size:14px;">Booking Reference: <code style="color:#F1D17A;background:rgba(212,175,55,0.12);padding:3px 9px;border-radius:6px;">{booking_ref}</code></p>
+  </td></tr>
+</table></td></tr></table></body></html>"""
+    text = f"Hi {name}, your booking with {artist_name} on {event_date} is confirmed. Reference: {booking_ref}"
+    return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
 
 
 def _payment_receipt_html(name: str, refs: list, amount: float, txnid: str,
@@ -194,18 +286,6 @@ async def send_payment_receipt_email(
     if not to_email:
         return {"sent": False, "mock": True, "error": "no_email"}
     subject = f"Payment received — ₹{amount:,.2f} · {txnid}"
-    if not RESEND_ENABLED:
-        log.info("📧 [MOCK receipt] to=%s txnid=%s amount=%s refs=%s",
-                 to_email, txnid, amount, booking_refs)
-        return {"sent": True, "mock": True}
-    import resend
-    try:
-        result = await asyncio.to_thread(resend.Emails.send, {
-            "from": SENDER_EMAIL, "to": [to_email], "subject": subject,
-            "html": _payment_receipt_html(name, booking_refs, amount, txnid,
-                                          gateway, easepayid, artist_name, event_date),
-        })
-        return {"sent": True, "mock": False, "id": result.get("id")}
-    except Exception as e:
-        log.error("Receipt email failed: %s", e)
-        return {"sent": False, "mock": False, "error": str(e)}
+    html = _payment_receipt_html(name, booking_refs, amount, txnid, gateway, easepayid, artist_name, event_date)
+    text = f"Payment of ₹{amount:,.2f} received. Transaction: {txnid}. Bookings: {', '.join(booking_refs)}"
+    return await asyncio.to_thread(_send_sync, to_email, subject, html, text)

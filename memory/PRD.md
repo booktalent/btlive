@@ -1,6 +1,45 @@
 # BookTalent — Product Requirements Document
 
 
+## 📧 Iter 77 — Gmail SMTP + Forgot Password OTP flow (2026-08-25)
+
+### Real email provider replaces Resend mock
+- **`backend/email_service.py`** rewritten to use stdlib `smtplib` + Gmail STARTTLS on `smtp.gmail.com:587`.
+- Env vars (new): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` (16-char Google App Password — spaces stripped automatically), `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`. Live account: `manager@booktalent.in`.
+- Old `RESEND_API_KEY` / `resend` package no longer required — public function signatures kept (`is_email_enabled`, `generate_otp`, `send_otp_email`, `send_booking_confirmation_email`, `send_payment_receipt_email`), so all callers work unchanged.
+- New helper: `send_password_reset_email(to, name, otp, reset_link)` — dark-luxury template with both a magic-link button and a large 6-digit code.
+- `notification_service.py` `_channels_enabled` now gates email on SMTP env (not Resend key).
+
+### Mock `123456` backdoor removed
+- `generate_otp()` now always returns a cryptographically-random 6-digit code (via `secrets`). No fallback constant.
+- `/auth/email/send` response no longer contains `test_otp` — the OTP is only ever delivered by SMTP.
+- `/auth/otp/send` and `/auth/otp/verify` (phone-based) now return **HTTP 410 Gone**. There is no SMS gateway wired in and the previous "always accepts 123456" behaviour was a passwordless-login backdoor.
+- `/auth/email/verify` gained brute-force protection: 5 wrong attempts invalidate the OTP.
+
+### Registration flow (unchanged UX, real email now)
+- Step 1 → Step 2 → Step 3: user requests OTP via `POST /auth/email/send` → real email arrives → user enters code → `POST /auth/email/verify` marks the email `verified: true` → `POST /auth/register` creates the account and issues the session cookie.
+- Frontend `Auth.jsx` step-3 hint no longer shows `123456` for anyone.
+
+### Login flow (existing users) — untouched
+- Still `POST /auth/login` with email + password. No OTP requirement per user's spec.
+- Admin login also bypasses OTP.
+
+### Forgot Password (new, replaces token-only stub)
+- `POST /auth/forgot-password { email }` → generates fresh reset token + 6-digit OTP, invalidates prior pending resets, stores in `password_resets`, emails `manager@booktalent.in`-signed reset email containing both a **magic link** (`FRONTEND_URL/reset-password?token=…&email=…`) and the **6-digit code**. Always returns `{sent:true}` to prevent enumeration.
+- `POST /auth/reset-password { email, new_password, otp? , token? }` — accepts either the OTP or the token. Non-expired, un-used records only; brute-force limit of 5 wrong OTP attempts; on success the reset record is marked `used`, so it can't be replayed.
+- Frontend: new `/forgot-password` and `/reset-password` routes → shared `ForgotPassword.jsx` component. Step-1 collects email; Step-2 collects OTP + new password. Users who click the emailed link land directly on Step-2 with the token pre-filled (OTP field hidden).
+- Signin form has a new `Forgot your password?` link under the submit button (`data-testid=login-forgot-password-link`).
+
+### E2E verified
+- Real emails delivered end-to-end: verification code (`Your BookTalent verification code: …`) and reset email (`Reset your BookTalent password`) both logged as `SMTP OK`.
+- Register → wrong code fails, right code passes → session issued.
+- Existing user login with email/password → 200 OK, no OTP step.
+- Forgot password OTP path: wrong code 400, correct code resets successfully, new password logs in.
+- Forgot password link path: token resets successfully.
+- `/auth/otp/verify` returns 410 for the old `123456` payload.
+
+
+
 ## 🎬 Iter 76.5 — Video posters, chunk retry, featured reel, boost insights (2026-08-21)
 
 ### Video Poster Frames (client-captured, since ffmpeg is unavailable)

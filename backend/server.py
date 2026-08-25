@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from pdf_service import generate_contract_pdf, generate_invoice_pdf
 from email_service import (
     is_email_enabled, generate_otp, send_otp_email, send_booking_confirmation_email,
-    send_payment_receipt_email,
+    send_payment_receipt_email, send_password_reset_email,
 )
 from image_service import compress_image, make_thumbnail
 from iter7_routes import make_router as make_iter7_router
@@ -788,30 +788,17 @@ async def auth_config():
 
 @api.post("/auth/otp/send")
 async def otp_send(body: OTPBody):
-    # mock OTP — always 123456
-    await db.otps.update_one(
-        {"phone": body.phone},
-        {"$set": {"otp": "123456", "expires_at": utcnow(), "verified": False}},
-        upsert=True,
-    )
-    return {"sent": True, "test_otp": "123456"}
+    # Iter 77 — Phone-based OTP is deprecated. We do not have an SMS gateway
+    # wired in, and email-based OTP now handles signup verification. This
+    # endpoint used to hard-code the OTP to `123456`, which was a
+    # passwordless-login backdoor. It is now disabled.
+    raise HTTPException(410, "Phone OTP is disabled — please verify via email instead")
 
 
 @api.post("/auth/otp/verify")
 async def otp_verify(body: OTPBody):
-    # Iter 71 — SEC-001 hardening. This endpoint ONLY verifies the phone
-    # number for signup. It never issues a session token, because doing so
-    # was a passwordless-login backdoor: anyone could enter the mock OTP
-    # (`123456`) or a real OTP and log in as ANY user by phone match, with
-    # zero password check. Existing users must go through /auth/login with
-    # their password.
-    rec = await db.otps.find_one({"phone": body.phone})
-    if not rec or body.otp != "123456":
-        raise HTTPException(400, "Invalid OTP")
-    await db.otps.update_one(
-        {"phone": body.phone}, {"$set": {"verified": True, "verified_at": utcnow()}},
-    )
-    return {"verified": True, "token": None}
+    # Iter 77 — see /auth/otp/send. Disabled to close the mock-OTP backdoor.
+    raise HTTPException(410, "Phone OTP is disabled — please verify via email instead")
 
 
 # ─── Email verification ────────────────────────────────────────────────
@@ -860,8 +847,9 @@ async def email_otp_send(body: EmailOTPSendBody):
     return {
         "sent": result.get("sent", False),
         "mock": result.get("mock", False),
-        # In mock mode, expose the OTP so the user can complete signup without an inbox
-        "test_otp": otp if not is_email_enabled() else None,
+        # Iter 77 — never leak the OTP to the caller (removes the previous
+        # `123456` / mock-mode backdoor). The OTP only reaches the user's inbox.
+        "test_otp": None,
     }
 
 
@@ -878,7 +866,16 @@ async def email_otp_verify(body: EmailOTPVerifyBody):
         expires = datetime.now(timezone.utc)
     if datetime.now(timezone.utc) > expires:
         raise HTTPException(400, "Code expired — please request a new one")
+    # Iter 77 — track wrong-code attempts. After 5 misses, invalidate the OTP
+    # so the caller must request a fresh code (brute-force protection).
+    verify_attempts = int(rec.get("verify_attempts", 0))
+    if verify_attempts >= 5:
+        await db.email_otps.delete_one({"email": email})
+        raise HTTPException(400, "Too many wrong attempts — please request a new code")
     if str(rec.get("otp")) != str(body.otp).strip():
+        await db.email_otps.update_one(
+            {"email": email}, {"$inc": {"verify_attempts": 1}},
+        )
         raise HTTPException(400, "Invalid code")
 
     await db.email_otps.update_one(
@@ -910,15 +907,96 @@ async def me(user: dict = Depends(get_current_user)):
 
 @api.post("/auth/forgot-password")
 async def forgot_password(body: dict):
-    email = body.get("email", "").lower()
+    """Iter 77 — Send both a reset LINK (magic token) and a 6-digit OTP via
+    Gmail SMTP. The caller can complete the reset with either. We always
+    return ``{sent: True}`` so an attacker can't enumerate registered
+    addresses.
+    """
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(400, "Email is required")
+
     u = await db.users.find_one({"email": email})
     if u:
         token = new_id()
+        otp = generate_otp()
+        expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        # Fresh row per request — this invalidates any older pending resets.
+        await db.password_resets.delete_many({"user_id": u["id"], "used": False})
         await db.password_resets.insert_one({
-            "id": token, "user_id": u["id"], "expires_at": utcnow(), "used": False,
+            "id": token,
+            "user_id": u["id"],
+            "email": email,
+            "otp": otp,
+            "expires_at": expires,
+            "used": False,
+            "verify_attempts": 0,
+            "created_at": utcnow(),
         })
-        log.info(f"Password reset link: /reset-password?token={token}")
+        frontend_url = os.environ.get("FRONTEND_URL", "").strip().rstrip("/") or ""
+        reset_link = f"{frontend_url}/reset-password?token={token}&email={email}"
+        name = (u.get("first_name") or "").strip()
+        result = await send_password_reset_email(email, name, otp, reset_link)
+        log.info("Password reset email sent=%s to=%s", result.get("sent"), email)
     return {"sent": True}  # never reveal whether email exists
+
+
+class ResetPasswordBody(BaseModel):
+    email: EmailStr
+    new_password: str = Field(min_length=6)
+    otp: Optional[str] = None
+    token: Optional[str] = None
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordBody):
+    """Iter 77 — Consume either an OTP or a token from ``/auth/forgot-password``
+    and set a new password. Both paths require the code/token to be
+    non-expired and not previously consumed. On success the record is
+    marked ``used`` so it can't be replayed.
+    """
+    email = body.email.lower()
+    if not body.otp and not body.token:
+        raise HTTPException(400, "Provide either the emailed code or the reset link token")
+
+    u = await db.users.find_one({"email": email})
+    if not u:
+        # generic 400 so we don't leak which addresses exist
+        raise HTTPException(400, "Invalid or expired reset code")
+
+    query = {"user_id": u["id"], "used": False}
+    if body.token:
+        query["id"] = body.token
+    rec = await db.password_resets.find_one(query, sort=[("created_at", -1)])
+    if not rec:
+        raise HTTPException(400, "Invalid or expired reset code")
+
+    try:
+        expires = datetime.fromisoformat(rec.get("expires_at", utcnow()))
+    except Exception:
+        expires = datetime.now(timezone.utc)
+    if datetime.now(timezone.utc) > expires:
+        raise HTTPException(400, "Reset code expired — please request a new one")
+
+    # OTP path — check code with brute-force limit
+    if body.otp and not body.token:
+        if int(rec.get("verify_attempts", 0)) >= 5:
+            await db.password_resets.update_one({"id": rec["id"]}, {"$set": {"used": True}})
+            raise HTTPException(400, "Too many wrong attempts — please request a new code")
+        if str(rec.get("otp", "")) != str(body.otp).strip():
+            await db.password_resets.update_one(
+                {"id": rec["id"]}, {"$inc": {"verify_attempts": 1}},
+            )
+            raise HTTPException(400, "Invalid reset code")
+
+    # Update password + mark reset consumed
+    await db.users.update_one(
+        {"id": u["id"]},
+        {"$set": {"password_hash": hash_password(body.new_password), "updated_at": utcnow()}},
+    )
+    await db.password_resets.update_one({"id": rec["id"]}, {"$set": {"used": True, "used_at": utcnow()}})
+    log.info("Password reset for user_id=%s email=%s", u["id"], email)
+    return {"ok": True}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1004,6 +1082,29 @@ async def complete_onboarding(user: dict = Depends(get_current_user)):
 # ─────────────────────────────────────────────────────────────────────────────
 @api.post("/media/upload")
 async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_user)):
+    # Iter 76.8 — Enforce the subscription plan's `max_media` limit.
+    # Applies to the artist gallery only — profile/cover images are
+    # infrastructure assets, not gallery items. Elite (500) is effectively
+    # "unlimited" for realistic use.
+    if user.get("role") == "artist" and (body.type or "gallery") == "gallery":
+        try:
+            from routes.subscriptions import resolve_plan
+            plan = await resolve_plan(db, user["id"])
+            limit = int(plan.get("max_media") or 6)
+            current = await db.media.count_documents({
+                "user_id": user["id"], "type": "gallery",
+                "deleted": {"$ne": True},
+            })
+            if current >= limit:
+                raise HTTPException(
+                    402,
+                    f"Your {plan.get('name','Free')} plan allows up to {limit} gallery uploads "
+                    f"(you have {current}). Upgrade your plan or remove an existing item to add more.",
+                )
+        except HTTPException:
+            raise
+        except Exception as _e:
+            log.warning("Plan-gate check for media failed: %s", _e)
     # parse data url
     if not body.data_url.startswith("data:"):
         raise HTTPException(400, "Invalid data URL")
@@ -1213,6 +1314,26 @@ async def video_upload_start(body: VideoUploadStartBody, user: dict = Depends(ge
         raise HTTPException(400, "Only video files can use the large-file endpoint.")
     if body.size <= 0 or body.size > _MAX_VIDEO_BYTES:
         raise HTTPException(413, f"Video too large. Max {_MAX_VIDEO_BYTES // (1024*1024)} MB.")
+    # Iter 76.8 — Enforce the plan's max_media cap on video uploads too.
+    if user.get("role") == "artist" and (body.type or "gallery") == "gallery":
+        try:
+            from routes.subscriptions import resolve_plan
+            plan = await resolve_plan(db, user["id"])
+            limit = int(plan.get("max_media") or 6)
+            current = await db.media.count_documents({
+                "user_id": user["id"], "type": "gallery",
+                "deleted": {"$ne": True},
+            })
+            if current >= limit:
+                raise HTTPException(
+                    402,
+                    f"Your {plan.get('name','Free')} plan allows up to {limit} gallery uploads "
+                    f"(you have {current}). Upgrade your plan or remove an existing item to add more.",
+                )
+        except HTTPException:
+            raise
+        except Exception as _e:
+            log.warning("Plan-gate check for video-start failed: %s", _e)
 
     sid = new_id()
     session_dir = os.path.join(_VIDEO_TMP_ROOT, sid)

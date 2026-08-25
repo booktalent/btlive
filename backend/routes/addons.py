@@ -47,6 +47,26 @@ def make_router(*, db, get_current_user: Callable, utcnow, new_id, clean) -> API
     async def create_addon(body: AddonBody, user: dict = Depends(get_current_user)):
         if user["role"] not in ("artist", "agency"):
             raise HTTPException(403, "Only artists / agencies can create add-ons")
+        # Iter 76.8 — Enforce the plan's `max_addons` cap. Agencies act on
+        # behalf of one artist; check the acting user's plan.
+        try:
+            from routes.subscriptions import resolve_plan
+            plan = await resolve_plan(db, user["id"])
+            limit = int(plan.get("max_addons") or 3)
+            current = await db.artist_addons.count_documents({
+                "artist_id": user["id"], "deleted": {"$ne": True},
+            })
+            if current >= limit:
+                raise HTTPException(
+                    402,
+                    f"Your {plan.get('name','Free')} plan allows up to {limit} add-ons "
+                    f"(you have {current}). Upgrade your plan or remove an existing add-on to add more.",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # plan lookup failure ≠ hard block
+
         aid = new_id()
         doc = body.model_dump()
         doc.update({

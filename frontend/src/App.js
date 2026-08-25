@@ -17,6 +17,7 @@ import Announcements from "./components/Announcements";
 
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
+import ForgotPassword from "./pages/ForgotPassword";
 import Search from "./pages/Search";
 import ArtistProfile from "./pages/ArtistProfile";
 import BookingFlow from "./pages/BookingFlow";
@@ -83,6 +84,8 @@ function App() {
                 <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<Auth mode="signin" />} />
                 <Route path="/signup" element={<Auth mode="signup" />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ForgotPassword />} />
                 <Route path="/search" element={<Search />} />
                 <Route path="/discover" element={<Search />} />
 
