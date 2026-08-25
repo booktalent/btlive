@@ -308,6 +308,99 @@ async def send_booking_confirmation_email(to_email: str, name: str, booking_ref:
     return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
 
 
+# ─── Event-day reminder ────────────────────────────────────────────────
+def _reminder_html(name: str, role: str, artist_name: str, event_date: str,
+                   event_time: str, load_in_time: str, venue: str, city: str,
+                   map_link: str, booking_ref: str) -> str:
+    intro = (
+        f"Today's the day, {name or 'there'}! Your event with <b>{artist_name}</b> is happening this evening."
+        if role == "customer"
+        else f"Show time, {name or 'there'}! You're performing today. Here's the game plan."
+    )
+    return f"""<!doctype html>
+<html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#F0EEFF;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#09090F;padding:32px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#0F0F1B;border:1px solid rgba(255,255,255,0.08);border-radius:18px;overflow:hidden;">
+        <tr><td style="padding:32px 40px 12px;">
+          <div style="display:inline-block;font-family:'Times New Roman',serif;font-size:24px;font-weight:700;color:#F0EEFF;">
+            Book<span style="color:#D4AF37;">Talent</span>
+          </div>
+        </td></tr>
+        <tr><td style="padding:0 40px;">
+          <div style="height:1px;background:linear-gradient(to right,transparent,#D4AF37,transparent);"></div>
+        </td></tr>
+        <tr><td style="padding:28px 40px 8px;">
+          <div style="font-family:'Times New Roman',serif;font-size:28px;font-weight:700;color:#F0EEFF;line-height:1.2;margin-bottom:10px;">
+            Event <span style="color:#D4AF37;">today</span>
+          </div>
+          <p style="font-size:14px;color:rgba(240,238,255,0.7);line-height:1.65;margin:0 0 16px;">{intro}</p>
+        </td></tr>
+        <tr><td style="padding:8px 40px 8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:16px 20px;">
+            <tr>
+              <td style="padding:6px 0;color:rgba(240,238,255,0.6);font-size:12px;letter-spacing:1px;">DATE</td>
+              <td style="padding:6px 0;text-align:right;color:#F0EEFF;font-size:14px;font-weight:600;">{event_date}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:rgba(240,238,255,0.6);font-size:12px;letter-spacing:1px;">SHOW TIME</td>
+              <td style="padding:6px 0;text-align:right;color:#D4AF37;font-size:18px;font-weight:700;">{event_time or 'TBC'}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:rgba(240,238,255,0.6);font-size:12px;letter-spacing:1px;">LOAD-IN BY</td>
+              <td style="padding:6px 0;text-align:right;color:#F1D17A;font-size:15px;font-weight:600;">{load_in_time or 'TBC'}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:rgba(240,238,255,0.6);font-size:12px;letter-spacing:1px;">VENUE</td>
+              <td style="padding:6px 0;text-align:right;color:#F0EEFF;font-size:13px;max-width:60%;">{venue}<br/><span style="color:rgba(240,238,255,0.55);font-size:12px;">{city}</span></td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:rgba(240,238,255,0.6);font-size:12px;letter-spacing:1px;">BOOKING</td>
+              <td style="padding:6px 0;text-align:right;"><code style="color:#F1D17A;background:rgba(212,175,55,0.12);padding:3px 9px;border-radius:6px;font-size:12px;">{booking_ref}</code></td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:16px 40px 8px;" align="center">
+          <a href="{map_link}" style="display:inline-block;background:linear-gradient(135deg,#D4AF37,#B8931F);color:#0F0F1B;text-decoration:none;font-weight:700;padding:12px 26px;border-radius:10px;font-size:14px;letter-spacing:0.4px;">Open in Google Maps →</a>
+        </td></tr>
+        <tr><td style="padding:16px 40px 8px;">
+          <div style="background:rgba(109,40,217,0.08);border:1px solid rgba(109,40,217,0.25);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:11px;color:#B794F4;letter-spacing:1px;margin-bottom:4px;">TIP</div>
+            <p style="font-size:13px;color:rgba(240,238,255,0.7);margin:0;line-height:1.55;">
+              { 'Confirm sound-check timing with the artist and keep the venue contact handy.' if role == 'customer' else 'Reach the venue by load-in time, do a sound check, and confirm the run-of-show with the customer.' }
+            </p>
+          </div>
+        </td></tr>
+        <tr><td style="padding:0 40px 28px;">
+          <div style="height:1px;background:rgba(255,255,255,0.08);margin:20px 0 12px;"></div>
+          <p style="font-size:11px;color:rgba(240,238,255,0.4);margin:0;text-align:center;">
+            © 2026 BookTalent · India's Premium Talent Marketplace
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+async def send_event_reminder_email(to_email: str, name: str, role: str, artist_name: str,
+                                     event_date: str, event_time: str, load_in_time: str,
+                                     venue: str, city: str, map_link: str, booking_ref: str) -> dict:
+    """Sent the morning of an event to both customer and artist."""
+    if not to_email:
+        return {"sent": False, "mock": True, "error": "no_email"}
+    subject = f"Today at {event_time or ''} — your event with {artist_name}".strip()
+    html = _reminder_html(name, role, artist_name, event_date, event_time,
+                          load_in_time, venue, city, map_link, booking_ref)
+    text = (
+        f"Event reminder — {event_date}\n"
+        f"Show time: {event_time}\nLoad-in: {load_in_time}\n"
+        f"Venue: {venue}, {city}\nMap: {map_link}\n"
+        f"Booking: {booking_ref}"
+    )
+    return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
+
+
 def _payment_receipt_html(name: str, refs: list, amount: float, txnid: str,
                           gateway: str, easepayid: str = "", artist_name: str = "",
                           event_date: str = "") -> str:

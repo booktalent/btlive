@@ -31,8 +31,10 @@ from pdf_service import generate_contract_pdf, generate_invoice_pdf
 from email_service import (
     is_email_enabled, generate_otp, send_otp_email, send_booking_confirmation_email,
     send_payment_receipt_email, send_password_reset_email, send_welcome_email,
+    send_event_reminder_email,
 )
 from image_service import compress_image, make_thumbnail
+from urllib.parse import quote_plus
 import rate_limit
 from iter7_routes import make_router as make_iter7_router
 from iter9_routes import make_router as make_iter9_router
@@ -2949,6 +2951,138 @@ async def _record_completion(booking: dict):
     )
 
 
+# ─── Event-day reminder worker (Iter 79) ──────────────────────────────────
+def _parse_hhmm(t: str) -> Optional[tuple]:
+    """Parse ``HH:MM`` (or common variants) → ``(hour, minute)``. ``None`` on fail."""
+    if not t:
+        return None
+    s = str(t).strip().lower().replace(".", ":")
+    # strip AM/PM suffix
+    ampm = None
+    if s.endswith("am") or s.endswith("pm"):
+        ampm = s[-2:]
+        s = s[:-2].strip()
+    parts = s.split(":")
+    try:
+        h = int(parts[0])
+        m = int(parts[1]) if len(parts) > 1 else 0
+    except Exception:
+        return None
+    if ampm == "pm" and h < 12:
+        h += 12
+    if ampm == "am" and h == 12:
+        h = 0
+    if not (0 <= h < 24 and 0 <= m < 60):
+        return None
+    return h, m
+
+
+def _compute_load_in(event_time: str, offset_minutes: int = 60) -> str:
+    """Return a load-in HH:MM string ~1 hour before show time, or ``''`` on parse fail."""
+    hm = _parse_hhmm(event_time)
+    if not hm:
+        return ""
+    h, m = hm
+    total = h * 60 + m - offset_minutes
+    if total < 0:
+        total = 0
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def _map_link(venue: str, city: str) -> str:
+    q = quote_plus(f"{(venue or '').strip()}, {(city or '').strip()}".strip(", "))
+    return f"https://www.google.com/maps/search/?api=1&query={q}"
+
+
+async def _send_reminder_for_booking(doc: dict):
+    """Fire reminder emails to both customer and artist for a single booking."""
+    artist_u = await db.users.find_one({"id": doc.get("artist_id")}) or {}
+    prof = await db.artist_profiles.find_one({"user_id": doc.get("artist_id")}) or {}
+    artist_name = prof.get("stage_name") or f"{artist_u.get('first_name','')} {artist_u.get('last_name','')}".strip() or "your artist"
+    customer_u = await db.users.find_one({"id": doc.get("customer_id")}) or {}
+    load_in = _compute_load_in(doc.get("event_time") or "")
+    map_link = _map_link(doc.get("venue") or "", doc.get("city") or "")
+
+    tasks = []
+    cust_email = doc.get("customer_email") or customer_u.get("email")
+    if cust_email:
+        tasks.append(send_event_reminder_email(
+            cust_email, customer_u.get("first_name") or "there", "customer",
+            artist_name, doc.get("event_date") or "", doc.get("event_time") or "",
+            load_in, doc.get("venue") or "", doc.get("city") or "",
+            map_link, doc.get("ref") or "",
+        ))
+    if artist_u.get("email"):
+        tasks.append(send_event_reminder_email(
+            artist_u["email"], artist_u.get("first_name") or "there", "artist",
+            artist_name, doc.get("event_date") or "", doc.get("event_time") or "",
+            load_in, doc.get("venue") or "", doc.get("city") or "",
+            map_link, doc.get("ref") or "",
+        ))
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    await db.bookings.update_one(
+        {"id": doc["id"]},
+        {"$set": {"reminder_sent_at": utcnow()},
+         "$push": {"history": {"at": utcnow(), "action": "reminder_sent", "by": "system",
+                                "reason": "Event-day reminder emailed to customer + artist"}}},
+    )
+    log.info("Event reminder sent for booking=%s event_date=%s", doc.get("ref"), doc.get("event_date"))
+
+
+async def _event_reminder_tick():
+    """Look for confirmed/started bookings whose event is today (IST) and whose
+    reminder has not yet been sent, then only send once local IST time is
+    past 07:00 so the email genuinely lands 'morning of'.
+    """
+    # BookTalent is India-first — all event dates are stored as YYYY-MM-DD in
+    # the artist's local calendar (Asia/Kolkata). We use a fixed +5:30 offset
+    # rather than pulling pytz just to avoid a new dep.
+    ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    if ist_now.hour < 7:
+        return  # too early — wait for the next tick
+    today_str = ist_now.strftime("%Y-%m-%d")
+
+    cursor = db.bookings.find({
+        "status": {"$in": ["confirmed", "started"]},
+        "event_date": today_str,
+        "reminder_sent_at": {"$in": [None, ""]},
+    })
+    async for doc in cursor:
+        try:
+            await _send_reminder_for_booking(doc)
+        except Exception as e:  # noqa: BLE001
+            log.error("Reminder for booking %s failed: %s", doc.get("id"), e)
+
+
+async def _event_reminder_loop():
+    """Check hourly. Cheap enough — a couple of index-backed queries and
+    ~2 SMTP sends per event that day."""
+    interval_min = int(os.environ.get("EVENT_REMINDER_CHECK_MINUTES", "60"))
+    log.info("Event-reminder loop starting (every %d min, sends after 07:00 IST)", interval_min)
+    while True:
+        try:
+            await _event_reminder_tick()
+        except Exception as e:  # noqa: BLE001
+            log.error("Event-reminder tick failed: %s", e)
+        await asyncio.sleep(interval_min * 60)
+
+
+@api.post("/admin/bookings/{booking_id}/send-reminder")
+async def admin_send_reminder(booking_id: str, admin: dict = Depends(require_permission("bookings.view"))):
+    """Iter 79 — Admin-only manual trigger. Useful for testing the reminder
+    email + resending if a customer/artist reports they didn't receive it.
+    Does NOT check the 07:00-IST gate and does NOT check ``event_date``, so
+    admins can dry-run any booking's reminder email on demand.
+    """
+    doc = await db.bookings.find_one({"id": booking_id})
+    if not doc:
+        raise HTTPException(404, "Booking not found")
+    await _send_reminder_for_booking(doc)
+    return {"ok": True, "booking_ref": doc.get("ref"), "event_date": doc.get("event_date")}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PAYMENTS — Easebuzz-only (Iter 64)
 # All payment init/verify/refund/webhook endpoints now live in routes/easebuzz.py.
@@ -3928,6 +4062,8 @@ async def startup():
     log.info("BookTalent API ready")
     # Start the 24-hr Artist Confirmation auto-expiry background loop.
     asyncio.create_task(_auto_expire_loop())
+    # Iter 79 — Event-day reminder loop (fires the morning of each event).
+    asyncio.create_task(_event_reminder_loop())
 
 
 async def _seed_demo():

@@ -1,6 +1,39 @@
 # BookTalent — Product Requirements Document
 
 
+## ⏰ Iter 79 — Event-day reminder emails (2026-08-25)
+
+### Automatic morning-of reminder
+- New background loop `_event_reminder_loop()` (started from `@app.on_event("startup")`, interval `EVENT_REMINDER_CHECK_MINUTES=60`).
+- Runs the tick only when local IST time ≥ 07:00 (offset applied without pulling `pytz` — India-first product).
+- Query: `bookings.status ∈ {confirmed, started}` AND `event_date == today (IST)` AND `reminder_sent_at ∉ {null, ""}`.
+- Fires **two emails per booking** (customer + artist) in parallel via `asyncio.gather`, then stamps `reminder_sent_at` and appends a `history[]` audit row so the loop is fully idempotent.
+
+### Email template
+- New `send_event_reminder_email(...)` in `email_service.py`. Dark-luxury card with:
+  - Date, **Show time** (gold), **Load-in by** (auto-computed as `event_time − 60 min`), Venue + City, Booking ref chip.
+  - **"Open in Google Maps →"** button linking to `maps.google.com/maps/search/?api=1&query=<venue+city>` (URL-encoded).
+  - Role-specific tip block (customer sees "confirm sound-check timing"; artist sees "reach venue by load-in, sound check, confirm run-of-show").
+- Subject: `Today at HH:MM — your event with <artist>`.
+
+### Manual trigger for testing / re-sends
+- `POST /api/admin/bookings/{id}/send-reminder` — permission-gated (`bookings.view`). Bypasses the 07:00 IST gate and event-date check so an admin can re-send on demand if a customer/artist reports they never got the reminder.
+
+### Utility helpers
+- `_parse_hhmm(t)` — tolerant HH:MM parser (accepts `19:00`, `7pm`, `7.30pm`).
+- `_compute_load_in(event_time, offset=60)` — safe subtraction, floors at 00:00.
+- `_map_link(venue, city)` — URL-encoded Google Maps search link.
+
+### E2E verified
+- Manual admin trigger for a fabricated `event_date=today, event_time=19:00, venue=The Leela Palace Ballroom, city=Mumbai` booking:
+  - `SMTP OK to=<customer> subject=Today at 19:00 — your event with Priya Sharma`
+  - `SMTP OK to=<artist> subject=Today at 19:00 — your event with Priya Sharma`
+  - Booking now has `reminder_sent_at` + `history: [{action:"reminder_sent"}]`.
+- Second call to `_event_reminder_tick()` produced zero additional sends → idempotent.
+- Load-in computed correctly (19:00 → 18:00).
+
+
+
 ## 🛡️ Iter 78 — Rate limiting + welcome email (2026-08-25)
 
 ### Per-IP rate limiter (`backend/rate_limit.py`)
