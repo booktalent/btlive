@@ -30,9 +30,10 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from pdf_service import generate_contract_pdf, generate_invoice_pdf
 from email_service import (
     is_email_enabled, generate_otp, send_otp_email, send_booking_confirmation_email,
-    send_payment_receipt_email, send_password_reset_email,
+    send_payment_receipt_email, send_password_reset_email, send_welcome_email,
 )
 from image_service import compress_image, make_thumbnail
+import rate_limit
 from iter7_routes import make_router as make_iter7_router
 from iter9_routes import make_router as make_iter9_router
 from iter11_routes import make_iter11_router
@@ -757,15 +758,32 @@ async def register(body: RegisterBody, response: Response):
     user_doc.pop("password_hash", None)
     user_doc.pop("_id", None)
     _set_auth_cookie(response, token)
+
+    # Iter 78 — fire welcome email in the background so we never block the
+    # signup response on SMTP latency. Failures are logged inside the helper.
+    frontend_url = os.environ.get("FRONTEND_URL", "").strip()
+    asyncio.create_task(send_welcome_email(email, body.first_name or "", body.role, frontend_url))
+
     return {"token": token, "user": user_doc}
 
 
 @api.post("/auth/login")
-async def login(body: LoginBody, response: Response):
+async def login(body: LoginBody, request: Request, response: Response):
     email = body.email.lower()
+    # Iter 78 — per-IP + per-email rate limits: 10 attempts per 15 min per IP,
+    # 5 per 15 min per targeted email. Blocks scripted credential-stuffing.
+    rate_limit.check(request, "login_ip", limit=10, window_seconds=900,
+                     error_msg="Too many login attempts — please wait a few minutes.")
+    rate_limit.check(request, "login_email", limit=5, window_seconds=900, key_extra=email,
+                     error_msg="Too many login attempts for this account — please wait a few minutes.")
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user.get("password_hash", "")):
         raise HTTPException(401, "Invalid email or password")
+    # Successful login → wipe both counters so the user isn't punished on
+    # their next legitimate attempt.
+    ip = rate_limit.ip_of(request)
+    rate_limit.reset("login_ip", ip)
+    rate_limit.reset("login_email", ip, email)
     token = make_token(user["id"], user["role"])
     _set_auth_cookie(response, token)
     return {"token": token, "user": clean(user)}
@@ -813,8 +831,14 @@ class EmailOTPVerifyBody(BaseModel):
 
 
 @api.post("/auth/email/send")
-async def email_otp_send(body: EmailOTPSendBody):
+async def email_otp_send(body: EmailOTPSendBody, request: Request):
     email = body.email.lower()
+
+    # Iter 78 — per-IP throttle to protect our Gmail quota. Emails already
+    # have a 60-sec per-address cooldown below; this stops a single IP from
+    # hammering signups for many addresses.
+    rate_limit.check(request, "email_send_ip", limit=8, window_seconds=600,
+                     error_msg="Too many verification requests — please wait a few minutes.")
 
     # 60-second cooldown
     existing = await db.email_otps.find_one({"email": email})
@@ -906,7 +930,7 @@ async def me(user: dict = Depends(get_current_user)):
 
 
 @api.post("/auth/forgot-password")
-async def forgot_password(body: dict):
+async def forgot_password(body: dict, request: Request):
     """Iter 77 — Send both a reset LINK (magic token) and a 6-digit OTP via
     Gmail SMTP. The caller can complete the reset with either. We always
     return ``{sent: True}`` so an attacker can't enumerate registered
@@ -915,6 +939,14 @@ async def forgot_password(body: dict):
     email = (body.get("email") or "").strip().lower()
     if not email:
         raise HTTPException(400, "Email is required")
+
+    # Iter 78 — 5 requests / 15 min per IP, 3 requests / hour per targeted
+    # email. Prevents reset-email spam of a single address (which also
+    # protects our Gmail sending quota).
+    rate_limit.check(request, "forgot_ip", limit=5, window_seconds=900,
+                     error_msg="Too many reset requests — please wait a few minutes.")
+    rate_limit.check(request, "forgot_email", limit=3, window_seconds=3600, key_extra=email,
+                     error_msg="Too many reset requests for this account — please wait an hour.")
 
     u = await db.users.find_one({"email": email})
     if u:

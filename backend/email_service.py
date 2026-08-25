@@ -207,6 +207,91 @@ async def send_password_reset_email(to_email: str, name: str, otp: str, reset_li
     return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
 
 
+# ─── Welcome email (post-signup) ────────────────────────────────────────
+def _welcome_html(name: str, role: str, dashboard_url: str, next_step_label: str, next_step_desc: str) -> str:
+    role_line = {
+        "customer": "You're all set to discover India's finest artists and book them for your next event.",
+        "artist": "Your artist profile is ready to be filled out. Once approved, you'll start receiving bookings.",
+        "agency": "Your agency workspace is live. Invite your roster and start accepting bookings on their behalf.",
+        "corporate": "Your corporate workspace is ready — book curated talent for company events with a single invoice.",
+    }.get(role, "Welcome aboard!")
+    return f"""<!doctype html>
+<html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#F0EEFF;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#09090F;padding:32px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#0F0F1B;border:1px solid rgba(255,255,255,0.08);border-radius:18px;overflow:hidden;">
+        <tr><td style="padding:32px 40px 16px;">
+          <div style="display:inline-block;font-family:'Times New Roman',serif;font-size:24px;font-weight:700;color:#F0EEFF;">
+            Book<span style="color:#D4AF37;">Talent</span>
+          </div>
+        </td></tr>
+        <tr><td style="padding:0 40px;">
+          <div style="height:1px;background:linear-gradient(to right,transparent,#D4AF37,transparent);"></div>
+        </td></tr>
+        <tr><td style="padding:32px 40px 8px;">
+          <div style="font-family:'Times New Roman',serif;font-size:30px;font-weight:700;color:#F0EEFF;line-height:1.2;margin-bottom:12px;">
+            Welcome to <span style="color:#D4AF37;">BookTalent</span>, {name or 'there'} ✨
+          </div>
+          <p style="font-size:15px;color:rgba(240,238,255,0.72);line-height:1.65;margin:0 0 18px;">
+            {role_line}
+          </p>
+          <p style="font-size:14px;color:rgba(240,238,255,0.6);line-height:1.65;margin:0 0 22px;">
+            You've joined 68,000+ event planners and artists on India's most premium talent marketplace. Here's what to do next.
+          </p>
+        </td></tr>
+        <tr><td style="padding:8px 40px 8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.25);border-radius:14px;">
+            <tr><td style="padding:20px 22px;">
+              <div style="font-size:11px;color:#D4AF37;letter-spacing:2px;margin-bottom:6px;">NEXT STEP</div>
+              <div style="font-family:'Times New Roman',serif;font-size:20px;color:#F0EEFF;font-weight:700;margin-bottom:6px;">{next_step_label}</div>
+              <p style="font-size:13px;color:rgba(240,238,255,0.65);margin:0 0 14px;line-height:1.6;">{next_step_desc}</p>
+              <a href="{dashboard_url}" style="display:inline-block;background:linear-gradient(135deg,#D4AF37,#B8931F);color:#0F0F1B;text-decoration:none;font-weight:700;padding:11px 22px;border-radius:9px;font-size:13px;letter-spacing:0.4px;">Open Dashboard →</a>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:24px 40px 12px;">
+          <div style="font-size:13px;color:rgba(240,238,255,0.55);line-height:1.65;">
+            Need a hand? Reply to this email and our concierge team will be right with you.
+          </div>
+        </td></tr>
+        <tr><td style="padding:0 40px 28px;">
+          <div style="height:1px;background:rgba(255,255,255,0.08);margin:16px 0;"></div>
+          <p style="font-size:11px;color:rgba(240,238,255,0.4);margin:0;text-align:center;">
+            © 2026 BookTalent · India's Premium Talent Marketplace
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
+async def send_welcome_email(to_email: str, name: str, role: str, base_url: str = "") -> dict:
+    """Fired the moment a signup completes. Non-blocking (call via asyncio.create_task)."""
+    base = (base_url or "").rstrip("/")
+    dashboards = {
+        "customer": (f"{base}/search", "Book your first artist",
+                     "Browse 5,200+ vetted artists across 32 cities and lock in your date with our secure booking flow."),
+        "artist": (f"{base}/artist", "Complete your artist profile",
+                   "Add your bio, showreel and rate card — the more complete your profile, the higher you rank in search."),
+        "agency": (f"{base}/agency", "Invite your first artist",
+                   "Send referral links to the artists on your roster and start managing bookings from one dashboard."),
+        "corporate": (f"{base}/corporate", "Plan your first event",
+                      "Curated talent, single invoice, transparent GST — everything your finance team needs."),
+    }
+    url, label, desc = dashboards.get(role, (base + "/", "Explore BookTalent",
+                                              "Discover artists and start creating unforgettable events."))
+    subject = "Welcome to BookTalent ✨"
+    html = _welcome_html(name, role, url, label, desc)
+    text = (
+        f"Hi {name or 'there'},\n\n"
+        f"Welcome to BookTalent. Your account is ready.\n\n"
+        f"Next step: {label} — {url}\n\n"
+        "Need help? Just reply to this email."
+    )
+    return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
+
+
 async def send_booking_confirmation_email(to_email: str, name: str, booking_ref: str, artist_name: str, event_date: str) -> dict:
     subject = f"Booking Confirmed — {booking_ref}"
     html = f"""<!doctype html><html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,sans-serif;color:#F0EEFF;">

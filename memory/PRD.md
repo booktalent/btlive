@@ -1,6 +1,34 @@
 # BookTalent — Product Requirements Document
 
 
+## 🛡️ Iter 78 — Rate limiting + welcome email (2026-08-25)
+
+### Per-IP rate limiter (`backend/rate_limit.py`)
+- New stdlib-only sliding-window limiter. Reads client IP from `X-Forwarded-For` → `X-Real-IP` → socket peer.
+- Buckets scoped by IP and (optionally) target email. Successful auth resets the counter so legit users aren't punished on their next attempt.
+- Applied to three critical auth endpoints:
+  - `POST /auth/login` — 10 attempts / 15 min per IP + 5 / 15 min per targeted email. Blocks credential stuffing.
+  - `POST /auth/email/send` — 8 / 10 min per IP (independent of the existing 60-sec per-email cooldown). Protects Gmail sending quota.
+  - `POST /auth/forgot-password` — 5 / 15 min per IP + 3 / hour per targeted email. Prevents reset-email spam.
+- All rejections return `HTTP 429` with a `Retry-After` header and a friendly message.
+
+### Welcome email
+- `email_service.send_welcome_email(to, name, role, base_url)` — dark-luxury template with role-specific copy + a "Next step" CTA button:
+  - Customer → "Book your first artist" (`/search`)
+  - Artist → "Complete your artist profile" (`/artist`)
+  - Agency → "Invite your first artist" (`/agency`)
+  - Corporate → "Plan your first event" (`/corporate`)
+- Fired from `POST /auth/register` via `asyncio.create_task(...)` so signup response is never blocked on SMTP latency.
+- Verified end-to-end: real Gmail delivery logged as `SMTP OK to=… subject=Welcome to BookTalent ✨`.
+
+### E2E verified
+- Login: 5 wrong passwords → 6th returns 429 (per-email); 10 spread across accounts → per-IP 429.
+- Forgot-password: 5 hits from one IP → 6th returns 429.
+- `/auth/email/send`: 8 hits from one IP → 9th returns 429.
+- Register flow: OTP email → verify → register → welcome email arrives ~1s later.
+
+
+
 ## 📧 Iter 77 — Gmail SMTP + Forgot Password OTP flow (2026-08-25)
 
 ### Real email provider replaces Resend mock
