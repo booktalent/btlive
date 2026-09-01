@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
@@ -22,13 +23,20 @@ log = logging.getLogger(__name__)
 # ── IPv4-only HTTP transport ────────────────────────────────────────────
 # Easebuzz's fraud/anti-abuse layer whitelists our egress IP. In cloud
 # containers Python's default resolver often picks IPv6 first, so a live
-# `initiateLink` call comes from `2a02:…` and Easebuzz rejects it with
-# "Request Invalid for the merchant". Binding the local socket to
-# ``0.0.0.0`` forces httpx to use IPv4 for the outbound TCP connection,
-# so the destination hostname resolves to and connects via IPv4 only.
+# `initiateLink` call comes from an IPv6 address (e.g. `2a02:…`) and
+# Easebuzz rejects it with "Request Invalid for the merchant".
+#
+# Binding the local socket to an IPv4 address forces httpx to use IPv4
+# only. By default we bind to ``0.0.0.0`` which lets the OS pick the
+# primary IPv4 interface. On multi-homed hosts, set
+# ``EASEBUZZ_LOCAL_IPV4`` in the backend env to lock the egress to a
+# specific IPv4 (e.g. ``91.108.121.199`` on our live VPS).
+_LOCAL_IPV4 = (os.environ.get("EASEBUZZ_LOCAL_IPV4") or "0.0.0.0").strip() or "0.0.0.0"
+
+
 def _ipv4_client(**kwargs: Any) -> httpx.AsyncClient:
     """Build an :class:`httpx.AsyncClient` locked to IPv4 egress."""
-    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0", retries=1)
+    transport = httpx.AsyncHTTPTransport(local_address=_LOCAL_IPV4, retries=1)
     return httpx.AsyncClient(transport=transport, **kwargs)
 
 
