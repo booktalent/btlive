@@ -504,7 +504,7 @@ export default function BookingFlow() {
                       <span className="booking-incomplete-icon">⚠️</span>
                       <div>
                         <div className="booking-incomplete-title">
-                          {artist.stage_name}'s profile is still being completed
+                          {(artist.stage_name || [artist.first_name, artist.last_name].filter(Boolean).join(" ").trim() || "The artist")}'s profile is still being completed
                         </div>
                         <div className="booking-incomplete-sub">
                           Some details (equipment, travel radius, technical rider) may not be filled in yet.
