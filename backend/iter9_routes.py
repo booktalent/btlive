@@ -352,7 +352,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
     async def agency_bookings(user: dict = Depends(get_current_user)):
         if user["role"] != "agency":
             raise HTTPException(403, "Agency only")
-        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).sort("created_at", -1).to_list(500)
         artist_ids = [r["artist_id"] for r in roster]
         if not artist_ids:
             return []
@@ -387,7 +387,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         else:
             end = f"{year:04d}-{q_end_month + 1:02d}-01"
 
-        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).sort("created_at", -1).to_list(500)
         artist_ids = [r["artist_id"] for r in roster]
         rows = []
         if artist_ids:
@@ -441,7 +441,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         """
         if user["role"] != "agency":
             raise HTTPException(403, "Agency only")
-        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).sort("created_at", -1).to_list(500)
         artist_ids = [r["artist_id"] for r in roster]
         if not artist_ids:
             return {"date": date, "free": [], "busy": []}
@@ -479,7 +479,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             raise HTTPException(403, "Agency only")
         roster_count = await db.agency_roster.count_documents({"agency_id": user["id"], "status": "active"})
         pending_invites = await db.agency_roster.count_documents({"agency_id": user["id"], "status": "pending"})
-        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).to_list(500)
+        roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).sort("created_at", -1).to_list(500)
         artist_ids = [r["artist_id"] for r in roster]
         commission_map = {r["artist_id"]: float(r.get("commission_pct", 10)) for r in roster}
         gmv = 0.0

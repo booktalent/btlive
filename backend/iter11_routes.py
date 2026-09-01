@@ -117,7 +117,7 @@ def make_iter11_router(db, get_current_user, admin_only) -> APIRouter:
     @r.get("/exports/my-bookings.csv")
     async def my_bookings_csv(user: dict = Depends(get_current_user)):
         if user["role"] == "agency":
-            roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).to_list(500)
+            roster = await db.agency_roster.find({"agency_id": user["id"], "status": "active"}).sort("created_at", -1).to_list(500)
             artist_ids = [r["artist_id"] for r in roster]
             commission_map = {r["artist_id"]: float(r.get("commission_pct", 10)) for r in roster}
             bookings = await db.bookings.find({"artist_id": {"$in": artist_ids}}).sort("created_at", -1).to_list(2000)

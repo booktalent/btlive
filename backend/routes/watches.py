@@ -66,7 +66,7 @@ def make_router(*, get_current_user: Callable, db: Any, utcnow: Callable) -> API
         """Manually re-scan every one of the caller's watches for new matches
         and insert a notification row when the match count grew since last check.
         In production, a cron would call this periodically for every user."""
-        watches = await db.watches.find({"user_id": user["id"]}).to_list(50)
+        watches = await db.watches.find({"user_id": user["id"]}).sort("created_at", -1).to_list(50)
         pinged = 0
         for w in watches:
             q: Dict[str, Any] = {}
