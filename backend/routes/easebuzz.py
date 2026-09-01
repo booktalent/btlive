@@ -119,6 +119,33 @@ async def _log(db, kind: str, txnid: Optional[str], data: Dict[str, Any]) -> Non
         log.exception("payment_logs insert failed")
 
 
+def _resolve_backend_base(request: Request) -> str:
+    """Return the absolute public HTTPS URL prefix that Easebuzz should call
+    back into. Easebuzz rejects relative ``surl``/``furl`` values with a
+    "Parameter validation failed — Invalid value for surl/furl" error, so we
+    must always send a fully-qualified URL.
+
+    Resolution order (first non-empty wins):
+      1. ``BACKEND_PUBLIC_URL`` env — the recommended production setting.
+      2. ``FRONTEND_URL`` env — same origin serves both frontend and API
+         in most single-VPS deployments.
+      3. Live request's own scheme + host — a safe last-resort when the app
+         is behind a proxy that sets ``X-Forwarded-Proto``/``Host``.
+    The resulting URL is always ``https://…`` (upgraded if the proxy told us
+    the client used HTTPS) and never ends with a slash.
+    """
+    for env_key in ("BACKEND_PUBLIC_URL", "FRONTEND_URL"):
+        val = (os.environ.get(env_key) or "").strip().rstrip("/")
+        if val.startswith(("http://", "https://")):
+            return val
+    # Last-resort — derive from the incoming request. Respect forwarded proto.
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    if host:
+        return f"{proto}://{host}".rstrip("/")
+    return ""
+
+
 def _frontend_return_url(settings: Dict[str, Any], txnid: str, status: str) -> str:
     """Build the frontend URL we redirect the browser to after callback."""
     path = settings.get("success_url") if status == "success" else settings.get("failure_url")
@@ -444,7 +471,7 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
 
     # ───── Init payment ──────────────────────────────────────────────────
     @r.post("/payments/easebuzz/init")
-    async def easebuzz_init(body: EasebuzzInitBody, user: dict = Depends(get_current_user)):
+    async def easebuzz_init(body: EasebuzzInitBody, request: Request, user: dict = Depends(get_current_user)):
         if not body.booking_ids:
             raise HTTPException(400, "booking_ids required")
         docs = await db.bookings.find({"id": {"$in": body.booking_ids}}).to_list(20)
@@ -490,7 +517,16 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
         productinfo = re.sub(r"[^A-Za-z0-9 \-_/]+", "", productinfo)[:100] or "BookTalent Booking"
 
         # Our own return URLs. Easebuzz will POST here.
-        backend_base = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
+        backend_base = _resolve_backend_base(request)
+        if not backend_base.startswith(("http://", "https://")):
+            # Easebuzz will reject relative URLs — fail fast with a clear
+            # message so ops can set BACKEND_PUBLIC_URL correctly instead of
+            # showing the user a generic "Invalid value for surl" error.
+            raise HTTPException(
+                500,
+                "Payment gateway misconfigured: set BACKEND_PUBLIC_URL "
+                "(e.g. https://booktalent.in) in backend/.env"
+            )
         surl = f"{backend_base}/api/payments/easebuzz/callback/success"
         furl = f"{backend_base}/api/payments/easebuzz/callback/failure"
 
@@ -571,7 +607,8 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
 
     # ───── Init: SUBSCRIPTION checkout ───────────────────────────────────
     async def _init_generic(user: dict, amount: float, productinfo: str,
-                            payment_kind: str, extra: Dict[str, Any]) -> Dict[str, Any]:
+                            payment_kind: str, extra: Dict[str, Any],
+                            request: Request) -> Dict[str, Any]:
         """Shared Easebuzz-init helper for non-booking payment kinds."""
         # Iter 63.3 — Easebuzz rejects non-ASCII in productinfo with cryptic
         # GC0E01. Strip anything outside plain ASCII printable range.
@@ -593,7 +630,13 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
             digits = digits[-10:]
         # Iter 69 — Easebuzz rejects mobiles that don't start with 6-9.
         phone = digits if (len(digits) == 10 and digits[0] in "6789") else "9999999999"
-        backend_base = os.environ.get("BACKEND_PUBLIC_URL", "").rstrip("/")
+        backend_base = _resolve_backend_base(request)
+        if not backend_base.startswith(("http://", "https://")):
+            raise HTTPException(
+                500,
+                "Payment gateway misconfigured: set BACKEND_PUBLIC_URL "
+                "(e.g. https://booktalent.in) in backend/.env"
+            )
         payload: Dict[str, Any] = {
             "key": cfg["key"], "txnid": txnid, "amount": amount_str,
             "productinfo": productinfo, "firstname": firstname,
@@ -630,7 +673,7 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
                 "txnid": txnid, "access_key": access_key, "payment_url": payment_url}
 
     @r.post("/subscriptions/easebuzz/init")
-    async def easebuzz_subscription_init(body: SubInitBody, user: dict = Depends(get_current_user)):
+    async def easebuzz_subscription_init(body: SubInitBody, request: Request, user: dict = Depends(get_current_user)):
         if user.get("role") not in ("artist", "agency"):
             raise HTTPException(403, "Only artists / agencies can subscribe")
         _PLAN_PRICES = {
@@ -649,10 +692,11 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
             user=user, amount=price, productinfo=productinfo,
             payment_kind="subscription",
             extra={"subscription_plan": plan_key, "subscription_cycle": cycle},
+            request=request,
         )
 
     @r.post("/boost/easebuzz/init")
-    async def easebuzz_boost_init(body: BoostInitBody, user: dict = Depends(get_current_user)):
+    async def easebuzz_boost_init(body: BoostInitBody, request: Request, user: dict = Depends(get_current_user)):
         if user.get("role") != "artist":
             raise HTTPException(403, "Only artists can buy boost packages")
         pkg = await db.boost_packages.find_one({"id": body.package_id, "active": True})
@@ -663,6 +707,7 @@ def make_easebuzz_router(*, db, get_current_user, admin_only, new_id, utcnow,
         return await _init_generic(
             user=user, amount=total, productinfo=f"BookTalent Boost - {pkg['name']}",
             payment_kind="boost", extra={"boost_package_id": pkg["id"]},
+            request=request,
         )
 
     # ───── Callbacks ─────────────────────────────────────────────────────
