@@ -19,6 +19,19 @@ import httpx
 log = logging.getLogger(__name__)
 
 
+# ── IPv4-only HTTP transport ────────────────────────────────────────────
+# Easebuzz's fraud/anti-abuse layer whitelists our egress IP. In cloud
+# containers Python's default resolver often picks IPv6 first, so a live
+# `initiateLink` call comes from `2a02:…` and Easebuzz rejects it with
+# "Request Invalid for the merchant". Binding the local socket to
+# ``0.0.0.0`` forces httpx to use IPv4 for the outbound TCP connection,
+# so the destination hostname resolves to and connects via IPv4 only.
+def _ipv4_client(**kwargs: Any) -> httpx.AsyncClient:
+    """Build an :class:`httpx.AsyncClient` locked to IPv4 egress."""
+    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0", retries=1)
+    return httpx.AsyncClient(transport=transport, **kwargs)
+
+
 # Public defaults — used ONLY to seed the settings document on first boot.
 # Runtime always reads from Mongo, never from these constants.
 DEFAULT_SANDBOX_BASE_URL = "https://testpay.easebuzz.in"
@@ -98,7 +111,7 @@ def normalise_amount(amount: float | int | str) -> str:
 async def initiate_link(base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """POST form-urlencoded payload to `{base}/payment/initiateLink`."""
     url = base_url.rstrip("/") + "/payment/initiateLink"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with _ipv4_client(timeout=30.0) as client:
         r = await client.post(
             url,
             content=urlencode(payload),
@@ -113,7 +126,7 @@ async def initiate_link(base_url: str, payload: Dict[str, Any]) -> Dict[str, Any
 async def retrieve_txn(base_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """POST form-urlencoded payload to `{base}/transaction/v1/retrieve`."""
     url = base_url.rstrip("/") + "/transaction/v1/retrieve"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with _ipv4_client(timeout=30.0) as client:
         r = await client.post(
             url,
             content=urlencode(payload),
@@ -159,7 +172,7 @@ async def refund_txn(dashboard_url: str, payload: Dict[str, Any]) -> Dict[str, A
          "refund_id": "RU...", "reason": "Refund initiated..."}
     """
     url = dashboard_url.rstrip("/") + "/transaction/v1/refund"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with _ipv4_client(timeout=30.0) as client:
         r = await client.post(
             url,
             json=payload,
