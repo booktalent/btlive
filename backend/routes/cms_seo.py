@@ -7,6 +7,7 @@ site, plus SEO-friendly discovery endpoints for category / city landing pages
 and artist slug lookups.
 """
 from __future__ import annotations
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Literal, Optional
@@ -340,10 +341,10 @@ def make_router(
     @r.get("/sitemap.xml")
     async def sitemap_xml(request_base: Optional[str] = None):
         # Build absolute URLs relative to the live public site. We accept an
-        # override via ?request_base=https://…, otherwise callers should serve
-        # this from https://www.booktalent.com/sitemap.xml (Nginx proxies to
-        # /api/sitemap.xml).
-        base = (request_base or "https://booktalent.com").rstrip("/")
+        # override via ?request_base=https://…, otherwise we use FRONTEND_URL
+        # from the backend env (production canonical origin).
+        default_base = (os.environ.get("FRONTEND_URL") or "https://booktalent.in").rstrip("/")
+        base = (request_base or default_base).rstrip("/")
         urls: List[Dict[str, Any]] = [
             {"loc": f"{base}/", "priority": "1.0", "changefreq": "daily"},
             {"loc": f"{base}/search", "priority": "0.9", "changefreq": "daily"},
@@ -398,7 +399,7 @@ def make_router(
 
     @r.get("/robots.txt")
     async def robots_txt():
-        base = "https://booktalent.com"
+        base = (os.environ.get("FRONTEND_URL") or "https://booktalent.in").rstrip("/")
         txt = (
             "User-agent: *\n"
             "Allow: /\n"
