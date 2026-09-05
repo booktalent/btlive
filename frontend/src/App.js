@@ -65,10 +65,16 @@ const ROLES_ADMIN = ["admin"];
 // Iter 63.6 — Global site footer on every page. We only skip the pages
 // that already render their own footer (Landing) or where a footer would
 // interrupt the flow (booking wizard + payment return + auth screens).
+//
+// Iter 80 — Uses `useLocation()` so it re-evaluates on every client-side
+// navigation. The old `window.location.pathname` read wasn't reactive, so
+// after admin → home nav the previous render's footer stayed on screen
+// AND Landing's own <Footer /> appeared, showing two footers.
 function GlobalFooter() {
-  const p = window.location.pathname;
-  if (p === "/" || p === "/login" || p === "/signup") return null;
-  if (p.startsWith("/book/") || p === "/booking/payment-return") return null;
+  const { pathname } = useLocation();
+  if (pathname === "/" || pathname === "/login" || pathname === "/signup") return null;
+  if (pathname === "/forgot-password" || pathname === "/reset-password") return null;
+  if (pathname.startsWith("/book/") || pathname === "/booking/payment-return") return null;
   return <Footer />;
 }
 
