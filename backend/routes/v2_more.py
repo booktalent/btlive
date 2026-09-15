@@ -46,6 +46,9 @@ async def send_whatsapp(db: AsyncIOMotorDatabase, *, to: str, template: str,
     audit trail.
 
     Providers:
+      * wachatsender — https://console.wachatsender.in. Requires
+        ``WACHATSENDER_TOKEN``, ``WACHATSENDER_VENDOR_UID``, and (optional)
+        ``WACHATSENDER_BASE_URL`` + ``WACHATSENDER_DEFAULT_TEMPLATE``.
       * gupshup — https://gupshup.io. Requires ``GUPSHUP_API_KEY``,
         ``GUPSHUP_SOURCE`` (your registered WhatsApp number), and
         ``GUPSHUP_APP_NAME``.
@@ -57,8 +60,51 @@ async def send_whatsapp(db: AsyncIOMotorDatabase, *, to: str, template: str,
     """
     payload = {"to": to, "template": template, "params": params or {}, "body": body or ""}
     result: Dict[str, Any] = {"sent": False, "provider": WHATSAPP_PROVIDER or "mock"}
+    # Normalize destination: wachatsender + meta both want country-code without leading + or 0.
+    to_normalized = (to or "").lstrip("+").lstrip("0").replace(" ", "").replace("-", "")
     try:
-        if WHATSAPP_PROVIDER == "gupshup":
+        if WHATSAPP_PROVIDER == "wachatsender":
+            token = os.environ.get("WACHATSENDER_TOKEN", "").strip()
+            vendor_uid = os.environ.get("WACHATSENDER_VENDOR_UID", "").strip()
+            base_url = (os.environ.get("WACHATSENDER_BASE_URL") or "https://console.wachatsender.in/api").strip().rstrip("/")
+            default_tpl = (os.environ.get("WACHATSENDER_DEFAULT_TEMPLATE") or "booktalent_generic").strip()
+            tpl_lang = (os.environ.get("WACHATSENDER_TEMPLATE_LANG") or "en").strip()
+            if not (token and vendor_uid):
+                raise RuntimeError("wachatsender misconfigured — set WACHATSENDER_TOKEN/WACHATSENDER_VENDOR_UID")
+            # Map notification body → template field_1 by default. Caller can override via params.
+            p = params or {}
+            req_payload: Dict[str, Any] = {
+                "phone_number": to_normalized,
+                "template_name": p.get("template_name") or template or default_tpl,
+                "template_language": p.get("template_language") or tpl_lang,
+                # wachatsender requires message_body for text-mode fall-through;
+                # field_1 is used when the approved template has a body placeholder.
+                "message_body": p.get("message_body") or (body or "")[:4000],
+                "field_1": p.get("field_1") or (body or "")[:1000],
+            }
+            # Pass through optional template fields when caller provides them.
+            for k in ("field_2", "field_3", "field_4", "field_5",
+                      "header_field_1", "header_image", "header_video",
+                      "header_document", "header_document_name",
+                      "location_latitude", "location_longitude",
+                      "location_name", "location_address",
+                      "button_0", "button_1", "copy_code",
+                      "from_phone_number_id"):
+                if k in p and p[k] not in (None, ""):
+                    req_payload[k] = p[k]
+            url = f"{base_url}/{vendor_uid}/contact/send-message"
+            async with httpx.AsyncClient(timeout=20) as c:
+                r = await c.post(
+                    url,
+                    headers={"Authorization": f"Bearer {token}",
+                             "Content-Type": "application/json",
+                             "Accept": "application/json"},
+                    json=req_payload,
+                )
+            result["status"] = r.status_code
+            result["response"] = r.text[:500]
+            result["sent"] = r.status_code < 400
+        elif WHATSAPP_PROVIDER == "gupshup":
             api_key = os.environ.get("GUPSHUP_API_KEY", "").strip()
             source = os.environ.get("GUPSHUP_SOURCE", "").strip()
             if not (api_key and source):

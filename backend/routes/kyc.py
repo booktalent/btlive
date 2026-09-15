@@ -199,9 +199,10 @@ def make_router(
         try:
             await notify_dispatch(
                 db, user_id=body.artist_id, event=f"kyc.{new_status}",
-                channels=["in_app", "email"],
+                channels=["in_app", "email", "whatsapp"],
                 ctx={"title": titles[new_status], "body": bodies[new_status], "reason": body.reason or ""},
                 email=target_user.get("email") if target_user else None,
+                phone=target_user.get("phone") if target_user else None,
             )
         except Exception as _e:
             log.warning("KYC notification failed: %s", _e)

@@ -477,6 +477,12 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                 </td>
                 <td>
                   <div className="flex gap-8" style={{ flexWrap: "wrap" }}>
+                    <a
+                      className="btn btn-ghost btn-xs"
+                      href={`/bookings/${b.id}`}
+                      data-testid={`view-details-${b.id}`}
+                      title="View full booking with payment timeline"
+                    >View</a>
                     {role === "artist" && b.status === "pending_artist" && (
                       <>
                         <button className="btn btn-green btn-xs" onClick={() => onAction(b.id, "accept")} data-testid={`accept-${b.id}`}>Accept</button>

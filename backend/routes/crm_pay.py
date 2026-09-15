@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from routes.settings import get_settings, record_audit
 from financial_engine import build_payment_milestones, compute_price
+from notification_service import dispatch as notify_dispatch
 
 log = logging.getLogger("v2.crm_pay")
 
@@ -481,6 +482,34 @@ def make_crm_pay_router(db: AsyncIOMotorDatabase, get_current_user, require_admi
                            old_value=old_status, new_value="paid",
                            metadata={"milestone": idx, "amount": body.amount_received},
                            request=request)
+        # Notify customer + artist (email + whatsapp + in-app) — Sec 32/37/51
+        try:
+            booking = await db.bookings.find_one({"id": booking_id}) or {}
+            m_label = milestones[idx].get("label") or f"Milestone {idx + 1}"
+            body_msg = (f"Payment of ₹{int(body.amount_received):,} received against "
+                        f"'{m_label}' for booking {booking.get('ref', booking_id)}. "
+                        f"Total received: ₹{int(new_received):,} of ₹{int(sched.get('total', 0)):,}.")
+            if booking.get("customer_id"):
+                await notify_dispatch(
+                    db, user_id=booking["customer_id"], event="payment.received",
+                    channels=["in_app", "email", "whatsapp"],
+                    ctx={"title": "Payment received", "body": body_msg,
+                         "amount": body.amount_received, "ref": booking.get("ref", "")},
+                    email=booking.get("customer_email"),
+                    phone=booking.get("customer_phone"),
+                )
+            if booking.get("artist_id"):
+                artist_u = await db.users.find_one({"id": booking["artist_id"]}) or {}
+                await notify_dispatch(
+                    db, user_id=booking["artist_id"], event="payment.received",
+                    channels=["in_app", "email", "whatsapp"],
+                    ctx={"title": "Customer payment received",
+                         "body": f"Customer paid ₹{int(body.amount_received):,} for booking {booking.get('ref', '')}. Milestone: {m_label}."},
+                    email=artist_u.get("email"),
+                    phone=artist_u.get("phone"),
+                )
+        except Exception as _e:
+            log.warning("payment.received notification failed: %s", _e)
         return {"ok": True, "amount_received": new_received, "total": sched["total"]}
 
     # ── PAYOUTS ─────────────────────────────────────────────────────
@@ -498,6 +527,25 @@ def make_crm_pay_router(db: AsyncIOMotorDatabase, get_current_user, require_admi
                            new_value="paid",
                            metadata={"amount": body.amount, "utr": body.utr},
                            request=request)
+        # Notify the artist that the payout has been released — Sec 41/51
+        try:
+            if booking.get("artist_id"):
+                artist_u = await db.users.find_one({"id": booking["artist_id"]}) or {}
+                await notify_dispatch(
+                    db, user_id=booking["artist_id"], event="payout.released",
+                    channels=["in_app", "email", "whatsapp"],
+                    ctx={
+                        "title": "Payout released",
+                        "body": (f"Your payout of ₹{int(body.amount):,} for booking "
+                                 f"{booking.get('ref', '')} has been released via "
+                                 f"{body.method.upper()}. UTR: {body.utr}."),
+                        "amount": body.amount, "utr": body.utr, "method": body.method,
+                    },
+                    email=artist_u.get("email"),
+                    phone=artist_u.get("phone"),
+                )
+        except Exception as _e:
+            log.warning("payout.released notification failed: %s", _e)
         return payout
 
     @r.post("/bookings/{booking_id}/payout/auto")

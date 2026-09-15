@@ -22,10 +22,20 @@ def utcnow() -> str:
 
 # Channel "enabled" gates — driven by env keys
 def _channels_enabled() -> Dict[str, bool]:
+    # WhatsApp: enabled if any modern provider set via WHATSAPP_PROVIDER, or
+    # legacy WHATSAPP_TOKEN. When neither is set, dispatch falls back to mock
+    # (still persists to whatsapp_logs for audit).
+    wa_provider = (os.environ.get("WHATSAPP_PROVIDER") or "").strip().lower()
+    wa_enabled = bool(
+        os.environ.get("WHATSAPP_TOKEN", "").strip()
+        or (wa_provider == "wachatsender" and os.environ.get("WACHATSENDER_TOKEN", "").strip() and os.environ.get("WACHATSENDER_VENDOR_UID", "").strip())
+        or (wa_provider == "gupshup" and os.environ.get("GUPSHUP_API_KEY", "").strip())
+        or (wa_provider == "meta" and os.environ.get("META_WA_TOKEN", "").strip())
+    )
     return {
         "email": bool(os.environ.get("SMTP_USER", "").strip() and os.environ.get("SMTP_PASSWORD", "").strip()),
         "sms": bool(os.environ.get("TWILIO_AUTH_TOKEN", "").strip()),
-        "whatsapp": bool(os.environ.get("WHATSAPP_TOKEN", "").strip()),
+        "whatsapp": wa_enabled,
         "push": bool(os.environ.get("FCM_SERVER_KEY", "").strip()),
         "in_app": True,  # always on
     }
@@ -130,11 +140,21 @@ async def dispatch(
         elif ch == "whatsapp":
             if enabled["whatsapp"] and phone:
                 try:
-                    from iter9_routes import gupshup_send_whatsapp
-                    result = gupshup_send_whatsapp(phone, f"{rendered['subject']}\n{rendered['body']}")
-                    record["status"] = result.get("status", "failed")
+                    # Prefer the modern multi-provider abstraction
+                    # (wachatsender/gupshup/meta) which persists its own
+                    # whatsapp_logs row + returns a normalised result.
+                    from routes.v2_more import send_whatsapp as _wa_send
+                    result = await _wa_send(
+                        db, to=phone, template=event,
+                        params=ctx.get("wa_params") or {},
+                        body=f"{rendered['subject']}\n{rendered['body']}",
+                    )
+                    record["status"] = "sent" if result.get("sent") else "failed"
+                    record["provider_ref"] = result.get("provider")
                     if result.get("error"):
                         record["error"] = result["error"]
+                    if result.get("response"):
+                        record["response"] = str(result["response"])[:500]
                 except Exception as e:
                     record["status"] = "failed"
                     record["error"] = str(e)

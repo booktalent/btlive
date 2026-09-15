@@ -22,6 +22,7 @@ import { ManagerDashboard, LeadBoard, LeadDetail } from "./pages/manager/Manager
 import Search from "./pages/Search";
 import ArtistProfile from "./pages/ArtistProfile";
 import BookingFlow from "./pages/BookingFlow";
+import BookingDetail from "./pages/BookingDetail";
 import PaymentReturn from "./pages/PaymentReturn";
 import Footer from "./components/Footer";
 import CustomerDashboard from "./pages/CustomerDashboard";
@@ -112,6 +113,7 @@ function App() {
 
                 <Route path="/book/:id" element={<Protected><BookingFlow /></Protected>} />
                 <Route path="/booking/payment-return" element={<Protected><PaymentReturn /></Protected>} />
+                <Route path="/bookings/:id" element={<Protected><BookingDetail /></Protected>} />
                 <Route path="/customer" element={<Protected roles={ROLES_CUSTOMER}><CustomerDashboard /></Protected>} />
                 <Route path="/artist" element={<Protected roles={ROLES_ARTIST}><ArtistDashboard /></Protected>} />
                 <Route path="/agency/*" element={<Protected roles={ROLES_AGENCY}><AgencyDashboardV2 /></Protected>} />

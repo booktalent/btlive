@@ -2584,15 +2584,17 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
             )
             # Smart notification: confirm both parties + admin via dispatcher
             await notify_dispatch(db, user_id=doc["customer_id"], event="booking.confirmed",
-                channels=["in_app", "email"],
+                channels=["in_app", "email", "whatsapp"],
                 ctx={"title": "Booking confirmed", "body": f"Your booking {doc['ref']} with {artist_name} for {doc['event_date']} is confirmed.",
                      "artist_name": artist_name, "event_date": doc.get("event_date", ""), "ref": doc.get("ref", "")},
-                email=doc.get("customer_email"))
+                email=doc.get("customer_email"),
+                phone=doc.get("customer_phone"))
             await notify_dispatch(db, user_id=doc["artist_id"], event="booking.confirmed",
-                channels=["in_app", "email"],
+                channels=["in_app", "email", "whatsapp"],
                 ctx={"title": "You accepted a booking", "body": f"Booking {doc['ref']} is now confirmed. Event: {doc['event_date']}",
                      "ref": doc.get("ref", ""), "event_date": doc.get("event_date", "")},
-                email=artist_u.get("email"))
+                email=artist_u.get("email"),
+                phone=artist_u.get("phone"))
             # Notify all admins
             async for adm in db.users.find({"role": "admin"}, {"id": 1, "email": 1}):
                 await notify_dispatch(db, user_id=adm["id"], event="booking.confirmed.admin",
@@ -4040,9 +4042,15 @@ async def startup():
             "created_at": utcnow(), "updated_at": utcnow(),
         })
     else:
+        # SECURITY: Do NOT auto-reset the admin password on every boot. Doing so
+        # would silently overwrite any password rotation the super_admin performs
+        # via the UI. Password rotation is now an explicit opt-in via
+        # `ADMIN_PASSWORD_FORCE_RESET=1` (single-boot escape hatch).
         upd = {}
-        if not verify_password(admin_password, existing.get("password_hash", "")):
-            upd["password_hash"] = hash_password(admin_password)
+        if os.environ.get("ADMIN_PASSWORD_FORCE_RESET", "").lower() in ("1", "true", "yes"):
+            if not verify_password(admin_password, existing.get("password_hash", "")):
+                upd["password_hash"] = hash_password(admin_password)
+                log.warning("[seed] Admin password force-reset via ADMIN_PASSWORD_FORCE_RESET env")
         # Backfill RBAC fields for the legacy seed admin so it becomes the super admin.
         if not existing.get("admin_role"):
             upd["admin_role"] = "super_admin"
@@ -4219,16 +4227,11 @@ async def _regenerate_dump() -> None:
 
 @api.get("/ops/dump/{token}")
 async def dump_download(token: str):
-    expected = os.environ.get("DUMP_DOWNLOAD_TOKEN") or ""
-    if not expected or not _hmac.compare_digest(token, expected):
-        raise HTTPException(status_code=404, detail="Not found")
-    if not os.path.exists(_DUMP_PATH):
-        raise HTTPException(status_code=404, detail="Dump not available")
-    return _FileResponse(
-        _DUMP_PATH,
-        media_type="application/gzip",
-        filename="booktalent-mongodb-dump.archive.gz",
-    )
+    # SECURITY (Iter 86): Endpoint deprecated. Unauthenticated bearer-token DB
+    # dump was an exfiltration risk if the token ever leaked. Full DB export is
+    # now available ONLY to the authenticated super_admin via
+    # `POST /api/admin/db-export` + `GET /api/admin/db-export` below.
+    raise HTTPException(status_code=404, detail="Not found")
 
 
 @api.post("/admin/db-export")

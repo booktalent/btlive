@@ -36,6 +36,7 @@ export default function Finance() {
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [clients, setClients] = useState([]);
+  const [platformView, setPlatformView] = useState(null);
   const [tab, setTab] = useState("summary");
   const [showInv, setShowInv] = useState(false);
   const [invForm, setInvForm] = useState({ client_id: "", event_id: "", tax_pct: 18, notes: "", due_date: "" });
@@ -47,6 +48,7 @@ export default function Finance() {
     api.get("/agency/invoices").then((r) => setInvoices(r.data || [])).catch(() => {});
     api.get("/agency/expenses").then((r) => setExpenses(r.data || [])).catch(() => {});
     api.get("/agency/clients").then((r) => setClients(r.data || [])).catch(() => {});
+    api.get("/agency/financial-view").then((r) => setPlatformView(r.data)).catch(() => setPlatformView({ artists: [], bookings: [], totals: {} }));
   };
   useEffect(() => { load(); }, []);
 
@@ -77,6 +79,9 @@ export default function Finance() {
         <button className={`ag-tab ${tab === "summary" ? "active" : ""}`} onClick={() => setTab("summary")}>Summary</button>
         <button className={`ag-tab ${tab === "invoices" ? "active" : ""}`} onClick={() => setTab("invoices")}>Invoices ({invoices.length})</button>
         <button className={`ag-tab ${tab === "expenses" ? "active" : ""}`} onClick={() => setTab("expenses")}>Expenses ({expenses.length})</button>
+        <button className={`ag-tab ${tab === "platform" ? "active" : ""}`} onClick={() => setTab("platform")} data-testid="ag-tab-platform">
+          Platform Bookings{platformView ? ` (${(platformView.bookings || []).length})` : ""}
+        </button>
       </div>
 
       {tab === "summary" && summary && (
@@ -126,6 +131,83 @@ export default function Finance() {
             </table>
           }
         </>
+      )}
+
+      {tab === "platform" && (
+        <div data-testid="ag-platform-financial-view">
+          {!platformView ? (
+            <div className="ag-empty"><h3>Loading platform bookings…</h3></div>
+          ) : (platformView.bookings || []).length === 0 ? (
+            <div className="ag-empty">
+              <h3>No platform bookings yet</h3>
+              <div>Bookings made through BookTalent for your roster artists will appear here.</div>
+            </div>
+          ) : (
+            <>
+              {/* KPI strip */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
+                <div className="ag-card">
+                  <div className="fs-11 text-muted" style={{ letterSpacing: ".14em", textTransform: "uppercase" }}>Customer Received</div>
+                  <div style={{ fontFamily: "var(--font-serif)", fontSize: 26, fontWeight: 700, marginTop: 6, color: "#6ee7a8" }}>
+                    ₹{Number(platformView.totals?.customer_received || 0).toLocaleString("en-IN")}
+                  </div>
+                </div>
+                <div className="ag-card">
+                  <div className="fs-11 text-muted" style={{ letterSpacing: ".14em", textTransform: "uppercase" }}>Customer Total</div>
+                  <div style={{ fontFamily: "var(--font-serif)", fontSize: 26, fontWeight: 700, marginTop: 6, color: "#f6d366" }}>
+                    ₹{Number(platformView.totals?.customer_total || 0).toLocaleString("en-IN")}
+                  </div>
+                </div>
+                <div className="ag-card">
+                  <div className="fs-11 text-muted" style={{ letterSpacing: ".14em", textTransform: "uppercase" }}>Payouts Paid</div>
+                  <div style={{ fontFamily: "var(--font-serif)", fontSize: 26, fontWeight: 700, marginTop: 6, color: "#6ee7a8" }} data-testid="ag-payouts-paid">
+                    {platformView.totals?.payout_paid_count || 0}
+                  </div>
+                </div>
+                <div className="ag-card">
+                  <div className="fs-11 text-muted" style={{ letterSpacing: ".14em", textTransform: "uppercase" }}>Payouts Pending</div>
+                  <div style={{ fontFamily: "var(--font-serif)", fontSize: 26, fontWeight: 700, marginTop: 6, color: "#ffd270" }} data-testid="ag-payouts-pending">
+                    {platformView.totals?.payout_pending_count || 0}
+                  </div>
+                </div>
+              </div>
+
+              <table className="ag-table" data-testid="ag-platform-bookings-table">
+                <thead>
+                  <tr>
+                    <th>Ref</th><th>Artist</th><th>Event</th>
+                    <th>Customer Payment</th><th>Payout</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(platformView.bookings || []).map((b) => {
+                    const payTint = b.customer_payment_status === "fully_paid" ? "ok"
+                                    : b.customer_payment_status === "partially_paid" ? "warn" : "";
+                    const payoutTint = b.artist_payout_status === "paid" ? "ok" : "warn";
+                    return (
+                      <tr key={b.id} data-testid={`ag-plat-row-${b.id}`}>
+                        <td><b>{b.ref || b.id.slice(0, 8)}</b></td>
+                        <td className="fs-13">{b.artist_id?.slice(0, 8)}</td>
+                        <td className="fs-13">{b.event_type || "—"}<br/><span className="text-muted fs-11">{b.event_date}</span></td>
+                        <td>
+                          <div className="fs-13">
+                            ₹{Number(b.customer_payment_received || 0).toLocaleString("en-IN")}
+                            <span className="text-muted"> / ₹{Number(b.customer_payment_total || 0).toLocaleString("en-IN")}</span>
+                          </div>
+                          <span className={`ag-badge ${payTint}`}>{b.customer_payment_status}</span>
+                        </td>
+                        <td><span className={`ag-badge ${payoutTint}`}>{b.artist_payout_status}</span></td>
+                        <td>
+                          <a href={`/bookings/${b.id}`} className="btn btn-ghost btn-sm" data-testid={`ag-view-${b.id}`}>Details</a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
       )}
 
       {/* Invoice modal */}
