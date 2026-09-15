@@ -76,6 +76,7 @@ export function ManagerDashboard() {
       <div className="flex gap-8">
         <Link to="/manager/leads" className="btn btn-gold" data-testid="btn-lead-board">Open Lead Board →</Link>
         <Link to="/manager/leads?stage=new_lead" className="btn btn-ghost">Work New Leads</Link>
+        <Link to="/manager/leaderboard" className="btn btn-ghost" data-testid="btn-leaderboard">🏆 Team Leaderboard</Link>
       </div>
     </div>
   );

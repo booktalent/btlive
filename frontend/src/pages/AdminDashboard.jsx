@@ -22,7 +22,8 @@ import AdminPaymentReconciliation from "./admin/AdminPaymentReconciliation";
 import AdminPlatformSettings from "./admin/AdminPlatformSettings";
 import { PayoutConsole, AtRiskDashboard } from "../components/PaymentPayoutWidgets";
 import {
-  AdminPayoutRetryQueue, AdminReportSchedules, AdminManagerScorecard, AdminWhatsAppTemplates,
+  AdminPayoutRetryQueue, AdminReportSchedules, AdminManagerScorecard,
+  AdminWhatsAppTemplates, AdminReportSnapshots,
 } from "./admin/AdminIter88";
 
 // Iter 57 — Sidebar → required permission. If the current admin lacks the
@@ -59,6 +60,7 @@ const SIDEBAR = [
   { id: "payout-retry",     label: "🔁 Payout Retry Queue",     perm: "payments.view" },
   { id: "manager-scorecard", label: "🏅 Manager Scorecard",     perm: "analytics.view" },
   { id: "report-schedules", label: "📅 Report Schedules",       perm: "analytics.view" },
+  { id: "report-snapshots", label: "🗂️ Snapshot History",       perm: "analytics.view" },
   { id: "wa-templates",     label: "📱 WhatsApp Templates",     perm: "settings.manage" },
   { id: "at-risk",          label: "⚠️ At-Risk Bookings",       perm: "bookings.view" },
   { id: "platform-settings", label: "🏗️ Platform Settings (v2)", perm: "settings.manage" },
@@ -181,6 +183,7 @@ export default function AdminDashboard() {
           {effectiveTab === "payout-retry" && <AdminPayoutRetryQueue />}
           {effectiveTab === "manager-scorecard" && <AdminManagerScorecard />}
           {effectiveTab === "report-schedules" && <AdminReportSchedules />}
+          {effectiveTab === "report-snapshots" && <AdminReportSnapshots />}
           {effectiveTab === "wa-templates" && <AdminWhatsAppTemplates />}
           {effectiveTab === "settings" && <AdminSettings toast={toast} />}
           {effectiveTab === "audit" && <AdminAudit />}

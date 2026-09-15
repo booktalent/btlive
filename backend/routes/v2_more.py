@@ -53,6 +53,17 @@ def _wa_template_for_event(event: str) -> Optional[str]:
     return (os.environ.get(key) or "").strip() or None
 
 
+# Iter 89 — DB-backed template overrides. Admins can edit the mapping
+# from the UI without SSH; env vars still win when present (they cover
+# the raw-VPS deployment case). Populated on-demand from platform_settings.
+async def _wa_template_from_db(db: AsyncIOMotorDatabase, event: str) -> Optional[str]:
+    if not event:
+        return None
+    doc = await db.platform_settings.find_one({"id": "wa_templates"}) or {}
+    mapping = doc.get("mapping") or {}
+    return (mapping.get(event) or "").strip() or None
+
+
 async def send_whatsapp(db: AsyncIOMotorDatabase, *, to: str, template: str,
                         params: Optional[Dict[str, Any]] = None,
                         body: Optional[str] = None) -> Dict[str, Any]:
@@ -89,11 +100,14 @@ async def send_whatsapp(db: AsyncIOMotorDatabase, *, to: str, template: str,
             # Map notification body → template field_1 by default. Caller can override via params.
             p = params or {}
             # Prefer the event-specific approved template if one is configured
-            # in env (WA_TEMPLATE_<EVENT>). Otherwise fall back to plain
-            # message_body — which the wachatsender API also accepts.
+            # in env (WA_TEMPLATE_<EVENT>) or in DB (Iter 89 admin UI).
+            # Otherwise fall back to plain message_body — which the
+            # wachatsender API also accepts.
+            db_tpl = await _wa_template_from_db(db, template) if template else None
             resolved_template = (
                 p.get("template_name")
                 or _wa_template_for_event(template)
+                or db_tpl
                 or template
                 or default_tpl
             )

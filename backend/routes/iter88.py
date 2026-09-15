@@ -153,6 +153,13 @@ async def _payout_retry_tick(db: AsyncIOMotorDatabase) -> None:
                           "updated_at": utcnow_iso()},
                  "$push": {"history": history_entry}},
             )
+            # Iter 89 — Slack alert on final failure so ops can jump in.
+            try:
+                from routes.iter89 import slack_alert_max_retries as _sl
+                final_entry = await db.payout_retry_queue.find_one({"id": entry_id}) or entry
+                await _sl(db, entry=final_entry)
+            except Exception as e:  # noqa: BLE001
+                log.warning("slack alert for max_retries failed: %s", e)
         else:
             backoff = RETRY_BACKOFF[min(new_attempts, MAX_ATTEMPTS - 1)]
             next_at = (utcnow_dt() + timedelta(seconds=backoff)).isoformat()
@@ -392,6 +399,18 @@ async def _report_schedule_tick(db: AsyncIOMotorDatabase) -> None:
             result = await _email_report_csv(
                 to_email=sched["email"], kind=sched["kind"], csv_bytes=csv_bytes,
             )
+            # Iter 89 — persist snapshot for later download.
+            try:
+                from routes.iter89 import save_snapshot as _snap
+                await _snap(
+                    db, kind=sched["kind"], csv_bytes=csv_bytes,
+                    schedule_id=sched["id"], trigger="scheduled",
+                    to_email=sched["email"],
+                    status="sent" if result.get("sent") else "failed",
+                    error=result.get("reason", ""),
+                )
+            except Exception as e:  # noqa: BLE001
+                log.warning("snapshot save failed for schedule %s: %s", sched.get("id"), e)
             next_dt = _next_due(sched["frequency"],
                                 sched.get("day_of_week"),
                                 int(sched.get("hour_ist", 8)),
@@ -531,7 +550,7 @@ def make_iter88_router(db: AsyncIOMotorDatabase, get_current_user, require_admin
         return {"ok": True, "deleted": r_.deleted_count}
 
     @r.post("/admin/report-schedules/{schedule_id}/run-now")
-    async def run_now(schedule_id: str, _: dict = Depends(require_admin)):
+    async def run_now(schedule_id: str, admin: dict = Depends(require_admin)):
         sched = await db.report_schedules.find_one({"id": schedule_id})
         if not sched:
             raise HTTPException(404, "Schedule not found")
@@ -539,6 +558,19 @@ def make_iter88_router(db: AsyncIOMotorDatabase, get_current_user, require_admin
         result = await _email_report_csv(to_email=sched["email"],
                                           kind=sched["kind"],
                                           csv_bytes=csv_bytes)
+        # Iter 89 — persist a snapshot for run-now dispatches too.
+        try:
+            from routes.iter89 import save_snapshot as _snap
+            await _snap(
+                db, kind=sched["kind"], csv_bytes=csv_bytes,
+                schedule_id=schedule_id, trigger="run-now",
+                actor_email=admin.get("email"),
+                to_email=sched["email"],
+                status="sent" if result.get("sent") else "failed",
+                error=result.get("reason", ""),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("snapshot save (run-now) failed: %s", e)
         await db.report_schedules.update_one(
             {"id": schedule_id},
             {"$set": {"last_run_at": utcnow_iso(),
@@ -639,20 +671,27 @@ def make_iter88_router(db: AsyncIOMotorDatabase, get_current_user, require_admin
     # ─── 4. WhatsApp templates status (informational) ─────────────
     @r.get("/admin/whatsapp/templates-status")
     async def whatsapp_templates_status(_: dict = Depends(require_admin)):
-        """Show which WA_TEMPLATE_* env vars are configured so admins can
+        """Show which templates are configured (env or DB) so admins can
         see at a glance which notification events are running in template
         mode vs plain-text fall-back."""
         events = [
             "booking.confirmed", "payment.received", "payout.released",
             "kyc.approved", "kyc.rejected", "kyc.needs_resubmission",
         ]
+        # Iter 89 — DB overrides + source labelling.
+        db_doc = await db.platform_settings.find_one({"id": "wa_templates"}) or {}
+        db_mapping = db_doc.get("mapping") or {}
         rows = []
         for ev in events:
             env_var = "WA_TEMPLATE_" + ev.upper().replace(".", "_").replace("-", "_")
+            env_val = (os.environ.get(env_var) or "").strip()
+            db_val = (db_mapping.get(ev) or "").strip()
+            resolved = env_val or db_val
             rows.append({
                 "event": ev,
                 "env_var": env_var,
-                "template_name": (os.environ.get(env_var) or "").strip() or None,
+                "template_name": resolved or None,
+                "source": "env" if env_val else ("db" if db_val else None),
             })
         return {
             "provider": (os.environ.get("WHATSAPP_PROVIDER") or "mock").strip(),

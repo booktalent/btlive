@@ -4456,6 +4456,10 @@ app.include_router(make_reports_router(db, admin_only), prefix="/api")
 from routes.iter88 import make_iter88_router  # noqa: E402
 app.include_router(make_iter88_router(db, get_current_user, admin_only), prefix="/api")
 
+# Iter 89 — WA templates DB persistence + team leaderboard + Slack + snapshot history
+from routes.iter89 import make_iter89_router  # noqa: E402
+app.include_router(make_iter89_router(db, get_current_user, admin_only), prefix="/api")
+
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
 # request in Iter 52.5 — the artist-profile flow is single-artist and

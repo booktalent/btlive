@@ -451,45 +451,189 @@ export function AdminManagerScorecard() {
 
 
 // ═══════════════════════════════════════════════════════════════════
-// 4. WhatsApp Templates Config helper (viewable-only)
+// 4. WhatsApp Templates Config (editable — DB-backed)
 // ═══════════════════════════════════════════════════════════════════
 export function AdminWhatsAppTemplates() {
+  const toast = useToast();
   const [status, setStatus] = useState(null);
-  useEffect(() => {
+  const [edits, setEdits] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
     api.get("/admin/whatsapp/templates-status")
-       .then((r) => setStatus(r.data))
+       .then((r) => {
+         setStatus(r.data);
+         const initial = {};
+         (r.data.templates || []).forEach((t) => { initial[t.event] = t.template_name || ""; });
+         setEdits(initial);
+       })
        .catch(() => setStatus({ provider: "unknown", templates: [] }));
-  }, []);
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      // Only send events where the source is NOT 'env' — env wins anyway,
+      // no point overwriting user's env vars via UI.
+      const payload = { templates: {} };
+      (status?.templates || []).forEach((t) => {
+        if (t.source !== "env") {
+          payload.templates[t.event] = edits[t.event] || "";
+        }
+      });
+      await api.patch("/admin/whatsapp/templates", payload);
+      toast("Saved template names", "success");
+      load();
+    } catch (e) { toast(fmt(e), "error"); }
+    setSaving(false);
+  };
+
   if (!status) return <div className="pad-16 text-muted">Loading…</div>;
+
   return (
     <div className="card card-pad" data-testid="admin-wa-templates">
-      <h3 className="font-serif fw-700 mb-8">WhatsApp Templates</h3>
-      <div className="text-muted fs-13 mb-16">
-        Approve these template names on the <b>wachatsender console</b>, then set the matching
-        <code style={{ padding: "0 4px" }}>WA_TEMPLATE_*</code> env vars in <code>backend/.env</code>.
-        Until a template is configured, sends fall back to plain-text mode which already works.
+      <div className="flex-between mb-8">
+        <div>
+          <h3 className="font-serif fw-700 mb-4">WhatsApp Templates</h3>
+          <div className="text-muted fs-12">
+            Approve template names on the <b>wachatsender console</b>, then paste them below or set
+            <code style={{ padding: "0 4px" }}>WA_TEMPLATE_*</code> env vars.
+            Env wins over DB. Blank = plain-text fall-back.
+          </div>
+        </div>
+        <span className="pill pill-gold">Provider: {status.provider}</span>
       </div>
-      <div className="mb-16">
-        <span className="text-muted fs-13">Provider:</span>{" "}
-        <span className="pill pill-gold">{status.provider}</span>
-      </div>
+
       <table className="table">
-        <thead><tr><th>Event</th><th>Env Var</th><th>Configured Template</th><th>Status</th></tr></thead>
+        <thead><tr><th>Event</th><th>Approved Template Name</th><th>Source</th><th>Status</th></tr></thead>
         <tbody>
           {(status.templates || []).map((t) => (
             <tr key={t.event} data-testid={`wa-tpl-${t.event}`}>
-              <td className="fw-700">{t.event}</td>
-              <td><code className="fs-11">{t.env_var}</code></td>
-              <td className="fs-13">{t.template_name || <span className="text-muted">— not set (falls back to text)</span>}</td>
+              <td className="fw-700 fs-13">{t.event}</td>
+              <td>
+                <input
+                  className="input"
+                  value={edits[t.event] || ""}
+                  onChange={(e) => setEdits({ ...edits, [t.event]: e.target.value })}
+                  disabled={t.source === "env"}
+                  placeholder={t.source === "env" ? "(locked — set via env var)" : "e.g. booking_confirmed"}
+                  data-testid={`wa-tpl-input-${t.event}`}
+                  style={{ width: "100%" }}
+                />
+                {t.source === "env" && (
+                  <div className="text-muted fs-11 mt-4">
+                    Locked by env var <code>{t.env_var}</code>. Remove the env var to edit from UI.
+                  </div>
+                )}
+              </td>
+              <td className="fs-12 text-muted">{t.source || "—"}</td>
               <td>
                 {t.template_name
                   ? <span className="pill pill-green">approved</span>
-                  : <span className="pill pill-gold">pending</span>}
+                  : <span className="pill pill-gold">fallback</span>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      <div className="mt-16 flex gap-8">
+        <button className="btn btn-gold" onClick={save} disabled={saving} data-testid="wa-tpl-save">
+          {saving ? "Saving…" : "Save Templates"}
+        </button>
+        <button className="btn btn-ghost" onClick={load}>Reset</button>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 5. Report Snapshot History (Iter 89)
+// ═══════════════════════════════════════════════════════════════════
+export function AdminReportSnapshots() {
+  const toast = useToast();
+  const [items, setItems] = useState([]);
+  const [kind, setKind] = useState("");
+
+  const load = async () => {
+    try {
+      const qs = kind ? `?kind=${kind}` : "";
+      const r = await api.get(`/admin/report-snapshots${qs}`);
+      setItems(r.data.items || []);
+    } catch (e) { toast(fmt(e), "error"); }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [kind]);
+
+  const download = async (snap) => {
+    try {
+      const r = await api.get(`/admin/report-snapshots/${snap.id}/download`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a");
+      a.href = url; a.download = snap.filename; a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) { toast(fmt(e), "error"); }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Delete this snapshot?")) return;
+    try { await api.delete(`/admin/report-snapshots/${id}`); load(); }
+    catch (e) { toast(fmt(e), "error"); }
+  };
+
+  return (
+    <div className="card" data-testid="admin-report-snapshots">
+      <div className="card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div className="card-title">🗂️ Report Snapshot History</div>
+          <div className="text-muted fs-12 mt-4">Every scheduled CSV is persisted to disk for re-download.</div>
+        </div>
+        <select className="input" value={kind} onChange={(e) => setKind(e.target.value)}
+          data-testid="snap-filter-kind" style={{ width: 200 }}>
+          <option value="">All reports</option>
+          <option value="artist_bookings">Artist Bookings</option>
+          <option value="manager_leads">Manager Leads</option>
+          <option value="platform_waivers">Platform Waivers</option>
+        </select>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr><th>When</th><th>Kind</th><th>Filename</th><th>Size</th><th>Trigger</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            {items.length === 0 && (
+              <tr><td colSpan="7" className="text-muted text-center pad-16">
+                No snapshots yet. Every scheduled CSV run will land here for re-download.
+              </td></tr>
+            )}
+            {items.map((s) => (
+              <tr key={s.id} data-testid={`snap-row-${s.id}`}>
+                <td className="fs-11 text-muted">{fmtDate(s.created_at)}</td>
+                <td>{REPORT_LABEL[s.kind] || s.kind}</td>
+                <td className="font-mono fs-11">{s.filename}</td>
+                <td className="fs-12">{(s.size / 1024).toFixed(1)} KB</td>
+                <td className="fs-12">{s.trigger}</td>
+                <td>
+                  {s.status === "sent"
+                    ? <span className="pill pill-green">sent</span>
+                    : <span className="pill pill-red" title={s.error}>failed</span>}
+                </td>
+                <td>
+                  <div className="flex gap-4">
+                    <button className="btn btn-gold btn-xs" data-testid={`snap-dl-${s.id}`}
+                      onClick={() => download(s)}>⬇ Download</button>
+                    <button className="btn btn-ghost btn-xs" data-testid={`snap-del-${s.id}`}
+                      onClick={() => remove(s.id)}>×</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
