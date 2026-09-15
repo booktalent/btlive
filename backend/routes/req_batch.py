@@ -332,6 +332,21 @@ def make_req_batch_router(db: AsyncIOMotorDatabase, get_current_user, require_ad
             "created_at": utcnow(),
         }
         await db.bookings.insert_one(booking)
+        # Emit first-class timeline events so BookingTimeline shows real dates.
+        try:
+            from routes.req_batch_2 import emit_booking_event
+            await emit_booking_event(db, booking_id=bid, kind="lead_created",
+                                      label="Booking Created (on behalf)",
+                                      actor_id=user["id"], actor_role=user.get("role"))
+            if booking.get("assigned_manager_id"):
+                await emit_booking_event(db, booking_id=bid, kind="manager_assigned",
+                                          label="Manager Assigned",
+                                          actor_id=user["id"], actor_role=user.get("role"))
+            await emit_booking_event(db, booking_id=bid, kind="artist_selected",
+                                      label="Artist Selected",
+                                      actor_id=user["id"], actor_role=user.get("role"))
+        except Exception as e:  # noqa: BLE001
+            log.warning("timeline events for %s failed: %s", bid, e)
         try:
             await db.audit_logs.insert_one({
                 "id": str(uuid.uuid4()),

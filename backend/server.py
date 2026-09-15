@@ -4555,6 +4555,10 @@ app.include_router(make_analytics_alerts_router(db, admin_only), prefix="/api")
 from routes.req_batch import make_req_batch_router  # noqa: E402
 app.include_router(make_req_batch_router(db, get_current_user, admin_only), prefix="/api")
 
+# Feb-2026 requirement batch 2 — mutual refunds + presets + timeline + service-artist seeder
+from routes.req_batch_2 import make_req_batch_2_router  # noqa: E402
+app.include_router(make_req_batch_2_router(db, get_current_user, admin_only), prefix="/api")
+
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
 # request in Iter 52.5 — the artist-profile flow is single-artist and

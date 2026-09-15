@@ -44,6 +44,7 @@ function KPIStrip() {
   useEffect(() => {
     api.get("/agency/overview").then((r) => setOv(r.data)).catch(() => setOv(null));
   }, []);
+  const fmtInr = (v) => (v == null ? "—" : `₹${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`);
   const cards = [
     { label: "Roster Artists", value: ov?.roster_artists ?? "—", accent: "gold" },
     { label: "Offline Artists", value: ov?.offline_artists ?? "—", accent: "violet" },
@@ -51,11 +52,15 @@ function KPIStrip() {
     { label: "Pending Confirms", value: ov?.pending_bookings ?? "—", accent: "amber" },
     { label: "Upcoming Events", value: ov?.upcoming_offline_events ?? "—", accent: "cyan" },
     { label: "Upcoming Platform", value: ov?.upcoming_platform_bookings ?? "—", accent: "gold" },
+    // Feb-2026 requirement — agency-scoped financial figures
+    { label: "Advance Received", value: fmtInr(ov?.advance_received), accent: "emerald", testid: "agency-kpi-advance" },
+    { label: "Remaining ₹", value: fmtInr(ov?.remaining_amount), accent: "amber", testid: "agency-kpi-remaining" },
+    { label: "Payout Pending", value: fmtInr(ov?.artist_payout_pending), accent: "violet", testid: "agency-kpi-payout" },
   ];
   return (
     <div className="ag-kpi-strip" data-testid="agency-kpi-strip">
       {cards.map((c) => (
-        <div key={c.label} className={`ag-kpi ag-kpi-${c.accent}`}>
+        <div key={c.label} className={`ag-kpi ag-kpi-${c.accent}`} data-testid={c.testid}>
           <div className="ag-kpi-value">{c.value}</div>
           <div className="ag-kpi-label">{c.label}</div>
         </div>

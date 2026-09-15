@@ -628,6 +628,31 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
         # Recent activity (last 10 notifications)
         recent = [_clean(n) for n in await db.agency_notifications.find({"agency_id": aid}).sort("created_at", -1).limit(8).to_list(8)]
 
+        # ── Financial figures scoped to this agency's roster ─────────
+        # Advance received / remaining / payout pending for platform bookings
+        # of artists on the agency's active roster.
+        advance_received = 0.0
+        remaining_amount = 0.0
+        payout_pending = 0.0
+        if artist_ids:
+            async for b in db.bookings.find(
+                {
+                    "artist_id": {"$in": artist_ids},
+                    "status": {"$in": ["confirmed", "started", "completed", "reviewed"]},
+                },
+                {"_id": 0, "pricing": 1, "paid_amount": 1,
+                 "artist_payout_status": 1, "artist_payouts": 1},
+            ):
+                pricing = b.get("pricing") or {}
+                total = float(pricing.get("total") or 0)
+                paid = float(b.get("paid_amount") or 0)
+                artist_share = float(pricing.get("artist_payable") or pricing.get("artist_amount") or 0)
+                paid_out = sum(float(p.get("amount") or 0) for p in (b.get("artist_payouts") or []))
+                advance_received += min(paid, total)
+                remaining_amount += max(0.0, total - paid)
+                if (b.get("artist_payout_status") or "").lower() != "paid" and artist_share > paid_out:
+                    payout_pending += (artist_share - paid_out)
+
         return {
             "roster_artists": roster_count,
             "offline_artists": offline_artists,
@@ -636,6 +661,9 @@ def make_agency_crm_router(db: AsyncIOMotorDatabase, get_current_user):
             "upcoming_platform_bookings": upcoming_platform,
             "pending_bookings": pending_bookings,
             "recent_activity": recent,
+            "advance_received": round(advance_received, 2),
+            "remaining_amount": round(remaining_amount, 2),
+            "artist_payout_pending": round(payout_pending, 2),
         }
 
     # ═══════════════════════════ DOCUMENTS (Iter 54) ═════════════════════════

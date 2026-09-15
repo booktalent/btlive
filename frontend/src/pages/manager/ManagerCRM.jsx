@@ -366,6 +366,7 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
   const [step, setStep] = useState(1);
   const [customers, setCustomers] = useState([]);
   const [artists, setArtists] = useState([]);
+  const [presets, setPresets] = useState([]);
   const [q, setQ] = useState("");
   const [aq, setAq] = useState("");
   const [form, setForm] = useState({
@@ -375,6 +376,8 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
     venue: "", venue_address: "", city: "", notes: "",
   });
   const [busy, setBusy] = useState(false);
+  const [savingPreset, setSavingPreset] = useState(false);
+  const [presetName, setPresetName] = useState("");
 
   useEffect(() => {
     api.get(`/manager/customers?q=${encodeURIComponent(q)}&limit=20`)
@@ -385,6 +388,53 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
       .then((r) => setArtists(r.data?.artists || r.data?.items || r.data || []))
       .catch(() => setArtists([]));
   }, [aq]);
+  useEffect(() => {
+    api.get("/manager/booking-presets")
+      .then((r) => setPresets(r.data?.items || []))
+      .catch(() => setPresets([]));
+  }, []);
+
+  const applyPreset = (p) => {
+    setForm((f) => ({
+      ...f,
+      event_type: p.event_type || f.event_type,
+      event_type_other: p.event_type_other || f.event_type_other,
+      number_of_days: p.number_of_days || f.number_of_days,
+      city: p.city || f.city,
+      package_fee: p.default_package_fee || f.package_fee,
+      notes: p.notes_template || f.notes,
+    }));
+    toast(`Applied preset "${p.name}"`, "success");
+  };
+
+  const savePreset = async () => {
+    if (!presetName.trim()) { toast("Enter a preset name first", "error"); return; }
+    setSavingPreset(true);
+    try {
+      const r = await api.post("/manager/booking-presets", {
+        name: presetName.trim(),
+        event_type: form.event_type,
+        event_type_other: form.event_type_other || null,
+        number_of_days: parseInt(form.number_of_days || 1),
+        city: form.city,
+        default_package_fee: parseFloat(form.package_fee || 0),
+        notes_template: form.notes,
+      });
+      setPresets((ps) => [r.data.preset, ...ps]);
+      setPresetName("");
+      toast("Preset saved ✓", "success");
+    } catch (e) { toast(fmt(e), "error"); }
+    setSavingPreset(false);
+  };
+
+  const removePreset = async (pid) => {
+    if (!window.confirm("Delete this preset?")) return;
+    try {
+      await api.delete(`/manager/booking-presets/${pid}`);
+      setPresets((ps) => ps.filter((x) => x.id !== pid));
+      toast("Preset removed");
+    } catch (e) { toast(fmt(e), "error"); }
+  };
 
   const submit = async () => {
     if (!form.customer_id || !form.artist_id || !form.event_date || !form.venue || !form.venue_address || !form.city) {
@@ -461,6 +511,28 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
         {step === 3 && (
           <>
             <div className="fw-700 fs-13 mb-8">3. Event Details</div>
+
+            {/* Preset picker + save */}
+            {presets.length > 0 && (
+              <div className="mb-8" style={{ background: "rgba(255,255,255,0.03)", padding: 8, borderRadius: 8 }}>
+                <div className="text-muted fs-11 mb-4">Load a saved preset</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} data-testid="mgr-preset-list">
+                  {presets.map((p) => (
+                    <span key={p.id}
+                      style={{
+                        display: "inline-flex", gap: 6, alignItems: "center",
+                        border: "1px solid rgba(212,175,55,0.35)", borderRadius: 999,
+                        padding: "3px 10px", fontSize: 11, background: "rgba(212,175,55,0.06)",
+                      }}
+                      data-testid={`mgr-preset-${p.id}`}>
+                      <span style={{ cursor: "pointer" }} onClick={() => applyPreset(p)}>{p.name}</span>
+                      <span style={{ cursor: "pointer", color: "#e57373" }} onClick={() => removePreset(p.id)}>×</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-2 gap-8">
               <select className="input" value={form.event_type}
                 onChange={(e) => setForm({ ...form, event_type: e.target.value })} data-testid="mgr-book-etype">
@@ -496,11 +568,29 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
             <textarea className="input mt-8" placeholder="Notes" rows={2}
               value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="mgr-book-notes" />
 
-            <div className="flex gap-8 mt-12" style={{ justifyContent: "flex-end" }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setStep(2)}>← Back</button>
-              <button className="btn btn-gold" onClick={submit} disabled={busy} data-testid="mgr-book-submit">
-                {busy ? "Creating…" : "Create Booking"}
-              </button>
+            <div className="flex gap-8 mt-12" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input
+                  className="input" style={{ minWidth: 150 }}
+                  placeholder="Preset name"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  data-testid="mgr-preset-name"
+                />
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={savePreset}
+                  disabled={savingPreset || !presetName.trim()}
+                  data-testid="mgr-preset-save">
+                  {savingPreset ? "Saving…" : "💾 Save as preset"}
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setStep(2)}>← Back</button>
+                <button className="btn btn-gold" onClick={submit} disabled={busy} data-testid="mgr-book-submit">
+                  {busy ? "Creating…" : "Create Booking"}
+                </button>
+              </div>
             </div>
           </>
         )}

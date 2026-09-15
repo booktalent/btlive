@@ -151,6 +151,11 @@ export default function BookingDetail() {
         {/* ── Booking Timeline (full lifecycle) ─────────────────── */}
         <BookingTimeline booking={booking} payouts={payouts} />
 
+        {/* ── Mutual Refund Panel — customer or artist can request ── */}
+        {(user?.role === "customer" || user?.role === "artist") && (
+          <MutualRefundPanel booking={booking} user={user} />
+        )}
+
         {/* ── Payment Timeline ──────────────────────────────────── */}
         <div className="mb-16">
           <PaymentTimeline bookingId={id} canEdit={canEditPayments} />
@@ -195,6 +200,13 @@ export default function BookingDetail() {
 // without a dedicated status_history collection.
 // ────────────────────────────────────────────────────────────────────────
 function BookingTimeline({ booking, payouts }) {
+  const [realEvents, setRealEvents] = useState([]);
+  useEffect(() => {
+    if (!booking?.id) return;
+    api.get(`/bookings/${booking.id}/timeline`)
+      .then((r) => setRealEvents(r.data?.items || []))
+      .catch(() => setRealEvents([]));
+  }, [booking?.id]);
   if (!booking) return null;
   const p = booking.pricing || {};
   const total = Number(p.total || 0);
@@ -275,6 +287,31 @@ function BookingTimeline({ booking, payouts }) {
     },
   ];
 
+  // Overlay real timestamps from booking_events when present so displayed
+  // dates reflect actual DB events rather than derived ones.
+  const evByKind = {};
+  (realEvents || []).forEach((ev) => {
+    // Normalise a couple of aliases from server-side event kinds.
+    const map = {
+      created: "lead_created",
+      manager_assigned: "manager_assigned",
+      artist_confirmed: "booking_confirmed",
+      payment_received: "payment_received",
+      artist_payout: "artist_payout",
+      event_completed: "event",
+      completed: "completed",
+    };
+    const k = map[ev.kind] || ev.kind;
+    if (!evByKind[k]) evByKind[k] = ev;
+  });
+  stages.forEach((s) => {
+    const ev = evByKind[s.key];
+    if (ev && ev.at) {
+      s.at = ev.at;
+      s.done = true;
+    }
+  });
+
   const currentIndex = (() => {
     for (let i = stages.length - 1; i >= 0; i--) {
       if (stages[i].done) return i + 1;
@@ -333,3 +370,121 @@ function BookingTimeline({ booking, payouts }) {
     </div>
   );
 }
+
+
+// ────────────────────────────────────────────────────────────────────────
+// MutualRefundPanel — customer or artist can raise a refund request; the
+// other party accepts/rejects. On accept, the booking is flagged and (if
+// enabled) the payout provider dispatches the actual refund.
+// ────────────────────────────────────────────────────────────────────────
+function MutualRefundPanel({ booking, user }) {
+  const toast = useToast();
+  const [req, setReq] = useState(null);
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const paid = Number(booking.paid_amount || 0);
+  const reload = () => api.get(`/bookings/${booking.id}/refund-status`)
+    .then((r) => setReq(r.data?.request || null))
+    .catch(() => setReq(null));
+  useEffect(() => { reload(); }, [booking.id]);
+
+  const submit = async () => {
+    const amt = amount ? parseFloat(amount) : paid;
+    if (!amt || amt <= 0) { toast("Enter a positive refund amount", "error"); return; }
+    setBusy(true);
+    try {
+      await api.post(`/bookings/${booking.id}/refund-request`, { amount: amt, reason });
+      toast("Refund request sent — awaiting counter party's acknowledgement", "success");
+      setAmount(""); setReason("");
+      reload();
+    } catch (e) { toast(fmt(e), "error"); }
+    setBusy(false);
+  };
+
+  const respond = async (accept) => {
+    setBusy(true);
+    try {
+      await api.post(`/bookings/${booking.id}/refund-${accept ? "accept" : "reject"}`);
+      toast(accept ? "Refund accepted — payout in progress" : "Refund request rejected", "success");
+      reload();
+    } catch (e) { toast(fmt(e), "error"); }
+    setBusy(false);
+  };
+
+  const iAmCounter = req && req.counter_id === user?.id && req.status === "pending_counter_ack";
+  const iAmRequester = req && req.requested_by_id === user?.id;
+
+  return (
+    <div className="card card-pad mb-16" data-testid="bd-refund-panel">
+      <h3 className="fw-700 mb-8">Mutual Refund</h3>
+
+      {req && req.status === "pending_counter_ack" && (
+        <div style={{
+          background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.3)",
+          borderRadius: 8, padding: 12, marginBottom: 12,
+        }} data-testid="bd-refund-pending">
+          <div className="fw-700 fs-14">₹{money(req.amount)} refund awaiting {req.counter_role} acknowledgement</div>
+          {req.reason && <div className="text-muted fs-12 mt-4">Reason: {req.reason}</div>}
+          {iAmCounter && (
+            <div className="flex gap-8 mt-8">
+              <button className="btn btn-gold btn-sm" onClick={() => respond(true)} disabled={busy} data-testid="bd-refund-accept">Accept</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => respond(false)} disabled={busy} data-testid="bd-refund-reject">Reject</button>
+            </div>
+          )}
+          {iAmRequester && <div className="text-muted fs-12 mt-8">Waiting on the other party…</div>}
+        </div>
+      )}
+
+      {req && req.status === "accepted" && (
+        <div className="text-good fs-13 mb-8" data-testid="bd-refund-accepted">
+          ✅ Refund of ₹{money(req.amount)} accepted on {String(req.counter_accepted_at || "").slice(0, 10)}.
+        </div>
+      )}
+
+      {req && req.status === "rejected" && (
+        <div className="fs-13 mb-8" style={{ color: "#e57373" }} data-testid="bd-refund-rejected">
+          Refund was rejected. You can raise a new request if circumstances change.
+        </div>
+      )}
+
+      {(!req || req.status !== "pending_counter_ack") && paid > 0 && (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div className="text-muted fs-13">
+            If both parties agree, either of you can start a mutual refund. The counter party must accept before it's processed.
+          </div>
+          <div className="grid grid-2 gap-8">
+            <input
+              type="number"
+              className="input"
+              placeholder={`Amount (max ₹${money(paid)})`}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              data-testid="bd-refund-amount"
+            />
+            <input
+              className="input"
+              placeholder="Reason (optional)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              data-testid="bd-refund-reason"
+            />
+          </div>
+          <div>
+            <button className="btn btn-gold btn-sm" onClick={submit} disabled={busy} data-testid="bd-refund-request">
+              {busy ? "Sending…" : "Request Refund"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(!req || req.status !== "pending_counter_ack") && paid === 0 && (
+        <div className="text-muted fs-13">
+          No payment has been received against this booking yet — refunds unavailable.
+        </div>
+      )}
+    </div>
+  );
+}
+
