@@ -1,6 +1,39 @@
 # BookTalent — Product Requirements Document
 
 
+## 🧽 Iter 91 — Onboarding Fix + Chat Attachments + Router Rename (2026-09-15)
+
+### 1. Onboarding modal — dismissible persistently
+- **Backend**: `POST /api/user/mark-welcome-seen` sets `users.seen_welcome_at` (ISO). Also auto-set when `POST /onboarding/complete` runs.
+- `GET /auth/me` now exposes `seen_welcome_at` in the response.
+- **Frontend** (`ArtistDashboard.jsx`): auto-open guard checks `user.seen_welcome_at` first — if set, modal never auto-opens again.
+- **OnboardingWizard**: new × close button (`wiz-dismiss`) that marks-seen without marking onboarding complete, so artists who want to explore first don't have to finish the wizard.
+
+### 2. Chat attachments — images + PDFs
+- **Backend**: Existing `/chat/{booking_id}/upload` extended in two ways:
+  - Assigned managers can now upload (bypass payment gate as moderators).
+  - Same access rule applied to `_check_access` in `chat_routes.py` — assigned managers see + send text messages on their bookings.
+- **Frontend** (`ManagerChat.jsx`):
+  - New 📎 paperclip button (`mc-attach`) opens file picker (image/* + PDF).
+  - Client-side 15MB cap + server-side matching cap.
+  - Reads file → base64 data-URL → POSTs to `/chat/{id}/upload` with `type='file'`.
+  - `MessageBubble` renders attachments inline: images as `<img>` (max 240px), PDFs as clickable 📄 chip with filename, other files as 📎 chip.
+
+### 3. Backend router rename (final hygiene pass)
+- `iter7_routes.py` → `admin_config_routes.py` (admin config: audit-logs, master data, FAQ, CMS, settings, templates)
+- `iter9_routes.py` → `agency_corp_provider_routes.py` (agency roster, corporate, chat upload, provider test hooks)
+- `iter11_routes.py` → `exports_search_routes.py` (ICS export, CSV exports, AI search)
+- Import aliases updated in `server.py` and `notification_service.py`. Function `make_iter11_router` renamed to `make_exports_search_router` inside `exports_search_routes.py`.
+- Zero endpoint changes — all URLs stay identical. Just clearer file names for the next dev who onboards.
+
+### E2E verified
+- Testing agent: **18/18 backend pytest + frontend 100%**, zero action items, zero regressions.
+- `/faqs`, `/admin/settings`, `/admin/audit-logs`, `/search/ai`, `/admin/exports/*`, `/agency/roster`, `/admin/providers/status` — all 200 after rename.
+- Wizard × close button + auto-open guard verified in browser.
+- Chat attachment upload as assigned manager: 200 with `media_id` set; non-assigned manager: 403.
+
+
+
 ## 🎨 Iter 90b — Artist KYC Wizard + Admin Agreement Viewer + Manager Chat UI (2026-09-15)
 
 Three focused UI features built on already-existing backend logic.
