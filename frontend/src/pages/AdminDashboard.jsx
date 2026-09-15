@@ -21,6 +21,9 @@ import AdminPaymentGateway from "./admin/AdminPaymentGateway";
 import AdminPaymentReconciliation from "./admin/AdminPaymentReconciliation";
 import AdminPlatformSettings from "./admin/AdminPlatformSettings";
 import { PayoutConsole, AtRiskDashboard } from "../components/PaymentPayoutWidgets";
+import {
+  AdminPayoutRetryQueue, AdminReportSchedules, AdminManagerScorecard, AdminWhatsAppTemplates,
+} from "./admin/AdminIter88";
 
 // Iter 57 — Sidebar → required permission. If the current admin lacks the
 // permission, the item is hidden from the sidebar entirely. `null` means
@@ -53,6 +56,10 @@ const SIDEBAR = [
   { id: "payment-gateway",  label: "💳 Payment Gateway",       perm: "settings.manage" },
   { id: "payment-recon",    label: "🧾 Payment Reconciliation", perm: "payments.view" },
   { id: "payout-console",   label: "💰 Payout Console",         perm: "payments.view" },
+  { id: "payout-retry",     label: "🔁 Payout Retry Queue",     perm: "payments.view" },
+  { id: "manager-scorecard", label: "🏅 Manager Scorecard",     perm: "analytics.view" },
+  { id: "report-schedules", label: "📅 Report Schedules",       perm: "analytics.view" },
+  { id: "wa-templates",     label: "📱 WhatsApp Templates",     perm: "settings.manage" },
   { id: "at-risk",          label: "⚠️ At-Risk Bookings",       perm: "bookings.view" },
   { id: "platform-settings", label: "🏗️ Platform Settings (v2)", perm: "settings.manage" },
   { id: "settings",         label: "⚙️ Settings",              perm: "settings.manage" },
@@ -171,6 +178,10 @@ export default function AdminDashboard() {
           {effectiveTab === "platform-settings" && <AdminPlatformSettings />}
           {effectiveTab === "at-risk" && <AtRiskDashboard />}
           {effectiveTab === "payout-console" && <PayoutConsole />}
+          {effectiveTab === "payout-retry" && <AdminPayoutRetryQueue />}
+          {effectiveTab === "manager-scorecard" && <AdminManagerScorecard />}
+          {effectiveTab === "report-schedules" && <AdminReportSchedules />}
+          {effectiveTab === "wa-templates" && <AdminWhatsAppTemplates />}
           {effectiveTab === "settings" && <AdminSettings toast={toast} />}
           {effectiveTab === "audit" && <AdminAudit />}
         </div>

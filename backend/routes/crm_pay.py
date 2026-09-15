@@ -565,7 +565,19 @@ def make_crm_pay_router(db: AsyncIOMotorDatabase, get_current_user, require_admi
             addons_total=float(pricing.get("addons_total", 0)),
             coupon_discount=float(pricing.get("coupon_discount", 0)),
         )
-        return await _easebuzz_payout_stub(db, booking, admin, quote["artist_payable"])
+        # Iter 88 — instead of hard-failing when the Easebuzz Payouts stub
+        # isn't ready, enqueue for background retry so ops sees the
+        # attempt in the retry queue.
+        try:
+            return await _easebuzz_payout_stub(db, booking, admin, quote["artist_payable"])
+        except HTTPException as he:
+            from routes.iter88 import enqueue_payout_retry as _enq
+            entry = await _enq(
+                db, booking_id=booking_id, amount=float(quote["artist_payable"]),
+                reason=str(he.detail), triggered_by=admin.get("email"),
+            )
+            return {"queued": True, "retry_entry": entry,
+                    "message": "Auto payout unavailable — queued for retry"}
 
     @r.get("/bookings/{booking_id}/payouts")
     async def list_payouts(booking_id: str, user: dict = Depends(get_current_user)):

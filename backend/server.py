@@ -4103,6 +4103,10 @@ async def startup():
     # Iter 84 — Payment milestone reminder loop (Sec 35).
     from routes.crm_pay import payment_reminder_loop as _prl  # noqa
     asyncio.create_task(_prl(db))
+    # Iter 88 — Payout auto-retry + report scheduling background loops.
+    from routes.iter88 import payout_retry_loop as _pl, report_schedule_loop as _rsl  # noqa
+    asyncio.create_task(_pl(db))
+    asyncio.create_task(_rsl(db))
 
 
 async def _seed_demo():
@@ -4447,6 +4451,10 @@ app.include_router(make_v2_more_router(db, get_current_user, admin_only), prefix
 # Iter 87 — Admin Reports + Unified Audit Log
 from routes.reports import make_reports_router  # noqa: E402
 app.include_router(make_reports_router(db, admin_only), prefix="/api")
+
+# Iter 88 — Payout retry queue + Report scheduling + Manager scorecard
+from routes.iter88 import make_iter88_router  # noqa: E402
+app.include_router(make_iter88_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
