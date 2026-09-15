@@ -4418,6 +4418,11 @@ app.include_router(make_v2_router(db, get_current_user, admin_only), prefix="/ap
 from routes.crm_pay import make_crm_pay_router, payment_reminder_loop  # noqa: E402
 app.include_router(make_crm_pay_router(db, get_current_user, admin_only), prefix="/api")
 
+# Iter 85 — At-Risk dashboard + Agency financial view + Admin payout queue
+# + WhatsApp channel abstraction (Sec 45-48, 55, 51).
+from routes.v2_more import make_v2_more_router  # noqa: E402
+app.include_router(make_v2_more_router(db, get_current_user, admin_only), prefix="/api")
+
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
 # request in Iter 52.5 — the artist-profile flow is single-artist and

@@ -18,6 +18,7 @@ import Announcements from "./components/Announcements";
 import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import ForgotPassword from "./pages/ForgotPassword";
+import { ManagerDashboard, LeadBoard, LeadDetail } from "./pages/manager/ManagerCRM";
 import Search from "./pages/Search";
 import ArtistProfile from "./pages/ArtistProfile";
 import BookingFlow from "./pages/BookingFlow";
@@ -92,6 +93,9 @@ function App() {
                 <Route path="/signup" element={<Auth mode="signup" />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ForgotPassword />} />
+                <Route path="/manager" element={<ManagerDashboard />} />
+                <Route path="/manager/leads" element={<LeadBoard />} />
+                <Route path="/manager/leads/:id" element={<LeadDetail />} />
                 <Route path="/search" element={<Search />} />
                 <Route path="/discover" element={<Search />} />
 

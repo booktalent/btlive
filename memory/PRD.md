@@ -1,6 +1,46 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎨 Iter 85 — Manager & CRM UIs + Payment/Payout Widgets + At-Risk + WhatsApp Channel (2026-09-15)
+
+### New Frontend Screens
+- **Manager Dashboard** (`/manager`, `ManagerCRM.jsx`) — 12-stage pipeline counts, active-bookings card, quick-nav cards linking to filtered lead board.
+- **Lead Board Kanban** (`/manager/leads`, `LeadBoard`) — 12 columns (New → Contacted → Requirement → Suggested → Quoted → Negotiating → Booking Pending → Confirmed → Payment Pending → Event Upcoming → Event Done → Closed). Each card shows customer, event type, city, budget, assigned manager. Inline stage-select drives `PATCH /leads/{id}/stage`.
+- **Lead Detail** (`/manager/leads/:id`, `LeadDetail`) — full enquiry, assign/reassign manager picker, note field, timeline pulled from `lead.history` reversed (newest at top).
+- **Admin → At-Risk Bookings** (new admin tab) — 5 buckets with tables: Event ≤3d unpaid, Payout pending, Overdue schedules, Unassigned leads >24h, KYC stuck >7d. Top-right "N items need attention" pill.
+- **Admin → Payout Console** (new admin tab) — table of pending payouts + modal for UTR + method + bank ref + notes. Submits `POST /bookings/{id}/payout/manual`.
+- **`PaymentTimeline` widget** — reusable card (in `PaymentPayoutWidgets.jsx`) with progress bar, milestone list, inline "Mark Paid" form (amount/method/UTR/date). Drop into any booking detail page. `canEdit` prop gates for admin/manager only.
+
+### Backend additions (`routes/v2_more.py`)
+- `GET /admin/at-risk-bookings` — auto-flags 5 risk categories (Sec 55).
+- `GET /agency/financial-view` — Sec 45-48. Returns roster artists + each booking with customer payment status (fully_paid / partially_paid / pending) + payout status. Aggregate totals for the top bar.
+- `GET /admin/payouts/pending` — completed/confirmed bookings still awaiting artist payout, event-date descending.
+
+### WhatsApp Channel Abstraction
+- New helper `send_whatsapp(db, to, template, params, body)` in `routes/v2_more.py`.
+- Provider selected by `WHATSAPP_PROVIDER` env: `""` (mock, logs to `whatsapp_logs`), `"gupshup"`, `"meta"`.
+- Every send attempt persisted to `whatsapp_logs` with provider response, HTTP status, error (if any) — even failures. Never raises so business flows keep going.
+- Real integration switches on when the matching env vars are set:
+  - Gupshup: `GUPSHUP_API_KEY`, `GUPSHUP_SOURCE`, `GUPSHUP_APP_NAME`
+  - Meta Cloud API: `META_WA_TOKEN`, `META_WA_PHONE_ID`
+
+### Router registration
+- All new pages wired in `App.js` at `/manager`, `/manager/leads`, `/manager/leads/:id`.
+- Admin tabs added: `⚠️ At-Risk Bookings`, `💰 Payout Console` — perms `bookings.view` / `payments.view`.
+
+### E2E verified
+- Backend endpoints return correct data:
+  - At-Risk: `total=0` on a clean DB; per-bucket counts populated when data present.
+  - Payout Pending: 19 candidates found in current DB (existing legacy bookings).
+  - WhatsApp mock send: `{sent:True, provider:'mock', mock:True}` + row persisted to `whatsapp_logs`.
+- Frontend screens render: playwright confirmed `[data-testid="at-risk-dashboard"]` + `[data-testid="payout-console"]` matched after admin auth.
+
+### Still Pending
+- **Agency Financial View** frontend page (backend endpoint ready) — will be tackled in the next batch.
+- Real WhatsApp provider credentials (user must share Gupshup or Meta keys to switch off mock mode).
+
+
+
 ## 🎯 Iter 84 — Phases 4-7 backend vertical (2026-09-15)
 
 Single bundled router `routes/crm_pay.py` — CRM, Payments, Payouts, Chat privacy.
