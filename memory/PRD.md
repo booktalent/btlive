@@ -1,6 +1,52 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎨 Iter 87 — Admin Reports + Unified Audit Viewer + CORS Hardening + WhatsApp Template Mapping (2026-09-15)
+
+### New backend router — `routes/reports.py`
+Four admin-only endpoints (registered with `admin_only` gate):
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /admin/reports/artist-bookings?start=&end=&format=json\|csv` | Aggregate per-artist revenue, artist_payable, platform_fee, GST, paid/pending payout counts. Filtered by event date range. |
+| `GET /admin/reports/manager-leads?format=json\|csv` | Per-manager 12-stage pipeline breakdown + won/lost/conversion_pct. |
+| `GET /admin/reports/platform-waivers?start=&end=&format=json\|csv` | Bookings where Service Artist got a 5% platform fee waiver. Shows would_be_fee vs actual_fee vs waived_amount. |
+| `GET /admin/audit-logs/unified?actor=&action=&entity=&start=&end=&limit=` | Merges `admin_audit_log` + `audit_logs` into one time-sorted feed. |
+
+CSV export uses `StreamingResponse` with proper `Content-Disposition` attachment header.
+
+### Frontend UI enhancements
+- **AdminReports** (`admin/AdminEnterprise.jsx:758`) — Now has 4 sub-tabs: Revenue (existing), Artist Bookings, Manager Leads, Platform Waivers. Each new tab has an inline `⬇ Download CSV` button and date-range filters where applicable.
+- **AdminAudit** (`admin/AdminEnterprise.jsx:686`) — Rebuilt with 5 filter inputs (actor, action, entity, start-date, end-date) + Apply/Clear buttons. Now consumes the unified endpoint so business audit rows (leads, milestones, payouts) show alongside admin-role audit rows. Added `source` pill column to distinguish.
+
+### CORS Hardening
+- `server.py:86-107` — Removed unsafe wildcard `*`. Default now:
+  - **Static allowlist**: `http://localhost:3000`, `http://localhost:3001`, `http://127.0.0.1:3000` (dev).
+  - **Regex allowlist**: `https://*.preview.emergentagent.com` and `https://*.booktalent.in` (production).
+- Production admins override with `CORS_ORIGINS=https://a.com,https://b.com` env var.
+- Verified: evil.example.com origin gets **no** `Access-Control-Allow-Origin` header (browser hard-rejects). Legitimate origins get their origin reflected.
+
+### WhatsApp Template Mapping
+- `routes/v2_more.py:_wa_template_for_event()` reads `WA_TEMPLATE_<EVENT>` env vars.
+- Examples to set once templates are approved on wachatsender console:
+  ```
+  WA_TEMPLATE_BOOKING_CONFIRMED=booking_confirmed
+  WA_TEMPLATE_PAYMENT_RECEIVED=payment_received
+  WA_TEMPLATE_PAYOUT_RELEASED=payout_released
+  WA_TEMPLATE_KYC_APPROVED=kyc_approved
+  WA_TEMPLATE_KYC_REJECTED=kyc_rejected
+  ```
+- Until approved, calls fall back to `message_body` plain-text mode — which is already live and working.
+
+### E2E verified
+- Testing agent: **22/22 backend pytest passed · frontend 100%**.
+- All 4 admin endpoints return correct data + honour CSV format flag.
+- Unified audit correctly merges both collections in time order with all filters (actor regex, action regex, entity exact, date range) combining as AND.
+- CORS: `curl -H "Origin: https://evil.example.com"` → no Allow-Origin. `curl -H "Origin: https://booktalent-audit.preview.emergentagent.com"` → Allow-Origin reflected.
+- 403 correctly returned when a customer/artist/agency user hits any `/admin/reports/*` endpoint.
+
+
+
 ## 🔔 Iter 86 — WhatsApp LIVE + Security P0 + Booking Detail + Agency Platform Tab (2026-09-15)
 
 ### Real WhatsApp integration — wachatsender.in
