@@ -384,7 +384,7 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
       .then((r) => setCustomers(r.data?.items || [])).catch(() => setCustomers([]));
   }, [q]);
   useEffect(() => {
-    api.get(`/search?q=${encodeURIComponent(aq)}&limit=20`)
+    api.get(`/artists/search?q=${encodeURIComponent(aq)}&limit=20`)
       .then((r) => setArtists(r.data?.artists || r.data?.items || r.data || []))
       .catch(() => setArtists([]));
   }, [aq]);

@@ -54,7 +54,7 @@ function KPIStrip() {
     { label: "Upcoming Platform", value: ov?.upcoming_platform_bookings ?? "—", accent: "gold" },
     // Feb-2026 requirement — agency-scoped financial figures
     { label: "Advance Received", value: fmtInr(ov?.advance_received), accent: "emerald", testid: "agency-kpi-advance" },
-    { label: "Remaining ₹", value: fmtInr(ov?.remaining_amount), accent: "amber", testid: "agency-kpi-remaining" },
+    { label: "Remaining Payment", value: fmtInr(ov?.remaining_amount), accent: "amber", testid: "agency-kpi-remaining" },
     { label: "Payout Pending", value: fmtInr(ov?.artist_payout_pending), accent: "violet", testid: "agency-kpi-payout" },
   ];
   return (

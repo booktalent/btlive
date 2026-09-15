@@ -2345,3 +2345,45 @@ Full audit of the user's 22-section requirement doc against the code. Before thi
   1. Waiver path — no service artist seeded (Priya is a normal artist). Waiver logic is unit-verified in `financial_engine.compute_price` and shown to render correctly for `is_service_artist=true`.
   2. `/kyc/accept-terms` — Priya is already `live`. Endpoint is present, back-tested via existing agreement generator.
 
+
+---
+
+## Iter 95 — Requirement Batch 2 (5 items) · Feb 2026
+
+Backend 5/5 pytest pass, frontend 3/3 verified end-to-end after two follow-up fixes (see below). Report: `/app/test_reports/iteration_83.json`.
+
+### 1. Agency-scoped ₹ figures on Agency Dashboard
+- `routes/agency_crm.py::agency_overview` — now aggregates `advance_received`, `remaining_amount`, `artist_payout_pending` from bookings whose artist is on the agency's active roster.
+- `frontend/src/pages/agency/AgencyDashboardV2.jsx::KPIStrip` — 3 new tiles wired with `data-testid` `agency-kpi-advance`, `agency-kpi-remaining`, `agency-kpi-payout`. Values render as `₹X,XX,XXX` via `Intl.NumberFormat("en-IN")`. Label copy fixed to "Advance Received / Remaining Payment / Payout Pending".
+
+### 2. Mutual-agreement refund automation
+- New endpoints in `routes/req_batch_2.py`:
+  - `POST /api/bookings/{id}/refund-request` (customer or artist).
+  - `POST /api/bookings/{id}/refund-accept` (counter party only).
+  - `POST /api/bookings/{id}/refund-reject` (counter party only).
+  - `GET  /api/bookings/{id}/refund-status`.
+- On accept: booking flagged `mutual_refund_status:"agreed"`, `refund_flag:true`; `history` push; audit log; notification to requester; best-effort auto-dispatch via `routes/easebuzz.auto_refund_bookings` if enabled.
+- New collection `refund_requests` tracks state per booking.
+- Frontend `BookingDetail.jsx::MutualRefundPanel` — shows the form (amount/reason/submit) when no pending request, or the pending banner + Accept/Reject when the counter is viewing. Data-testids: `bd-refund-panel`, `bd-refund-amount`, `bd-refund-reason`, `bd-refund-request`, `bd-refund-accept`, `bd-refund-reject`, `bd-refund-pending`, `bd-refund-accepted`.
+
+### 3. Manager booking presets
+- New endpoints: `GET /api/manager/booking-presets`, `POST /api/manager/booking-presets`, `DELETE /api/manager/booking-presets/{id}`. Scoped to `manager_id` in `manager_booking_presets` collection.
+- `ManagerCRM.jsx::CreateBookingOnBehalfModal` step 3 gains:
+  - Preset chip row (`data-testid='mgr-preset-list'`) — click to apply, × to delete.
+  - "Save as preset" input + button (`data-testid='mgr-preset-name'`, `mgr-preset-save`).
+
+### 4. Booking timeline persistence
+- New collection `booking_events` + helper `emit_booking_event()` (idempotent for one-shot milestones like `lead_created`, `booking_confirmed`).
+- New endpoint `GET /api/bookings/{id}/timeline` — merges `booking_events` with legacy `bookings.history` array so old bookings still render a timeline.
+- `req_batch.py::manager_create_booking` now emits `lead_created` + `manager_assigned` + `artist_selected` events immediately on creation.
+- `BookingDetail.jsx::BookingTimeline` now overlays real timestamps onto its 10-stage rail (falls back to derived dates when no event exists).
+- Every mutual-refund action also emits a timeline event (`refund_requested`, `refund_accepted`, `refund_rejected`).
+
+### 5. Demo service artist seed
+- `POST /api/admin/seed/service-artist` (admin-only, idempotent) creates `service-artist@booktalent.com / Service@123`, Aarav Menon — Live Band (Mumbai), `is_service_artist=true`, `percentage_deal=10.0`, `kyc_status=live`. Credentials added to `/app/memory/test_credentials.md`.
+- Confirmed: `GET /api/finance/quote?artist_id=<sid>&package_fee=100000` → platform_fee 5000, waiver −5000, net 0, booktalent_commission 10000, artist_payable 90000, waiver_message set.
+
+### Follow-up fixes after test report
+- Manager modal step-2 artist search now uses correct endpoint `/api/artists/search` (previous `/api/search` returned 404).
+- Agency KPI label typo `"Remaining ₹"` → `"Remaining Payment"`.
+
