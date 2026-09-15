@@ -1,6 +1,51 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔔 Iter 86 — WhatsApp LIVE + Security P0 + Booking Detail + Agency Platform Tab (2026-09-15)
+
+### Real WhatsApp integration — wachatsender.in
+- Added `wachatsender` provider branch to `routes/v2_more.py::send_whatsapp` alongside gupshup/meta.
+- Env config in `backend/.env`:
+  - `WHATSAPP_PROVIDER=wachatsender`
+  - `WACHATSENDER_TOKEN`, `WACHATSENDER_VENDOR_UID`, `WACHATSENDER_BASE_URL`
+  - `WACHATSENDER_DEFAULT_TEMPLATE=booktalent_generic`, `WACHATSENDER_TEMPLATE_LANG=en`
+- Payload maps notification `body` → `message_body` (text mode) + `field_1` (template mode). Real API returns 200 + `wamid` — confirmed live.
+- Phone numbers auto-normalized (strip `+`, leading `0`, spaces, dashes).
+- `notification_service.dispatch` `whatsapp` channel now routes through the new helper — `_channels_enabled['whatsapp']` becomes True as soon as any modern provider creds are present. Legacy `WHATSAPP_TOKEN` still works.
+
+### Notification hooks wired
+- **booking.confirmed** (`server.py:2586`) — customer + artist now receive `in_app + email + whatsapp` (was `in_app + email`).
+- **kyc.approved / rejected / needs_resubmission** (`routes/kyc.py:200`) — same 3-channel dispatch.
+- **payment.received** (new, `routes/crm_pay.py:mark_paid`) — fires on every milestone mark-paid to customer + artist.
+- **payout.released** (new, `routes/crm_pay.py:record_manual_payout`) — artist notified with UTR + method.
+
+### Security P0 fixes
+- Admin password seeder (`server.py:4042`) no longer auto-resets `password_hash` on every boot. Explicit opt-in via `ADMIN_PASSWORD_FORCE_RESET=1`.
+- `/api/ops/dump/{token}` (`server.py:4220`) permanently returns 404. DB export now super-admin-only via `POST /api/admin/db-export`.
+
+### Booking Detail page — `/bookings/:id`
+- New route + page (`frontend/src/pages/BookingDetail.jsx`) accessible to any authorised viewer of the booking.
+- Header: ref + status + payout pill.
+- Two-column summary: Event/customer + Pricing (uses server-computed `pricing` object — never recomputed client-side).
+- Embedded `PaymentTimeline` widget with `canEdit={role==='admin'||'manager'}` — inline Mark-Paid form.
+- Payout ledger table listing all `artist_payouts` for the booking (date, amount, method, UTR).
+- CustomerDashboard bookings table now has a `View` action linking to this page.
+
+### Agency Financial View UI
+- New **Platform Bookings** tab in `frontend/src/pages/agency/modules/Finance.jsx` — consumes `GET /api/agency/financial-view`.
+- 4 KPI cards: customer received, customer total, payouts paid count, payouts pending count.
+- Table: ref, artist, event date, customer payment status (`fully_paid`/`partially_paid`/`pending`), payout status.
+- Each row links to `/bookings/:id` for the full timeline + payout ledger.
+- Defensive None-guards added on backend for missing `payment_schedules` / null `pricing` (was returning 500 for agencies with legacy bookings).
+
+### E2E verified
+- wachatsender live send: 200 + `wamid.HBgMOTE5OTk5OTk5OTk5FQIA…`; audit row persisted in `whatsapp_logs`.
+- `notifications_log` rows for `payment.received:whatsapp` and `payout.released:whatsapp` written on real bookings.
+- `/api/ops/dump/anything` → 404 (regardless of token env). Admin login continues to work.
+- Testing agent: **backend 100%, frontend 100%, 8/8 pytest pass**, no blocking issues.
+
+
+
 ## 🎨 Iter 85 — Manager & CRM UIs + Payment/Payout Widgets + At-Risk + WhatsApp Channel (2026-09-15)
 
 ### New Frontend Screens

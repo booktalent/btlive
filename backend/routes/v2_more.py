@@ -249,7 +249,7 @@ def make_v2_more_router(db: AsyncIOMotorDatabase, get_current_user, require_admi
                 {"_id": 0, "amount_received": 1, "total": 1, "milestones.status": 1},
             )
             b["customer_payment_received"] = float(sched.get("amount_received", 0)) if sched else 0
-            b["customer_payment_total"] = float(sched.get("total", 0) or b.get("pricing", {}).get("total", 0))
+            b["customer_payment_total"] = float((sched.get("total", 0) if sched else 0) or (b.get("pricing") or {}).get("total", 0))
             b["customer_payment_status"] = (
                 "fully_paid" if b["customer_payment_received"] >= b["customer_payment_total"] > 0
                 else ("partially_paid" if b["customer_payment_received"] > 0
