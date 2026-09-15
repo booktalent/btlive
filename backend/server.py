@@ -4491,6 +4491,10 @@ app.include_router(make_iter89_router(db, get_current_user, admin_only), prefix=
 from routes.iter90b import make_iter90b_router  # noqa: E402
 app.include_router(make_iter90b_router(db, get_current_user, admin_only), prefix="/api")
 
+# Iter 92 — Admin analytics + Public trust stats + Notification preferences
+from routes.iter92 import make_iter92_router  # noqa: E402
+app.include_router(make_iter92_router(db, get_current_user, admin_only), prefix="/api")
+
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
 # request in Iter 52.5 — the artist-profile flow is single-artist and

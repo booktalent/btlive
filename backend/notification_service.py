@@ -82,6 +82,15 @@ async def dispatch(
 
     for ch in chans:
         rendered = await _render_template(db, ch, event, ctx)
+        # Iter 92 — Respect per-user opt-outs. Force-on events bypass this check.
+        if user_id:
+            try:
+                from routes.iter92 import is_channel_muted
+                if await is_channel_muted(db, user_id=user_id, event=event, channel=ch):
+                    out["results"][ch] = {"status": "muted_by_user", "channel": ch}
+                    continue
+            except Exception:
+                pass
         record: Dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "user_id": user_id,

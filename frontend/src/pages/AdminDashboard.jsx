@@ -25,6 +25,7 @@ import {
   AdminPayoutRetryQueue, AdminReportSchedules, AdminManagerScorecard,
   AdminWhatsAppTemplates, AdminReportSnapshots,
 } from "./admin/AdminIter88";
+import { AdminAnalyticsDashboard } from "./Iter92Pages";
 
 // Iter 57 — Sidebar → required permission. If the current admin lacks the
 // permission, the item is hidden from the sidebar entirely. `null` means
@@ -56,6 +57,7 @@ const SIDEBAR = [
   { id: "providers",        label: "🔌 Providers",             perm: "settings.manage" },
   { id: "payment-gateway",  label: "💳 Payment Gateway",       perm: "settings.manage" },
   { id: "payment-recon",    label: "🧾 Payment Reconciliation", perm: "payments.view" },
+  { id: "analytics",        label: "📊 Founder KPIs",           perm: "analytics.view" },
   { id: "payout-console",   label: "💰 Payout Console",         perm: "payments.view" },
   { id: "payout-retry",     label: "🔁 Payout Retry Queue",     perm: "payments.view" },
   { id: "manager-scorecard", label: "🏅 Manager Scorecard",     perm: "analytics.view" },
@@ -179,6 +181,7 @@ export default function AdminDashboard() {
           {effectiveTab === "payment-recon" && <AdminPaymentReconciliation toast={toast} />}
           {effectiveTab === "platform-settings" && <AdminPlatformSettings />}
           {effectiveTab === "at-risk" && <AtRiskDashboard />}
+          {effectiveTab === "analytics" && <AdminAnalyticsDashboard />}
           {effectiveTab === "payout-console" && <PayoutConsole />}
           {effectiveTab === "payout-retry" && <AdminPayoutRetryQueue />}
           {effectiveTab === "manager-scorecard" && <AdminManagerScorecard />}

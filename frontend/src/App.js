@@ -21,6 +21,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import { ManagerDashboard, LeadBoard, LeadDetail } from "./pages/manager/ManagerCRM";
 import ManagerLeaderboard from "./pages/manager/ManagerLeaderboard";
 import ManagerChat from "./pages/manager/ManagerChat";
+import { TrustPage, NotificationPreferences } from "./pages/Iter92Pages";
 import Search from "./pages/Search";
 import ArtistProfile from "./pages/ArtistProfile";
 import BookingFlow from "./pages/BookingFlow";
@@ -99,6 +100,9 @@ function App() {
                 <Route path="/manager" element={<ManagerDashboard />} />
                 <Route path="/manager/leaderboard" element={<ManagerLeaderboard />} />
                 <Route path="/manager/chat" element={<ManagerChat />} />
+                {/* Iter 92 — Public trust page + per-user notification prefs */}
+                <Route path="/trust" element={<TrustPage />} />
+                <Route path="/settings/notifications" element={<Protected><NotificationPreferences /></Protected>} />
                 <Route path="/manager/leads" element={<LeadBoard />} />
                 <Route path="/manager/leads/:id" element={<LeadDetail />} />
                 <Route path="/search" element={<Search />} />

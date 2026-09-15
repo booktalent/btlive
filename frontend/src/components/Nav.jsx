@@ -60,6 +60,7 @@ export default function Nav() {
                 <span className="text-muted fs-13" data-testid="nav-user-name">
                   Hi, {user.first_name}
                 </span>
+                <Link to="/settings/notifications" className="btn btn-ghost btn-sm" data-testid="nav-notif-prefs" title="Notification preferences">🔔</Link>
                 <button className="btn btn-ghost btn-sm" onClick={doLogout} data-testid="nav-logout">
                   Logout
                 </button>
