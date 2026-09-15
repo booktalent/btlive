@@ -227,6 +227,25 @@ def make_settings_router(db: AsyncIOMotorDatabase, require_admin, get_current_us
             {"id": _SETTINGS_ID}, {"$set": updates}, upsert=True
         )
 
+        # Iter 89 — Mirror the two financial values into legacy
+        # `system_settings` so the public /settings/public endpoint (read
+        # by BookingFlow copy) stays in sync. Legacy admin UI no longer
+        # exposes these keys as editable.
+        mirror_map = {
+            "gst_percent": "gst_pct",
+            "platform_fee_percent": "platform_fee_pct",
+        }
+        for new_key, legacy_key in mirror_map.items():
+            if new_key in updates:
+                await db.system_settings.update_one(
+                    {"key": legacy_key},
+                    {"$set": {"key": legacy_key,
+                              "value": updates[new_key],
+                              "updated_at": utcnow(),
+                              "mirrored_from": "platform_settings"}},
+                    upsert=True,
+                )
+
         for key, old_val, new_val in changed:
             await record_audit(
                 db,

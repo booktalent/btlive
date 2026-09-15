@@ -1,6 +1,49 @@
 # BookTalent — Product Requirements Document
 
 
+## 🧹 Iter 89 — Leaderboard + Snapshots + Slack + WA Templates DB + GST Duplication Fix (2026-09-15)
+
+### 1. New backend router `routes/iter89.py`
+- `PATCH /admin/whatsapp/templates` — DB-persisted template mapping (stored under `platform_settings.mapping` sub-doc so Mongo doesn't interpret `.` in event names as nested paths).
+- `GET /manager/leaderboard?month=YYYY-MM` — accessible to managers AND admins. Returns items ranked by revenue desc + `leads_won` tie-breaker. Each row has `rank`, `rank_medal` (🥇🥈🥉), `is_me`. Response includes `my_rank` for the caller.
+- Slack helper `notify_slack()` + `slack_alert_max_retries()`. Env: `SLACK_WEBHOOK_URL`. Persists every attempt to `slack_logs`.
+- `save_snapshot()` — every scheduled OR run-now CSV persisted to `/app/uploads/report_snapshots/<year>/<month>/<filename>` + `report_snapshots` Mongo row.
+- `GET/DELETE /admin/report-snapshots` + `GET /admin/report-snapshots/{id}/download`.
+- `POST /admin/slack/test` — diagnostic for the ops team.
+
+### 2. Iter 88 wiring updates
+- `_report_schedule_tick` and `/report-schedules/{id}/run-now` now call `save_snapshot()` on every dispatch.
+- `_payout_retry_tick` terminal-failure branch calls `slack_alert_max_retries()` so ops gets paged when Easebuzz retry exhausts all 5 attempts.
+- `templates-status` endpoint now reads `platform_settings.mapping` sub-doc, with `source: 'env' | 'db' | null` on every row.
+
+### 3. WhatsApp template resolution priority (finalised)
+`send_whatsapp()` resolves template name in this order:
+```
+params.template_name > env WA_TEMPLATE_<EVENT> > DB mapping > event > default_tpl
+```
+When neither env nor DB is set, request uses `message_body` text-mode fall-back (already live).
+
+### 4. Frontend
+- **AdminWhatsAppTemplates** — rewritten as editable form. Env-locked rows show a `(locked)` state; DB-editable rows are saveable inline. `wa-tpl-save` button persists to `/admin/whatsapp/templates`.
+- **AdminReportSnapshots** — new admin tab with kind filter, download + delete buttons per row.
+- **ManagerLeaderboard** — new page at `/manager/leaderboard`. Podium (top 3 with medal styling) + full ranked table with "YOU" pill + target-progress bar. Linked from Manager dashboard `btn-leaderboard`.
+- New sidebar entry `report-snapshots` in AdminDashboard.
+
+### 5. GST Duplication Fix (user-reported)
+User flagged that GST was editable in TWO places (screenshot). Root cause: legacy `/admin/settings` (system_settings) had a stale `gst_pct` key while the canonical value now lives in `platform_settings.gst_percent` (Financial Engine reads from here).
+- Legacy Admin Settings page now HIDES `gst_pct`, `platform_fee_pct`, `token_pct` and shows a banner pointing to **🏗️ Platform Settings (v2)**.
+- Backend PATCH on `/platform-settings/admin` now MIRRORS `gst_percent → system_settings.gst_pct` and `platform_fee_percent → system_settings.platform_fee_pct` so `/settings/public` (BookingFlow copy) stays in sync automatically.
+- One-time backfill: `system_settings.gst_pct = 18`, `platform_fee_pct = 5` restored to match `platform_settings`.
+
+### E2E verified
+- Testing agent: **20/20 backend pytest passed · frontend 100%**, zero blocking issues (one cosmetic ₹ glyph fallback on leaderboard flagged, deferred).
+- Snapshot download confirmed valid CSV (437 bytes, column headers present).
+- Leaderboard sort verified: revenue desc, then leads_won desc; my_rank populated correctly for logged-in manager.
+- Slack mock alert fires on synthetic max-retries payout entry — `slack_logs` row persisted with alert text.
+- GST mirror verified: PATCH gst_percent=20 → system_settings.gst_pct=20 within one request. Restore to 18 propagates too.
+
+
+
 ## 🔁 Iter 88 — Payout Retry + Report Schedules + Manager Scorecard + WA Templates Status (2026-09-15)
 
 ### 1. Payout Auto-Retry Queue

@@ -606,6 +606,15 @@ export function AdminBroadcast({ toast }) {
   );
 }
 
+// Iter 89 — Financial keys have moved to Platform Settings v2 (canonical
+// source used by the Financial Engine). We HIDE them from this raw
+// key-value editor to prevent admins from setting stale values here and
+// wondering why bookings still compute at 18% GST. Legacy reads via
+// /settings/public are kept alive by a server-side mirror.
+const HIDDEN_LEGACY_SETTINGS = new Set([
+  "gst_pct", "platform_fee_pct", "token_pct",
+]);
+
 export function AdminSettings({ toast }) {
   const [list, setList] = useState([]);
   const [draft, setDraft] = useState({});
@@ -636,8 +645,18 @@ export function AdminSettings({ toast }) {
     }
     toast("Blog banner saved"); load();
   };
+  const visible = (list || []).filter((s) => !HIDDEN_LEGACY_SETTINGS.has(s.key));
   return (
     <div data-testid="admin-settings">
+      {/* Iter 89 — pointer banner so nobody edits GST here anymore */}
+      <div className="card card-pad mb-16" style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.2)" }}>
+        <div className="fw-700 mb-4">💡 Looking for GST / Platform Fee / Payment Schedule?</div>
+        <div className="text-muted fs-13">
+          Those are now managed in <b>🏗️ Platform Settings (v2)</b> — the canonical source used by
+          the Financial Engine. This page keeps only copy/CMS-style key-value settings.
+        </div>
+      </div>
+
       {/* Blog Featured Banner panel */}
       <div className="card mb-24">
         <div className="card-head">
@@ -660,13 +679,13 @@ export function AdminSettings({ toast }) {
       </div>
 
       <div className="card">
-        <div className="card-head"><div className="card-title">⚙️ System Settings</div></div>
+        <div className="card-head"><div className="card-title">⚙️ Copy & CMS Settings</div></div>
         <div style={{ padding: 14 }}>
           <div className="table-wrap">
             <table className="table">
               <thead><tr><th>Key</th><th>Current Value</th><th>New Value</th><th>Actions</th></tr></thead>
               <tbody>
-                {list.map((s) => (
+                {visible.map((s) => (
                   <tr key={s.key} data-testid={`set-row-${s.key}`}>
                     <td className="font-mono fs-12">{s.key}</td>
                     <td className="text-gold" style={{ maxWidth: 240, wordBreak: "break-all" }}>{String(s.value)}</td>
