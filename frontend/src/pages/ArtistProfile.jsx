@@ -340,9 +340,24 @@ export default function ArtistProfile() {
           </div>
           <div className="profile-header-info">
             <h1 className="font-serif profile-name" data-testid="artist-name">{profile.stage_name}</h1>
+            <div
+              className="font-serif fw-700"
+              style={{
+                fontSize: "clamp(22px, 3vw, 34px)",
+                background: "linear-gradient(135deg, var(--gold-light, #F1D17A), var(--gold, #D4AF37))",
+                WebkitBackgroundClip: "text",
+                color: "transparent",
+                letterSpacing: 0.3,
+                marginTop: 4,
+                marginBottom: 8,
+                lineHeight: 1.1,
+              }}
+              data-testid="artist-profession"
+            >
+              {profile.category}
+            </div>
             <div className="flex gap-8 items-center" style={{ flexWrap: "wrap" }}>
               {profile.kyc_status === "approved" && <span className="pill pill-green">✓ KYC Verified</span>}
-              <span className="pill pill-gold">{profile.category}</span>
               <span className="text-muted fs-13">📍 {profile.city}</span>
             </div>
           </div>

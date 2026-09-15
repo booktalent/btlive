@@ -1,6 +1,70 @@
 # BookTalent — Product Requirements Document
 
 
+## 💰 Iter 83 — v2 Batch: Financial Engine + KYC state machine + Booking form redesign + Admin Settings UI (2026-09-15)
+
+### Financial Engine — centralised, backend-only calculator (`financial_engine.py`)
+- `compute_price()` returns the canonical price breakdown for every booking. Frontend never sums line items again.
+- Logic (Sec 2-4, 5, 10, 38, 61):
+  - Artist Fee = package + add-ons − coupon
+  - Platform Fee = `platform_fee_percent × artist_fee`
+  - **If artist is Service Artist (`is_service_artist=true` + `percentage_deal>0`) → Platform Fee is fully WAIVED**. Response includes both `platform_fee` (gross), `platform_fee_waiver` (negative), and `platform_fee_net` — never merged.
+  - GST computed on (artist_fee + platform_fee_net). `gst_visible=false` when `gst_percent==0` → UI hides row.
+  - BookTalent commission = `artist_fee × percentage_deal / 100`. Artist payable = `artist_fee − commission`.
+- `build_payment_milestones()` — takes total + event date + configured schedule, returns concrete `{amount, due_date}` per milestone. Last row absorbs rounding drift so amounts sum to total exactly.
+- New endpoint: `GET /api/finance/quote?artist_id=&package_fee=&addons_total=&coupon_discount=`. Used by booking summary.
+
+### KYC v2 state machine (`routes/v2_flow.py`)
+- 9 statuses (Sec 7): `registration_pending → kyc_pending → kyc_under_review → (kyc_changes_required | kyc_rejected | kyc_approved) → tnc_pending → agreement_generated → live | suspended`.
+- Legal transition table on the admin side — illegal moves return 400.
+- Artist endpoints: `GET /kyc/me`, `POST /kyc/submit` (validates all admin-marked "required" docs are present).
+- Admin endpoints: `GET /admin/kyc/queue?status=` (newest-first), `POST /admin/kyc/{artist_id}/review` (action = approve/reject/request_changes; on approve also sets `artist_type` + `percentage_deal`).
+- Every KYC transition writes an audit row (`record_audit()`).
+
+### T&C + Auto-Agreement PDF (Sec 12-14)
+- `POST /kyc/accept-terms` — enforces artist has been KYC-approved first. On tick:
+  1. Generate agreement PDF (reportlab if available, plain text fallback) with commercial terms + KYC/T&C consent timestamp.
+  2. Store agreement in `agreements` collection (`pdf_hex` for compact storage; agreements are ~3KB text-only).
+  3. Email agreement to artist.
+  4. Auto-flip artist → `agreement_generated` → `live` so the profile immediately appears on the public site.
+- `GET /agreements/mine` streams the PDF back to the artist for download (bytes-from-Mongo). E2E verified: HTTP 200, `application/pdf`, 2.7 KB.
+
+### Booking form redesign (Sec 19-22)
+- `BookingCreate` now accepts optional `event_type_other` (used when `event_type=="Others"`), `number_of_days` (1-30), `venue_address` (up to 500 chars).
+- Persisted on the booking document under the same names.
+- Frontend `BookingFlow.jsx`:
+  - Event Type dropdown expanded to 10 options + **"Others"**.
+  - When Others selected → free-text "Please specify" field appears.
+  - New "No. of Days" numeric field + "Full Address" separate from Venue name.
+  - All required fields already carry `*` marker.
+  - Summary sidebar now shows **Platform Fee Waiver** line (negative amount, greenish) and a dedicated **Total** row when artist is service. Fetched from `/finance/quote` on artist load.
+
+### Artist Profile bigger profession (Sec 16)
+- `profile.category` now rendered as a large gold-gradient headline (clamp 22-34px) directly under the artist name — instead of a small pill.
+
+### Admin → Platform Settings UI
+- New page `AdminPlatformSettings.jsx` at `/admin?tab=platform-settings`.
+- 5 tabs: Fees & GST · Payment Schedule · Payout Mode · KYC Documents · Company Info.
+- Live "unsaved changes" counter, confirmation modal on save that lists exactly which fields will change (audit trail preview).
+- Payment schedule row shows running total colored red/green (must sum to 100).
+- Payout mode dropdown + feature-flag checkbox with a prominent live-impact warning banner.
+
+### E2E verified (all via curl)
+1. Normal artist quote → total = ₹1,23,900 for ₹1,00,000 fee (5% + 18% GST).
+2. Service artist (10% deal) → waiver kicks in, total = ₹1,18,000, commission = ₹10,000, payable = ₹90,000. Matches Sec 4 example exactly.
+3. GST set to 0 via admin PATCH → next quote returns `gst_visible=false`, `gst_amount=0`, total = ₹1,05,000.
+4. Payment schedule that doesn't sum to 100 → 400.
+5. `payout_mode="easebuzz"` without `enable_automated_payout=true` → 400.
+6. Artist KYC full lifecycle: submit with missing docs → 400; submit with all → `kyc_under_review`; admin approves as service+12% → `kyc_approved`, profile updated; artist accepts T&C → PDF generated, emailed, artist auto-goes-live.
+7. Agreement download → HTTP 200 `application/pdf`.
+
+### Next up
+- Phase 4 CRM: Lead management (12 stages), Manager creation + assignment, Manager dashboard
+- Phase 5 Payments: Milestone tracking + reminders + 90/10 rule enforcement
+- Phase 7 Chat: Manager-mediated Customer↔Artist chat + WhatsApp channel
+
+
+
 ## 🏗️ Iter 82 — v2 Foundation: Platform Settings + Audit Log + Manager Role (2026-09-15)
 
 **Context** — Kick-off of the MD's 67-section v2 requirements. This is Phase 1 (Foundation). Everything downstream (fee waiver, payment schedules, payouts, agency dashboard, CRM) reads its business rules from here.

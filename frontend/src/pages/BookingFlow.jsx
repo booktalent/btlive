@@ -96,6 +96,7 @@ export default function BookingFlow() {
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);
   const [gatewayInfo, setGatewayInfo] = useState({ provider: "easebuzz", enabled: true, environment: "sandbox" });
+  const [quoteMeta, setQuoteMeta] = useState(null); // { is_service_artist, waiver_message }
   const [alternatives, setAlternatives] = useState(null);
   // Iter 44 — Multi-Artist Event: if we came in from another booking's
   // "Add another artist" strip, pre-fill event basics and thread the
@@ -146,8 +147,13 @@ export default function BookingFlow() {
     api.get("/settings/public").then((r) => setPlatformSettings(r.data || {})).catch(() => {});
     // Iter 61 — Admin-configurable active payment gateway (Easebuzz only).
     api.get("/payment-gateway/public").then((r) => setGatewayInfo(r.data)).catch(() => {});
-    // Fetch only when the artist/package `id` changes. Adding `form.package_id`
-    // would refetch on every form key-stroke; adding `nav`/`user` would loop.
+    // Iter 83 — Fetch canonical price quote from backend so the summary
+    // shows waiver + Total per Sec 3-4. The backend is the only source
+    // of truth for fees/waivers/GST.
+    api.get(`/finance/quote?artist_id=${id}&package_fee=0`)
+      .then((r) => setQuoteMeta({ is_service_artist: r.data.is_service_artist, waiver_message: r.data.waiver_message }))
+      .catch(() => setQuoteMeta(null));
+    // Fetch only when the artist/package `id` changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -378,6 +384,10 @@ export default function BookingFlow() {
       event_date: form.event_date,
       event_time: form.event_time,
       event_type: form.event_type || "Wedding",
+      // Iter 83 — Sec 20/21/22 new fields
+      event_type_other: form.event_type === "Others" ? (form.event_type_other || "") : null,
+      number_of_days: parseInt(form.number_of_days) || 1,
+      venue_address: form.venue_address || "",
       venue: form.venue,
       city: form.city,
       guests: (form.guests || form.guest_count || "").toString(),
@@ -691,13 +701,51 @@ export default function BookingFlow() {
                     <select className="field-input" value={form.event_type} onChange={(e) => set("event_type", e.target.value)} data-testid="booking-event-type">
                       <option>Wedding / Sangeet</option><option>Corporate Event</option><option>Birthday Celebration</option>
                       <option>Private Concert</option><option>College Fest</option>
+                      <option>Product Launch</option><option>Award Function</option>
+                      <option>Festival</option><option>Conference</option>
+                      <option>Others</option>
                     </select>
+                  </div>
+                </div>
+                {form.event_type === "Others" && (
+                  <div className="field">
+                    <div className="field-label">Please specify your event type *</div>
+                    <input
+                      className="field-input"
+                      value={form.event_type_other || ""}
+                      onChange={(e) => set("event_type_other", e.target.value)}
+                      placeholder="e.g. Anniversary Gala, Store Opening…"
+                      maxLength={200}
+                      data-testid="booking-event-type-other"
+                    />
+                  </div>
+                )}
+                <div className="field-row">
+                  <div className="field">
+                    <div className="field-label">No. of Days *</div>
+                    <input
+                      className="field-input" type="number" min="1" max="30"
+                      value={form.number_of_days || 1}
+                      onChange={(e) => set("number_of_days", parseInt(e.target.value) || 1)}
+                      data-testid="booking-number-of-days"
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="field-label">Venue *</div>
+                    <input className="field-input" value={form.venue} onChange={(e) => set("venue", e.target.value)} placeholder="e.g. Taj Lands End" data-testid="booking-venue" />
                   </div>
                 </div>
                 <div className="field-row">
                   <div className="field">
-                    <div className="field-label">Venue *</div>
-                    <input className="field-input" value={form.venue} onChange={(e) => set("venue", e.target.value)} placeholder="e.g. Taj Lands End" data-testid="booking-venue" />
+                    <div className="field-label">Full Address *</div>
+                    <input
+                      className="field-input"
+                      value={form.venue_address || ""}
+                      onChange={(e) => set("venue_address", e.target.value)}
+                      placeholder="Complete event location / postal address"
+                      maxLength={500}
+                      data-testid="booking-venue-address"
+                    />
                   </div>
                   <div className="field">
                     <div className="field-label">City *</div>
@@ -926,8 +974,23 @@ export default function BookingFlow() {
                 )}
                 <div className="divider" style={{ margin: "8px 0" }} />
                 <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee (5%)</span><span>{fmtINRFull(platformFee)}</span></div>
+                {quoteMeta?.is_service_artist && (
+                  <>
+                    <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-waiver">
+                      <span className="text-good">Platform Fee Waiver</span>
+                      <span className="text-good">−{fmtINRFull(platformFee)}</span>
+                    </div>
+                    <div className="text-muted fs-11 mb-8" style={{ paddingLeft: 4 }}>
+                      ✨ {quoteMeta.waiver_message}
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between mb-8 fs-13"><span className="text-muted">GST (18% on Platform Fee)</span><span>{fmtINRFull(gst)}</span></div>
                 <div className="divider" style={{ margin: "12px 0" }} />
+                <div className="flex justify-between mb-12" data-testid="summary-total-row">
+                  <span className="fw-700 font-serif fs-16">Total</span>
+                  <span className="fw-700 text-gold font-serif fs-20">{fmtINRFull(artistFee + (quoteMeta?.is_service_artist ? 0 : platformFee) + gst)}</span>
+                </div>
                 <div className="flex justify-between mb-12">
                   <span className="fw-700">Amount Payable to BookTalent</span>
                   <span className="fw-700 text-gold font-serif fs-18" data-testid="bt-amount">{fmtINRFull(total)}</span>

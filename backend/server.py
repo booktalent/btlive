@@ -452,6 +452,13 @@ class BookingCreate(BaseModel):
     event_date: str
     event_time: str
     event_type: str
+    # Iter 83 — Sec 20/21/22. New booking-form fields:
+    #   event_type_other  → free-text when event_type == "Others"
+    #   number_of_days    → multi-day bookings (default 1)
+    #   venue_address     → full postal address (separate from venue name)
+    event_type_other: Optional[str] = Field(None, max_length=200)
+    number_of_days: int = Field(1, ge=1, le=30)
+    venue_address: Optional[str] = Field(None, max_length=500)
     venue: str
     city: str
     guests: Optional[str] = None
@@ -2171,7 +2178,11 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
         "event_date": body.event_date,
         "event_time": body.event_time,
         "event_type": body.event_type,
+        # Iter 83 — Sec 20/21/22
+        "event_type_other": (body.event_type_other or "").strip() if body.event_type == "Others" else None,
+        "number_of_days": int(body.number_of_days or 1),
         "venue": body.venue,
+        "venue_address": (body.venue_address or "").strip(),
         "city": body.city,
         # Iter 52.5 — Customer-offered travel allowance (direct-to-artist,
         # informational only). Printed on the contract PDF.
@@ -4390,6 +4401,13 @@ app.include_router(_iter11_router, prefix="/api")
 # from /api/settings/public; only admin can write via /api/settings/admin.
 from routes.settings import make_settings_router  # noqa: E402
 app.include_router(make_settings_router(db, admin_only, get_current_user), prefix="/api")
+
+# Iter 83 — v2 vertical: Financial quote + KYC state machine + T&C +
+# agreement PDF. Booking form fields (event_type_other, venue_address,
+# number_of_days) still write through the existing booking endpoints;
+# see BookBody below for the new optional fields.
+from routes.v2_flow import make_v2_router  # noqa: E402
+app.include_router(make_v2_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user

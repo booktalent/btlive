@@ -19,6 +19,7 @@ import AdminCityRequests from "./admin/AdminCityRequests";
 import AdminAdmins from "./admin/AdminAdmins";
 import AdminPaymentGateway from "./admin/AdminPaymentGateway";
 import AdminPaymentReconciliation from "./admin/AdminPaymentReconciliation";
+import AdminPlatformSettings from "./admin/AdminPlatformSettings";
 
 // Iter 57 — Sidebar → required permission. If the current admin lacks the
 // permission, the item is hidden from the sidebar entirely. `null` means
@@ -50,6 +51,7 @@ const SIDEBAR = [
   { id: "providers",        label: "🔌 Providers",             perm: "settings.manage" },
   { id: "payment-gateway",  label: "💳 Payment Gateway",       perm: "settings.manage" },
   { id: "payment-recon",    label: "🧾 Payment Reconciliation", perm: "payments.view" },
+  { id: "platform-settings", label: "🏗️ Platform Settings (v2)", perm: "settings.manage" },
   { id: "settings",         label: "⚙️ Settings",              perm: "settings.manage" },
   { id: "admins",           label: "🛡️ Admin Team",           perm: "admins.manage" },
   { id: "audit", label: "🛡️ Audit Logs", perm: "admins.manage" },
@@ -163,6 +165,7 @@ export default function AdminDashboard() {
           {effectiveTab === "providers" && <AdminProviders toast={toast} />}
           {effectiveTab === "payment-gateway" && <AdminPaymentGateway toast={toast} />}
           {effectiveTab === "payment-recon" && <AdminPaymentReconciliation toast={toast} />}
+          {effectiveTab === "platform-settings" && <AdminPlatformSettings />}
           {effectiveTab === "settings" && <AdminSettings toast={toast} />}
           {effectiveTab === "audit" && <AdminAudit />}
         </div>
