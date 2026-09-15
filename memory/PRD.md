@@ -1,6 +1,50 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔁 Iter 88 — Payout Retry + Report Schedules + Manager Scorecard + WA Templates Status (2026-09-15)
+
+### 1. Payout Auto-Retry Queue
+- New collection `payout_retry_queue` with per-entry state machine: `queued → in_progress → succeeded | failed | cancelled`.
+- Exponential backoff: 5m, 15m, 45m, 2h, 6h (5 attempts max) via `RETRY_BACKOFF` list in `routes/iter88.py`.
+- Background loop `payout_retry_loop` runs every 5 min, picks up entries with `next_attempt_at <= now`, attempts `_attempt_payout` (currently returns failure until `EASEBUZZ_PAYOUT_KEY/SALT` env vars are set).
+- Endpoints:
+  - `GET /admin/payouts/retry-queue?status=` — items + per-status summary counts.
+  - `POST /admin/payouts/retry-queue/{id}/retry` — force re-queue.
+  - `POST /admin/payouts/retry-queue/{id}/cancel` — halt future attempts.
+  - `POST /admin/payouts/retry-queue/enqueue?booking_id=&amount=&reason=` — admin manual enqueue.
+- `POST /bookings/{id}/payout/auto` now enqueues the failure instead of 503-ing. Response shape: `{queued: true, retry_entry: {...}}`.
+
+### 2. Scheduled Reports
+- New collection `report_schedules`. Fields: `kind` (artist_bookings / manager_leads / platform_waivers), `email`, `frequency` (daily / weekly / monthly), `day_of_week` (0-6, Mon=0), `hour_ist`, `enabled`, `next_run_at`, `last_run_at`, `last_run_status`, `last_run_error`.
+- Loop `report_schedule_loop` runs every 15 min, scans due schedules, regenerates the CSV via the same aggregation used by the live endpoints, emails as an attachment via existing SMTP.
+- `_next_due` helper computes next-run in UTC with proper IST offset handling for all 3 cadences.
+- Endpoints: `GET / POST / PATCH / DELETE /admin/report-schedules` + `POST /admin/report-schedules/{id}/run-now` (verified `{sent: true}` against live SMTP).
+
+### 3. Manager Performance Scorecard
+- `GET /admin/reports/manager-scorecard?month=YYYY-MM` — per-manager KPI cards:
+  - `leads_total`, `leads_won`, `leads_lost`, `conversion_pct`
+  - `revenue_driven` (sum of `pricing.total` on bookings assigned to that manager in the target month)
+  - `monthly_lead_target`, `monthly_revenue_target`
+  - `lead_progress_pct`, `revenue_progress_pct` (clamped to 200% to show over-achievers)
+- `PATCH /admin/managers/{id}/targets` sets `monthly_lead_target` + `monthly_revenue_target` on the manager user doc.
+
+### 4. WhatsApp Templates Status Page
+- `GET /admin/whatsapp/templates-status` — informational endpoint returning `{provider, templates: [{event, env_var, template_name}]}` for 6 key events (booking.confirmed, payment.received, payout.released, kyc.approved / rejected / needs_resubmission).
+- Admin UI shows which events run in template-mode vs plain-text fall-back with a red/green pill.
+
+### Frontend
+- New file `frontend/src/pages/admin/AdminIter88.jsx` exports 4 components: `AdminPayoutRetryQueue`, `AdminReportSchedules`, `AdminManagerScorecard`, `AdminWhatsAppTemplates`.
+- 4 new sidebar tabs in `AdminDashboard.jsx`: 🔁 Payout Retry Queue · 🏅 Manager Scorecard · 📅 Report Schedules · 📱 WhatsApp Templates.
+- Scorecard uses `ProgressBar` component with clamp so revenue >100% of target still renders sensibly. Modal `TargetsModal` sets per-manager goals inline.
+- Schedule form is a modal with kind/frequency/dow/hour_ist/email/enabled and inline "Run now" action per row.
+
+### E2E verified
+- Testing agent: **22/22 backend pytest passed · frontend 100%**, zero regressions on Iter 87.
+- Live SMTP confirmed sending scheduled report emails via `manager@booktalent.in`.
+- Retry queue transitions verified: enqueue → cancel → retry → back to queued.
+
+
+
 ## 🎨 Iter 87 — Admin Reports + Unified Audit Viewer + CORS Hardening + WhatsApp Template Mapping (2026-09-15)
 
 ### New backend router — `routes/reports.py`
