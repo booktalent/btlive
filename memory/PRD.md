@@ -1,6 +1,36 @@
 # BookTalent — Product Requirements Document
 
 
+## 📊 Iter 92 — Analytics Dashboard + Public Trust Page + Notification Preferences (2026-09-15)
+
+### 1. Admin Analytics Dashboard (`/admin?tab=analytics`)
+- Backend `routes/iter92.py` — 4 endpoints:
+  - `GET /admin/analytics/kpis?days=N` — GMV, platform revenue, GST, bookings, avg booking value, active artists, verified total, new customer/artist signups, lead volume + conversion pct.
+  - `GET /admin/analytics/funnel` — Leads → Quoted → Bookings → Confirmed → Paid → Completed with per-stage conversion pct from previous stage.
+  - `GET /admin/analytics/churn` — Last-month vs this-month active artists → retention & churn pct.
+  - `GET /admin/analytics/daily?days=N` — Time series with gap-filled zero days for a smooth line chart.
+- Frontend `AdminAnalyticsDashboard` — 8 KPI cards (churn card colour-coded by threshold), inline SVG line chart of daily GMV, and a funnel bar chart with per-stage conversion labels. Range selector 7/30/90/365 days.
+
+### 2. Public Trust Page (`/trust`)
+- `GET /public/trust-stats` (NO auth) — verified_artists, completed_events, cities_served, top_cities[10], avg_rating, total_reviews, total_bookings.
+- Frontend `TrustPage` — hero heading + 4 headline stat cards (🎤🎉📍⭐), city pills row, twin CTAs (Explore artists / List your talent).
+
+### 3. Per-user Notification Preferences (`/settings/notifications`)
+- Backend endpoints:
+  - `GET /user/notification-preferences` — merged view of 10 events × 4 channels with force_on flag on the 6 transactional events.
+  - `PATCH /user/notification-preferences` — sanitises input (unknown events + force-on events silently dropped).
+- Helper `is_channel_muted(db, user_id, event, channel)` exposed for `notification_service.dispatch` to short-circuit muted channels with `status='muted_by_user'` (force-on events always bypass).
+- Force-on events (regulatory / transactional, non-muteable): `booking.confirmed`, `payment.received`, `payout.released`, `kyc.approved`, `kyc.rejected`, `kyc.needs_resubmission`.
+- Frontend `NotificationPreferences` page — event × channel checkbox grid with 🔒 disabled state on force-on rows.
+- New 🔔 icon in Nav (`nav-notif-prefs`) linking to `/settings/notifications` for all authenticated users.
+
+### E2E verified
+- Testing agent: **8/8 backend pytest + frontend 100%**, zero action items, zero regressions.
+- Trust page rendered publicly (no login). Analytics dashboard shows real numbers (GMV ₹4.6L, 6 verified artists, 12 cities).
+- Notification prefs correctly persist Priya's opt-out of marketing.digest whatsapp+email; dispatch respects the mute at runtime.
+
+
+
 ## 🧽 Iter 91 — Onboarding Fix + Chat Attachments + Router Rename (2026-09-15)
 
 ### 1. Onboarding modal — dismissible persistently
