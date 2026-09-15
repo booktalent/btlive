@@ -1,6 +1,42 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎨 Iter 90b — Artist KYC Wizard + Admin Agreement Viewer + Manager Chat UI (2026-09-15)
+
+Three focused UI features built on already-existing backend logic.
+
+### 1. Artist KYC Wizard (9-stage progress bar)
+- Backend: `GET /api/kyc/pipeline` (in new `routes/iter90b.py`) returns `{current_status, step_index, stages[6], is_error, error_reason, agreement_url}`. Each stage has `id, label, action, status: done|current|pending`. Handles error states (`kyc_changes_required`, `kyc_rejected`, `suspended`) by pinning to the appropriate step with a red indicator + error reason surfacing.
+- Frontend: New `KycProgressBar` component injected above the KYC form in `ArtistDashboard.jsx`. Renders a horizontal progress rail with 6 numbered dots (kyc_pending → live), current one glowing gold, done ones green ✓, pending ones muted. Gradient fill line grows with progress. Shows next-action copy + a ⬇ Agreement download button once available.
+
+### 2. Admin Agreement Viewer + Re-issue
+- Backend endpoints (admin-only):
+  - `GET /admin/agreements/{artist_id}` — metadata + download URL
+  - `GET /admin/agreements/{artist_id}/download` — streams the PDF
+  - `POST /admin/agreements/{artist_id}/reissue` — regenerates via `routes/v2_flow._generate_agreement()`. Archives old row with `superseded_by`, `superseded_at`, `superseded_by_admin` for audit trail. 409 if artist not past T&C.
+- Frontend: Two new buttons on AdminKYC rows (only visible when `v2_status ∈ {agreement_generated, live}`):
+  - `📄 View Agreement` — opens signed PDF in new tab (`data-testid=kyc-agreement-view-<user_id>`)
+  - `↻ Re-issue` — confirm dialog then regenerates (`data-testid=kyc-agreement-reissue-<user_id>`)
+
+### 3. Manager Chat Moderation UI
+- Backend: `GET /manager/chats/threads` returns all booking chat threads for the calling manager (or all threads for admins). Each row has `booking_id, ref, status, event_date, customer_name, artist_name, last_message{content,sender_role,sender_name,created_at}, unread_count`. Sorted unread-first.
+- Frontend: New page at `/manager/chat` (`ManagerChat.jsx`). Two-column split:
+  - **Left**: Thread list with per-thread unread pill, last-message preview with sender-role tint, booking ref, and event date.
+  - **Right**: Selected thread messages rendered as chat bubbles (mine right/gold, others left/dark), with sender role pill + name for non-own messages. Auto-scrolls to bottom on new message. Reply textarea + Send button (Enter to send, Shift+Enter for newline). Header shows customer↔artist names + booking status pill + inline link to `/bookings/:id`.
+- Manager Dashboard now has `💬 Chat Moderation` link (`btn-chat`) alongside Leaderboard + Lead Board.
+
+### E2E verified
+- Testing agent: **17/17 backend pytest passed · frontend 100%** — all data-testids resolved cleanly.
+- Agreement flow verified end-to-end: view → download (2724 bytes PDF) → reissue (audit trail written).
+- KYC progress bar renders all 6 stages with correct current/done/pending distribution.
+- Manager chat empty state shown correctly + thread selection loads messages.
+
+### Notes / minor items deferred
+- Small data-quality thing: some seed artists have `agreement_id` set while `kyc_status='kyc_under_review'` — probably from an older path that generated agreements pre-approval. `/reissue` correctly 409s this state. If it ever surfaces in real use, a one-time cleanup script would clear orphan agreement_ids.
+- The onboarding welcome modal on ArtistDashboard auto-opens for every artist login (including already-onboarded). Should be dismissible persistently via a `seen_welcome_at` user flag. Non-blocking cosmetic.
+
+
+
 ## 🧹 Iter 90 — SYSTEM-WIDE Duplication Cleanup (2026-09-15)
 
 User explicitly said: **"complete running system chahiye bina kisi duplicacy and confusion ke"**. Focused hygiene iteration — zero new features, zero user-visible regressions.
