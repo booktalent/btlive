@@ -2282,3 +2282,25 @@ Singer (7), DJ (7), Band (5), Dancer (5), Stand-up Comedian (4), Anchor / Emcee 
 
 ### Live Easebuzz Keys (Item #1)
 - No code needed. User action: Admin → Payment Gateway → Live block → paste Key/Salt → set Environment = Live → Save. Backend already reads live block dynamically.
+
+---
+
+## Iter 93 — Trust SEO + Analytics Slack Alerts (Feb 2026)
+
+### Trust Page SEO (`/trust`)
+- Added `<Helmet>` in `frontend/src/pages/Iter92Pages.jsx::TrustPage` with dynamic `<title>`, `<meta name="description">`, canonical, robots, Open Graph, and Twitter Card tags — all populated from live `/api/public/trust-stats` (verified artists rounded to nearest 100 bucket for a snippet-friendly "1,000+ artists" pattern).
+- Added two JSON-LD `<script type="application/ld+json">` blocks: `Organization` (with `AggregateRating` when reviews exist) and `WebPage`. Enables Google to surface stars + review count directly in the SERP snippet.
+- Static fallback description in `public/index.html` untouched (used until Helmet mounts / for pages without their own).
+
+### Analytics Slack Alerts (`backend/routes/analytics_alerts.py`)
+- New module with two thresholded health signals:
+  - **GMV week-over-week drop > 20%** (last 7 days vs 7–14 days ago, based on bookings with `event_date` in each window).
+  - **Artist churn > 15%** (artists with confirmed/completed bookings in the last 30 days but ZERO bookings in the last 7 days).
+- Fires Slack via existing `routes/iter89.py::notify_slack` helper (mocks gracefully when `SLACK_WEBHOOK_URL` is empty and logs to `slack_logs`).
+- 7-day cooldown per alert kind tracked in new `analytics_alerts` collection to prevent spam when a metric stays bad.
+- Daily background loop `analytics_alerts_loop` registered in `server.py` startup alongside the payout-retry / report-schedule loops.
+- Admin endpoints:
+  - `POST /api/admin/analytics/run-alerts?force=true` — manual trigger, bypasses cooldown.
+  - `GET /api/admin/analytics/alert-history` — recent alert log + threshold config.
+- Verified end-to-end with synthetic data: 100% GMV drop + 50% churn both triggered Slack correctly, records inserted, cleanup successful.
+

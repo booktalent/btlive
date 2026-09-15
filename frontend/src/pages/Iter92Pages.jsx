@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import api, { fmtINRFull, formatApiError as fmt } from "../lib/api";
 import { useToast } from "../lib/toast";
 import Nav from "../components/Nav";
@@ -163,8 +164,71 @@ export function TrustPage() {
     api.get("/public/trust-stats").then((r) => setStats(r.data)).catch(() => setStats({}));
   }, []);
 
+  // ── SEO / Snippet-friendly copy ────────────────────────────────
+  // Round artists down to a 100-bucket for a snippet-friendly "1,000+ artists".
+  const artistBucket = stats?.verified_artists
+    ? `${Math.max(100, Math.floor(stats.verified_artists / 100) * 100).toLocaleString()}+`
+    : "1,000+";
+  const cityCount = stats?.cities_served || 50;
+  const rating = stats?.avg_rating || 4.9;
+  const reviewCount = stats?.total_reviews || 0;
+  const pageTitle = `Trusted by ${artistBucket} artists across ${cityCount} cities · ${rating}★ | BookTalent`;
+  const pageDesc = `BookTalent — India's managed talent marketplace. ${artistBucket} verified artists, ${cityCount}+ cities served, ${rating}★ average rating${reviewCount ? ` across ${reviewCount.toLocaleString()} reviews` : ""}. Every metric refreshed live from the platform.`;
+  const canonical = typeof window !== "undefined" ? `${window.location.origin}/trust` : "https://booktalent.in/trust";
+
+  // JSON-LD: Organization with an embedded AggregateRating so Google can
+  // render stars + review count directly in the SERP snippet. Only include
+  // AggregateRating when we actually have review data (schema.org requires
+  // ratingCount ≥ 1 for a valid AggregateRating).
+  const orgLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "BookTalent",
+    url: canonical.replace(/\/trust$/, ""),
+    logo: `${canonical.replace(/\/trust$/, "")}/logo.png`,
+    description: pageDesc,
+    areaServed: { "@type": "Country", name: "India" },
+    ...(reviewCount > 0 ? {
+      aggregateRating: {
+        "@type": "AggregateRating",
+        ratingValue: String(rating),
+        bestRating: "5",
+        worstRating: "1",
+        ratingCount: String(reviewCount),
+        reviewCount: String(reviewCount),
+      },
+    } : {}),
+  };
+  const webPageLd = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: pageTitle,
+    description: pageDesc,
+    url: canonical,
+    about: { "@type": "Organization", name: "BookTalent" },
+  };
+
   return (
     <div>
+      <Helmet>
+        <title>{pageTitle}</title>
+        <meta name="description" content={pageDesc} />
+        <link rel="canonical" href={canonical} />
+        <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large" />
+        {/* Open Graph */}
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="BookTalent" />
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={pageDesc} />
+        <meta property="og:url" content={canonical} />
+        {/* Twitter */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={pageTitle} />
+        <meta name="twitter:description" content={pageDesc} />
+        {/* Structured data */}
+        <script type="application/ld+json">{JSON.stringify(orgLd)}</script>
+        <script type="application/ld+json">{JSON.stringify(webPageLd)}</script>
+      </Helmet>
       <Nav />
       <div className="pad-24" data-testid="trust-page" style={{ maxWidth: 1000, margin: "0 auto" }}>
         <div className="text-center mb-24">

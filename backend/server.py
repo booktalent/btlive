@@ -4125,6 +4125,9 @@ async def startup():
     from routes.iter88 import payout_retry_loop as _pl, report_schedule_loop as _rsl  # noqa
     asyncio.create_task(_pl(db))
     asyncio.create_task(_rsl(db))
+    # Analytics Slack alerts — daily GMV/churn health sweep.
+    from routes.analytics_alerts import analytics_alerts_loop as _aal  # noqa
+    asyncio.create_task(_aal(db))
     # Iter 90 — One-shot KYC status backfill (align all 3 collections
     # to artist_profiles.kyc_status). Idempotent, safe every boot.
     try:
@@ -4494,6 +4497,10 @@ app.include_router(make_iter90b_router(db, get_current_user, admin_only), prefix
 # Iter 92 — Admin analytics + Public trust stats + Notification preferences
 from routes.iter92 import make_iter92_router  # noqa: E402
 app.include_router(make_iter92_router(db, get_current_user, admin_only), prefix="/api")
+
+# Analytics Slack alerts — GMV WoW drop + churn thresholds
+from routes.analytics_alerts import make_analytics_alerts_router  # noqa: E402
+app.include_router(make_analytics_alerts_router(db, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
