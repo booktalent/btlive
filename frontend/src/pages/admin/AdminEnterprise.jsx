@@ -679,7 +679,7 @@ export function AdminSettings({ toast }) {
       </div>
 
       <div className="card">
-        <div className="card-head"><div className="card-title">⚙️ Copy & CMS Settings</div></div>
+        <div className="card-head"><div className="card-title">📢 Site Notices & Misc Copy <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— shown on booking/checkout, footer, help pages</span></div></div>
         <div style={{ padding: 14 }}>
           <div className="table-wrap">
             <table className="table">

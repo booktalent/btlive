@@ -143,27 +143,10 @@ def make_v2_router(db: AsyncIOMotorDatabase, get_current_user, require_admin) ->
             "next_step": _next_step(status, prof),
         }
 
-    @r.post("/kyc/submit")
-    async def submit_kyc(body: KycSubmitBody, request: Request,
-                          user: dict = Depends(get_current_user)):
-        if user.get("role") != "artist":
-            raise HTTPException(403, "Artists only")
-        settings = await get_settings(db)
-        # Validate required docs are present (per admin config)
-        required = [d["code"] for d in settings.get("required_kyc_docs", []) if d.get("required")]
-        missing = [c for c in required if not body.documents.get(c)]
-        if missing:
-            raise HTTPException(400, f"Missing required documents: {', '.join(missing)}")
-        await _flip_kyc(db, user["id"], "kyc_under_review", extra={
-            "kyc_documents": body.documents,
-            "tech_rider_text": body.tech_rider_text or "",
-            "bank": body.bank or {},
-            "kyc_submitted_at": utcnow(),
-        })
-        await record_audit(db, actor=user, action="kyc.submit", entity="artist",
-                           entity_id=user["id"], new_value="kyc_under_review",
-                           request=request)
-        return {"ok": True, "kyc_status": "kyc_under_review"}
+    # Iter 90 — /kyc/submit lives ONLY in routes/kyc.py (richer schema:
+    # media upload IDs, PAN/Aadhaar regex validation, masked storage).
+    # Kept here as a `_flip_kyc` seam only; the HTTP surface is
+    # de-duplicated.
 
     # ─── KYC: admin side ─────────────────────────────────────────────
     @r.get("/admin/kyc/queue")
@@ -346,8 +329,8 @@ async def _generate_agreement(db: AsyncIOMotorDatabase, user: Dict[str, Any],
     plain-text fallback otherwise. Legally binding form of consent is the
     T&C tick, not a wet/e-signature.
     """
-    from routes.settings import get_settings
-    settings = await get_settings(db)
+    from routes.settings import get_settings as _get_settings
+    settings = await _get_settings(db)
     company = settings.get("company_info") or {}
 
     ref = f"AG-{datetime.now(timezone.utc).strftime('%y%m%d')}-{uuid.uuid4().hex[:6].upper()}"

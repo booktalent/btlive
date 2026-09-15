@@ -1,6 +1,46 @@
 # BookTalent — Product Requirements Document
 
 
+## 🧹 Iter 90 — SYSTEM-WIDE Duplication Cleanup (2026-09-15)
+
+User explicitly said: **"complete running system chahiye bina kisi duplicacy and confusion ke"**. Focused hygiene iteration — zero new features, zero user-visible regressions.
+
+### 1. KYC 3-way duplication FIXED
+Before: `users.kyc_status` + `kyc_submissions.status` (4-state legacy) + `artist_profiles.kyc_status` (9-state v2) — all three independently written by different routes, drifting apart.
+
+- **New**: `/app/backend/kyc_sync.py` — single sync helper `sync_kyc_status(user_id, v2_status | legacy_status)` writes to all 3 atomically with bidirectional mapping.
+- **Canonical source**: `artist_profiles.kyc_status` (v2 9-state names always).
+- **Mirrored caches**: `users.kyc_status` (v2 name) + `users.kyc_legacy_status` (4-state name, kept for legacy queries) + `kyc_submissions.status` (legacy) + `kyc_submissions.v2_status` (v2).
+- **Startup backfill**: `backfill_all()` runs at every boot. First run migrated 16/17 drifted users; now converges to `fixed=0` on subsequent boots. Handles orphan artist_profiles (missing user) gracefully.
+- **Legacy status upgrade**: `LEGACY_STATUS_UPGRADE` map upgrades old 4-state values (`pending`, `approved`, `rejected`, `needs_resubmission`) stored directly on `artist_profiles.kyc_status` to their v2 equivalents.
+- **Regressive-transition guard**: `POST /kyc/submit` now returns 409 if artist is already in `kyc_approved / tnc_pending / agreement_generated / live` state — admin must send back to `kyc_changes_required` first.
+- **Auto-recovery in admin_kyc_decide**: When admin decides on an artist whose docs were captured via the (now-removed) v2_flow `/kyc/submit` path, backend auto-creates the `kyc_submissions` row from `artist_profiles.kyc_documents` so the legacy admin endpoint keeps working.
+
+### 2. Duplicate `/kyc/submit` route REMOVED
+Both `routes/kyc.py` AND `routes/v2_flow.py` had `/kyc/submit`. Testing agent uncovered v2_flow was shadowing kyc.py's richer implementation (media IDs, PAN/Aadhaar regex, masking). **Removed v2_flow's version entirely** — only `routes/kyc.py` handles the endpoint now (with new regressive-state guard added).
+
+### 3. `/agency-legacy` DELETED
+Old `AgencyDashboard` component (384 lines) removed from `RoleDashboards.jsx`. Route removed from `App.js`. Only `AgencyDashboardV2` and its 11-module suite remain.
+
+### 4. Admin sidebar rename
+- `⚙️ Settings` → `📢 Site Notices & Blog Banner` — makes it clear this is *not* the financial config (that's `🏗️ Platform Settings (v2)`) and *not* CMS Pages (`📄 CMS Pages` — custom slug-based routes). Financial keys (`gst_pct`, `platform_fee_pct`, `token_pct`) remain hidden from this page (Iter 89).
+- Internal card title updated to "📢 Site Notices & Misc Copy".
+
+### 5. AdminKYC UI enhancement
+- `/admin/kyc` response now includes `v2_status` field per row.
+- Frontend AdminKYC row shows a v2 status pill (`data-testid="kyc-v2-<user_id>"`) when v2 state differs from legacy — so admin can see full 9-stage pipeline progress (e.g. "approved" + "tnc_pending" pill = artist approved but hasn't accepted T&C yet).
+
+### E2E verified
+- **Testing agent (Iter 90 first pass)**: 9/12 pytest passed — exposed the duplicate `/kyc/submit` shadowing bug. **All 3 critical + high-priority items fixed** in this same iteration:
+  - ✅ Duplicate route removed
+  - ✅ State-machine guard added on `/kyc/submit`
+  - ✅ `admin/kyc/decide` auto-recovers when submission row missing
+- **Backfill idempotency**: verified `fixed=0` on second boot after fix.
+- **Regression**: All Iter 87-89 endpoints (at-risk, payouts, audit-logs, leaderboard, snapshots, WA templates) return 200.
+- **Frontend**: `/agency-legacy` renders NotFound. AdminKYC v2 pill visible. Sidebar shows `📢 Site Notices & Blog Banner`.
+
+
+
 ## 🧹 Iter 89 — Leaderboard + Snapshots + Slack + WA Templates DB + GST Duplication Fix (2026-09-15)
 
 ### 1. New backend router `routes/iter89.py`

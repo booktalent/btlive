@@ -66,6 +66,22 @@ def make_router(
     async def kyc_submit(body: KYCSubmitBody, user: dict = Depends(get_current_user)):
         payload = body.model_dump(exclude_unset=True)
 
+        # Iter 90 — Guard against regressive transitions. Only for artists.
+        # A `live` / `tnc_pending` / `agreement_generated` / `kyc_approved`
+        # artist cannot re-submit — admin must first request changes.
+        if user.get("role") == "artist":
+            prof = await db.artist_profiles.find_one(
+                {"user_id": user["id"]}, {"kyc_status": 1, "_id": 0},
+            ) or {}
+            current = prof.get("kyc_status")
+            BLOCKED = {"kyc_approved", "tnc_pending", "agreement_generated", "live"}
+            if current in BLOCKED:
+                raise HTTPException(
+                    409,
+                    f"Cannot re-submit KYC — current state '{current}' is post-approval. "
+                    "Ask an admin to request changes first."
+                )
+
         aadhaar_no = (payload.get("aadhaar_number") or "").strip().replace(" ", "")
         pan_no = (payload.get("pan_number") or "").strip().upper()
         if aadhaar_no and not _AADHAAR_RX.match(aadhaar_no):
@@ -168,7 +184,24 @@ def make_router(
     async def admin_kyc_decide(body: KYCDecideBody, admin: dict = Depends(admin_only)):
         sub = await db.kyc_submissions.find_one({"user_id": body.artist_id})
         if not sub:
-            raise HTTPException(404, "No KYC submission found for this user")
+            # Iter 90 — Backfill a submission row for artists whose docs
+            # were captured via the old v2_flow /kyc/submit path (before
+            # the duplicate-route fix). This lets admin decide from the
+            # legacy admin queue even for pre-fix submissions.
+            prof = await db.artist_profiles.find_one(
+                {"user_id": body.artist_id},
+                {"kyc_documents": 1, "kyc_submitted_at": 1, "kyc_status": 1, "_id": 0},
+            ) or {}
+            if not prof or not prof.get("kyc_documents"):
+                raise HTTPException(404, "No KYC submission found for this user")
+            sub = {
+                "user_id": body.artist_id,
+                "documents": prof.get("kyc_documents") or {},
+                "status": "pending",
+                "v2_status": prof.get("kyc_status", "kyc_under_review"),
+                "submitted_at": prof.get("kyc_submitted_at") or utcnow(),
+            }
+            await db.kyc_submissions.insert_one({**sub, "id": new_id()})
 
         decision_to_status = {
             "approve": "approved",

@@ -158,7 +158,11 @@ async def backfill_all(db: AsyncIOMotorDatabase) -> Dict[str, int]:
         legacy = V2_TO_LEGACY.get(v2, "pending")
         verified = v2 in ("kyc_approved", "tnc_pending", "agreement_generated", "live")
         # Only update if drifted
-        u = await db.users.find_one({"id": uid}, {"kyc_status": 1, "kyc_legacy_status": 1, "verified": 1, "_id": 0}) or {}
+        u = await db.users.find_one({"id": uid}, {"kyc_status": 1, "kyc_legacy_status": 1, "verified": 1, "_id": 0})
+        if u is None:
+            # Orphan artist_profile — user was deleted. Skip so backfill
+            # converges instead of reporting the same "fix" every boot.
+            continue
         drifted = (
             u.get("kyc_status") != v2
             or u.get("kyc_legacy_status") != legacy
