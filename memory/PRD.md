@@ -1,6 +1,55 @@
 # BookTalent — Product Requirements Document
 
 
+## 🎯 Iter 84 — Phases 4-7 backend vertical (2026-09-15)
+
+Single bundled router `routes/crm_pay.py` — CRM, Payments, Payouts, Chat privacy.
+
+### CRM (Sec 26-30)
+- `leads` collection, 12-stage state machine (`new_lead → contacted → requirement_received → artist_suggested → quotation_sent → negotiation → booking_pending → booking_confirmed → payment_pending → event_upcoming → event_completed → closed | lost_cancelled`).
+- Endpoints: `POST /leads`, `GET /leads?stage=&assigned_manager_id=`, `PATCH /leads/{id}/stage`, `POST /leads/{id}/assign`.
+- Manager role scoping: managers only see leads assigned to them (`assigned_manager_id == user.id`); admin sees all.
+- Every stage change + assignment writes an audit row (old/new value, actor email, IP).
+- `GET /manager/dashboard` — pipeline-stage counts + active bookings for the calling manager.
+
+### Payments (Sec 32-37)
+- `payment_schedules` collection created on-demand from `POST /bookings/{id}/schedule` — idempotent.
+- Uses admin-configurable `payment_schedule` (default 30/40/20/10) + `instant_book_rules`:
+  - Event > 7 days → standard schedule.
+  - Event ≤ 7 days → collapse pre-event milestones so ≥ `short_window_min_before_event_pct` (90) is collected upfront.
+  - Event ≤ 48h → single 100% upfront milestone.
+- `POST /bookings/{id}/schedule/mark-paid` records manual payment against a milestone; running `amount_received` tracked.
+- Background loop `payment_reminder_loop` (every 3h) sends **7-day / 2-day / due / overdue** emails via SMTP. Idempotent per (schedule_id, milestone_index, kind) so duplicates are impossible.
+
+### Payouts (Sec 40-44, 64)
+- `POST /bookings/{id}/payout/manual` — records UTR, method (neft/imps/upi/cash/cheque/other), bank ref, notes. Flips booking's `artist_payout_status=paid`. Admin/Manager/Agency roles allowed.
+- `POST /bookings/{id}/payout/auto` — gated on **both** `payout_mode=easebuzz` AND `enable_automated_payout=true`. When disabled → 400 with clear message. When enabled → integration stub raises 503 with instructions ("Add EASEBUZZ_PAYOUT_KEY/SALT and implement `_easebuzz_payout_stub()`") — this is the seam for Phase 10 integration.
+- `GET /bookings/{id}/payouts` — audit history newest-first.
+- Financial engine's `artist_payable` (fee − BookTalent commission) drives the payout amount in the auto flow — no double deduction (Sec 39).
+
+### Chat privacy (Sec 23-24)
+- `chat_v2_threads` + `chat_v2_messages` — thread creation auto-detects `is_service_artist` on the artist profile.
+- Service Artist threads are `is_managed=true`, auto-assigned to an active manager.
+- When the ARTIST sends a message in a managed thread, phone numbers (10-13 digit runs) and email addresses are automatically redacted before the customer sees them (regex-based `_redact_contact_info`).
+- Admin can retrieve the un-redacted `body_original` for audit; customers/managers see only the redacted `body`.
+- Message scrollback intentionally sorted **ascending** (oldest first) — natural conversation flow, one of the few exceptions to the platform's descending default.
+
+### E2E verified (curl)
+1. Admin creates a lead → assigns to Rahul (manager) → advances stage `new_lead → contacted`. All 3 actions audit-logged.
+2. Booking schedule created with milestones `[Booking Advance ₹30k @now, D-7 ₹40k, D-2 ₹20k, D+1 ₹10k]` for event 2026-12-25.
+3. Milestone-0 marked paid via UPI → schedule shows `amount_received=₹30k`.
+4. Manual payout ₹25k/UTR:BT789456 → booking flips to `paid`.
+5. Auto-payout with flag OFF → `400 "Automated payout is disabled"`.
+6. Manager dashboard returns stage counts + active bookings for calling manager only.
+7. Chat privacy: artist sends `"Call me on 9876543210 or email me@artist.com"` in a service-artist thread → customer receives `"Call me on [contact hidden]or email [email hidden]"`. Admin can still read the original message.
+
+### Still pending (next batch)
+- Frontend UIs for Manager Dashboard, Lead Board, Payment Timeline, Payout Console, Chat inbox
+- WhatsApp channel (need provider — Gupshup/Meta) — currently email-only
+- Agency financial view + At-Risk booking dashboard (Sec 45-48, 55)
+
+
+
 ## 💰 Iter 83 — v2 Batch: Financial Engine + KYC state machine + Booking form redesign + Admin Settings UI (2026-09-15)
 
 ### Financial Engine — centralised, backend-only calculator (`financial_engine.py`)

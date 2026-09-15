@@ -4074,6 +4074,9 @@ async def startup():
     asyncio.create_task(_auto_expire_loop())
     # Iter 79 — Event-day reminder loop (fires the morning of each event).
     asyncio.create_task(_event_reminder_loop())
+    # Iter 84 — Payment milestone reminder loop (Sec 35).
+    from routes.crm_pay import payment_reminder_loop as _prl  # noqa
+    asyncio.create_task(_prl(db))
 
 
 async def _seed_demo():
@@ -4408,6 +4411,12 @@ app.include_router(make_settings_router(db, admin_only, get_current_user), prefi
 # see BookBody below for the new optional fields.
 from routes.v2_flow import make_v2_router  # noqa: E402
 app.include_router(make_v2_router(db, get_current_user, admin_only), prefix="/api")
+
+# Iter 84 — Phases 4-7: CRM (leads + manager assignment) + Payments
+# (milestones + reminders) + Payouts (manual + Easebuzz-ready abstraction)
+# + Chat (manager-mediated for Service Artists with contact-privacy redaction).
+from routes.crm_pay import make_crm_pay_router, payment_reminder_loop  # noqa: E402
+app.include_router(make_crm_pay_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
