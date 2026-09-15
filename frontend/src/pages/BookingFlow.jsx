@@ -96,7 +96,8 @@ export default function BookingFlow() {
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [successData, setSuccessData] = useState(null);
   const [gatewayInfo, setGatewayInfo] = useState({ provider: "easebuzz", enabled: true, environment: "sandbox" });
-  const [quoteMeta, setQuoteMeta] = useState(null); // { is_service_artist, waiver_message }
+  const [quoteMeta, setQuoteMeta] = useState(null); // full breakdown from /finance/quote
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const [alternatives, setAlternatives] = useState(null);
   // Iter 44 — Multi-Artist Event: if we came in from another booking's
   // "Add another artist" strip, pre-fill event basics and thread the
@@ -149,9 +150,11 @@ export default function BookingFlow() {
     api.get("/payment-gateway/public").then((r) => setGatewayInfo(r.data)).catch(() => {});
     // Iter 83 — Fetch canonical price quote from backend so the summary
     // shows waiver + Total per Sec 3-4. The backend is the only source
-    // of truth for fees/waivers/GST.
+    // of truth for fees/waivers/GST. This runs once on mount for initial
+    // quoteMeta hydration; a second effect below re-fetches whenever the
+    // pricing inputs (package + add-ons) change.
     api.get(`/finance/quote?artist_id=${id}&package_fee=0`)
-      .then((r) => setQuoteMeta({ is_service_artist: r.data.is_service_artist, waiver_message: r.data.waiver_message }))
+      .then((r) => setQuoteMeta(r.data))
       .catch(() => setQuoteMeta(null));
     // Fetch only when the artist/package `id` changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -328,15 +331,34 @@ export default function BookingFlow() {
   });
 
   // ── BookTalent business model ─────────────────────────────────────
-  // We only collect Platform Service Fee (5% of Artist Fee) + 18% GST on it.
-  // The Artist Performance Fee is settled directly between Customer and Artist.
+  // Backend is the ONLY source of truth for pricing. We call /finance/quote
+  // whenever the base inputs change and read platform_fee / gst / total
+  // from the response — no more hardcoded 5% / 18% on the frontend.
   const artistFee = primarySubtotal;                    // paid directly to artist
-  const platformFee = Math.round(artistFee * 0.05);    // BookTalent service charge
-  const gst = Math.round(platformFee * 0.18);          // 18% on platform fee only
-  const total = platformFee + gst;                      // amount payable to BookTalent (single-artist)
-  const token = total;                                  // legacy var — full BT amount
-  // Keep `subtotal` defined to avoid breakage in legacy display blocks
-  const subtotal = artistFee;
+  const platformFee = quoteMeta ? Math.round(quoteMeta.platform_fee || 0)         : Math.round(artistFee * 0.05);
+  const platformFeeNet = quoteMeta ? Math.round(quoteMeta.platform_fee_net || 0) : platformFee;
+  const gst = quoteMeta ? Math.round(quoteMeta.gst_amount || 0)                   : Math.round(platformFee * 0.18);
+  const gstPercent = quoteMeta?.gst_percent ?? 18;
+  const feePercent = quoteMeta?.platform_fee_percent ?? 5;
+  const gstVisible = quoteMeta ? !!quoteMeta.gst_visible : true;
+  // "Amount payable to BookTalent" = net platform fee + GST + add-ons GST.
+  // Artist Performance Fee is settled directly customer↔artist, not through us.
+  const total = platformFeeNet + gst;                    // BookTalent-collected amount
+  const token = total;                                   // legacy alias
+  const subtotal = artistFee;                            // legacy alias for display blocks
+
+  // Re-fetch canonical quote when pricing inputs change so the summary
+  // stays perfectly in sync with what the server will actually charge.
+  useEffect(() => {
+    if (!id) return;
+    const packageFee = pkgPrice + addonsTotal + artistAddonsTotal;
+    setQuoteLoading(true);
+    api.get(`/finance/quote?artist_id=${id}&package_fee=${packageFee}`)
+      .then((r) => setQuoteMeta(r.data))
+      .catch(() => { /* keep last good quote */ })
+      .finally(() => setQuoteLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, pkgPrice, addonsTotal, artistAddonsTotal]);
 
   const submitBooking = async () => {
     setBusy(true);
@@ -973,23 +995,29 @@ export default function BookingFlow() {
                   <div className="flex justify-between mb-8 fs-11" style={{ marginLeft: 12 }} data-testid="summary-artist-addons"><span className="text-muted">  + Artist add-ons {fmtINRFull(Math.round(artistAddonsTotal))}</span></div>
                 )}
                 <div className="divider" style={{ margin: "8px 0" }} />
-                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee (5%)</span><span>{fmtINRFull(platformFee)}</span></div>
+                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee ({feePercent}%)</span><span>{fmtINRFull(platformFee)}</span></div>
                 {quoteMeta?.is_service_artist && (
                   <>
                     <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-waiver">
-                      <span className="text-good">Platform Fee Waiver</span>
+                      <span className="text-good">Platform Fee Waived</span>
                       <span className="text-good">−{fmtINRFull(platformFee)}</span>
                     </div>
-                    <div className="text-muted fs-11 mb-8" style={{ paddingLeft: 4 }}>
+                    <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-payable">
+                      <span className="text-muted">Platform Fee Payable</span>
+                      <span>{fmtINRFull(0)}</span>
+                    </div>
+                    <div className="text-good fs-11 mb-8" style={{ paddingLeft: 4 }}>
                       ✨ {quoteMeta.waiver_message}
                     </div>
                   </>
                 )}
-                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">GST (18% on Platform Fee)</span><span>{fmtINRFull(gst)}</span></div>
+                {gstVisible && (
+                  <div className="flex justify-between mb-8 fs-13"><span className="text-muted">GST ({gstPercent}% on {quoteMeta?.is_service_artist ? "Artist Fee" : "Artist Fee + Platform Fee"})</span><span>{fmtINRFull(gst)}</span></div>
+                )}
                 <div className="divider" style={{ margin: "12px 0" }} />
                 <div className="flex justify-between mb-12" data-testid="summary-total-row">
                   <span className="fw-700 font-serif fs-16">Total</span>
-                  <span className="fw-700 text-gold font-serif fs-20">{fmtINRFull(artistFee + (quoteMeta?.is_service_artist ? 0 : platformFee) + gst)}</span>
+                  <span className="fw-700 text-gold font-serif fs-20">{fmtINRFull(artistFee + platformFeeNet + gst)}</span>
                 </div>
                 <div className="flex justify-between mb-12">
                   <span className="fw-700">Amount Payable to BookTalent</span>

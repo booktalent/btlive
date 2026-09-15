@@ -3265,6 +3265,45 @@ async def admin_stats(_: dict = Depends(require_permission("analytics.view"))):
     avgs = await db.artist_profiles.find({"rating_avg": {"$gt": 0}}).to_list(1000)
     avg_rating = (sum(a["rating_avg"] for a in avgs) / len(avgs)) if avgs else 0
 
+    # ── Feb 2026 requirement batch — Founder-visible KPIs ─────────
+    now_iso = datetime.now(timezone.utc).isoformat()
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    new_leads = await db.leads.count_documents({"stage": {"$in": ["new", "new_lead", "qualification"]}})
+    active_bookings = await db.bookings.count_documents({"status": {"$in": ["confirmed", "started"]}})
+    upcoming_events = await db.bookings.count_documents({
+        "status": {"$in": ["confirmed", "started"]},
+        "event_date": {"$gte": today_str},
+    })
+    agreements_pending = await db.artist_profiles.count_documents({"kyc_status": {"$in": ["kyc_approved", "tnc_pending"]}})
+    customer_payment_pending = await db.bookings.count_documents({
+        "status": {"$in": ["confirmed", "pending_payment"]},
+        "payment_status": {"$in": ["pending", "partial"]},
+    })
+    overdue_payments = await db.bookings.count_documents({
+        "payment_status": {"$in": ["pending", "partial", "overdue"]},
+        "event_date": {"$lt": today_str},
+    })
+    payout_pending = await db.bookings.count_documents({
+        "payment_status": {"$in": ["partial", "paid", "fully_paid"]},
+        "$or": [
+            {"artist_payout_status": {"$ne": "paid"}},
+            {"artist_payout_status": {"$exists": False}},
+        ],
+    })
+    agency_bookings = await db.bookings.count_documents({"agency_id": {"$exists": True, "$ne": None}})
+
+    # Remaining amount across active bookings (Total − paid_amount)
+    remaining_total = 0.0
+    async for b in db.bookings.find(
+        {"status": {"$in": ["confirmed", "started"]}},
+        {"_id": 0, "pricing": 1, "paid_amount": 1},
+    ):
+        p = b.get("pricing") or {}
+        total = float(p.get("total") or 0)
+        paid = float(b.get("paid_amount") or 0)
+        remaining_total += max(0.0, total - paid)
+
     return {
         "gmv": total_gmv,                       # marketplace artist-fee volume (informational)
         "platform_revenue": round(platform_rev, 2),  # BookTalent net platform fee earnings
@@ -3282,6 +3321,16 @@ async def admin_stats(_: dict = Depends(require_permission("analytics.view"))):
         "pending_refunds": pending_refunds,
         "pending_kyc": pending_kyc,
         "avg_rating": round(avg_rating, 2),
+        # Feb-2026 requirement KPIs
+        "new_leads": new_leads,
+        "active_bookings": active_bookings,
+        "upcoming_events": upcoming_events,
+        "agreements_pending": agreements_pending,
+        "customer_payment_pending": customer_payment_pending,
+        "overdue_payments": overdue_payments,
+        "artist_payout_pending": payout_pending,
+        "agency_bookings": agency_bookings,
+        "remaining_amount": round(remaining_total, 2),
     }
 
 
@@ -4501,6 +4550,10 @@ app.include_router(make_iter92_router(db, get_current_user, admin_only), prefix=
 # Analytics Slack alerts — GMV WoW drop + churn thresholds
 from routes.analytics_alerts import make_analytics_alerts_router  # noqa: E402
 app.include_router(make_analytics_alerts_router(db, admin_only), prefix="/api")
+
+# Feb-2026 requirement batch — Tech Rider + Manager add-customer/on-behalf + advance-pending broadcast
+from routes.req_batch import make_req_batch_router  # noqa: E402
+app.include_router(make_req_batch_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user

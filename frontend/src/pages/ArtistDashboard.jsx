@@ -45,6 +45,7 @@ const SIDEBAR = [
   { id: "subscription", label: "💎 Subscription" },
   { id: "concierge", label: "🎩 Concierge", elite: true },
   { id: "kyc", label: "🪪 KYC" },
+  { id: "tech_rider", label: "🎛️ Tech Rider" },
 ];
 
 export default function ArtistDashboard() {
@@ -335,8 +336,11 @@ export default function ArtistDashboard() {
           {tab === "subscription" && <Subscription toast={toast} highlight={subHighlight} onHighlightConsumed={() => setSubHighlight(null)} />}
           {tab === "concierge" && <Concierge toast={toast} setTab={setTab} setSubHighlight={setSubHighlight} />}
           {tab === "kyc" && <KYC toast={toast} refresh={refresh} />}
+          {tab === "tech_rider" && <TechRiderPanel toast={toast} />}
         </div>
       </main>
+      {/* Mandatory T&C modal — fires when KYC is approved but T&C not yet accepted */}
+      <TncAgreementGate toast={toast} onDone={() => refreshMe && refreshMe()} />
       {showWizard && <OnboardingWizard
         user={user}
         onComplete={async () => {
@@ -2695,6 +2699,236 @@ function QuestionnaireNudge({ completion, onOpen }) {
           ✕
         </button>
       </div>
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// T&C Agreement Gate — mandatory modal shown when KYC is approved but the
+// artist has not yet accepted terms. On acceptance, backend generates the
+// signed agreement and flips the artist to LIVE.
+// ────────────────────────────────────────────────────────────────────────
+function TncAgreementGate({ toast, onDone }) {
+  const [needs, setNeeds] = useState(false);
+  const [kyc, setKyc] = useState(null);
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    api.get("/kyc/me")
+      .then((r) => {
+        setKyc(r.data);
+        // Show only when KYC is approved but T&C acceptance still pending.
+        setNeeds(r.data?.kyc_status === "kyc_approved" || r.data?.kyc_status === "tnc_pending");
+      })
+      .catch(() => setNeeds(false));
+  }, []);
+
+  const accept = async () => {
+    if (!checked) { toast("Please tick the checkbox to accept the Terms & Conditions", "error"); return; }
+    setBusy(true);
+    try {
+      const r = await api.post("/kyc/accept-terms", { accepted: true });
+      toast("🎉 Terms accepted — your agreement is ready and you're now live!", "success");
+      setNeeds(false);
+      if (r.data?.agreement_url) {
+        window.open(r.data.agreement_url, "_blank", "noopener,noreferrer");
+      }
+      onDone && onDone();
+    } catch (e) {
+      toast(formatApiError(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!needs || dismissed) return null;
+  const pctText = kyc?.is_service_artist && kyc?.percentage_deal
+    ? `BookTalent Service Artist · Commission ${kyc.percentage_deal}%`
+    : "Normal Artist · Platform Fee 5% (charged to customer only)";
+
+  return (
+    <div
+      data-testid="tnc-gate"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,4,20,0.82)",
+        display: "grid", placeItems: "center", zIndex: 999, padding: 16,
+        backdropFilter: "blur(6px)",
+      }}
+    >
+      <div
+        className="card card-pad"
+        style={{ maxWidth: 560, width: "100%", background: "#0F0F1B", border: "1px solid rgba(212,175,55,0.35)" }}
+      >
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
+          <div style={{ fontSize: 30 }}>📜</div>
+          <div>
+            <h2 className="font-serif fw-700" style={{ fontSize: 22, color: "#D4AF37", marginBottom: 4 }}>
+              Accept the BookTalent Artist Agreement
+            </h2>
+            <div className="text-muted fs-13">
+              KYC approved 🎉. To go live and start accepting bookings, please review and accept the terms below.
+            </div>
+          </div>
+        </div>
+        <div
+          style={{
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 13, lineHeight: 1.55,
+          }}
+        >
+          <div className="fw-700 mb-4">Commercial deal (set at KYC)</div>
+          <div className="text-muted mb-8">{pctText}</div>
+          <div className="fw-700 mb-4">Key terms</div>
+          <ul style={{ margin: 0, paddingLeft: 18, color: "rgba(240,238,255,0.75)" }}>
+            <li>You agree to keep availability, packages and profile info accurate.</li>
+            <li>All customer communication for BookTalent-Service bookings flows through the assigned Manager.</li>
+            <li>Payouts follow BookTalent's milestone schedule after each successful event.</li>
+            <li>Cancellation and dispute policies apply as per platform rules.</li>
+          </ul>
+        </div>
+        <label
+          data-testid="tnc-checkbox-wrap"
+          style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", marginBottom: 14 }}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e) => setChecked(e.target.checked)}
+            data-testid="tnc-checkbox"
+            style={{ marginTop: 3, transform: "scale(1.2)" }}
+          />
+          <span style={{ fontSize: 13 }}>
+            I have read and agree to the BookTalent Artist Terms & Conditions. I understand a signed agreement
+            will be generated and emailed to me on acceptance.
+          </span>
+        </label>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setDismissed(true)}
+            data-testid="tnc-remind-later"
+          >Remind me later</button>
+          <button
+            className="btn btn-gold"
+            disabled={busy || !checked}
+            onClick={accept}
+            data-testid="tnc-accept"
+          >{busy ? "Generating agreement…" : "Accept & Go Live"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// Tech Rider Panel — artist uploads/updates/downloads their tech rider.
+// ────────────────────────────────────────────────────────────────────────
+function TechRiderPanel({ toast }) {
+  const [rider, setRider] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState(null);
+
+  const reload = () => api.get("/artist/tech-rider/mine").then((r) => setRider(r.data)).catch(() => setRider(null));
+  useEffect(() => { reload(); }, []);
+
+  const upload = async () => {
+    if (!file) { toast("Please choose a file first", "error"); return; }
+    if (file.size > 10 * 1024 * 1024) { toast("File exceeds 10 MB limit", "error"); return; }
+    const fd = new FormData();
+    fd.append("file", file);
+    setBusy(true);
+    try {
+      await api.post("/artist/tech-rider/upload", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast("Tech Rider uploaded successfully", "success");
+      setFile(null);
+      reload();
+    } catch (e) {
+      toast(formatApiError(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm("Remove your uploaded Tech Rider?")) return;
+    setBusy(true);
+    try {
+      await api.delete("/artist/tech-rider/mine");
+      toast("Tech Rider removed");
+      reload();
+    } catch (e) {
+      toast(formatApiError(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const current = rider?.file;
+
+  return (
+    <div className="card card-pad" data-testid="tech-rider-panel">
+      <h2 className="font-serif fs-20 fw-700 mb-8">Tech Rider</h2>
+      <p className="text-muted fs-13 mb-16">
+        Upload your Tech Rider (PDF or image) so organisers and their production team know exactly what you need on stage.
+        Max 10 MB. Replacing the file overrides the previous one.
+      </p>
+
+      {current ? (
+        <div
+          className="card card-pad mb-16"
+          data-testid="tech-rider-current"
+          style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.25)" }}
+        >
+          <div className="flex-between mb-8" style={{ gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div className="fw-700 fs-14">📎 {current.filename}</div>
+              <div className="text-muted fs-11 mt-4">
+                {(current.size / 1024).toFixed(1)} KB · uploaded {(current.uploaded_at || "").slice(0, 10)}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <a
+                className="btn btn-ghost btn-sm"
+                href={`${api.defaults.baseURL}${current.url}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="tech-rider-download"
+              >⬇ Download</a>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={remove}
+                disabled={busy}
+                data-testid="tech-rider-remove"
+                style={{ color: "#e57373" }}
+              >Remove</button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="text-muted fs-13 mb-16">No Tech Rider uploaded yet.</div>
+      )}
+
+      <div className="field">
+        <div className="field-label">{current ? "Replace file" : "Upload file"} (PDF / JPG / PNG / WEBP, max 10 MB)</div>
+        <input
+          type="file"
+          accept="application/pdf,image/*"
+          onChange={(e) => setFile(e.target.files && e.target.files[0])}
+          data-testid="tech-rider-file-input"
+        />
+      </div>
+      <button
+        className="btn btn-gold"
+        onClick={upload}
+        disabled={busy || !file}
+        data-testid="tech-rider-upload"
+      >{busy ? "Uploading…" : current ? "Replace Tech Rider" : "Upload Tech Rider"}</button>
     </div>
   );
 }

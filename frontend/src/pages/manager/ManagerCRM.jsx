@@ -38,6 +38,8 @@ export function ManagerDashboard() {
   const toast = useToast();
   const [dash, setDash] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+  const [bookOpen, setBookOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -73,12 +75,24 @@ export function ManagerDashboard() {
           </Link>
         ))}
       </div>
-      <div className="flex gap-8">
+      <div className="flex gap-8" style={{ flexWrap: "wrap" }}>
         <Link to="/manager/leads" className="btn btn-gold" data-testid="btn-lead-board">Open Lead Board →</Link>
         <Link to="/manager/leads?stage=new_lead" className="btn btn-ghost">Work New Leads</Link>
         <Link to="/manager/leaderboard" className="btn btn-ghost" data-testid="btn-leaderboard">🏆 Team Leaderboard</Link>
         <Link to="/manager/chat" className="btn btn-ghost" data-testid="btn-chat">💬 Chat Moderation</Link>
+        <button
+          className="btn btn-ghost"
+          onClick={() => document.getElementById("mgr-add-customer-modal")?.showModal?.() || setAddOpen(true)}
+          data-testid="btn-add-customer"
+        >+ Add Customer</button>
+        <button
+          className="btn btn-ghost"
+          onClick={() => setBookOpen(true)}
+          data-testid="btn-create-booking-on-behalf"
+        >+ Create Booking on Behalf</button>
       </div>
+      {addOpen && <AddCustomerModal onClose={() => setAddOpen(false)} onSaved={() => setAddOpen(false)} toast={toast} />}
+      {bookOpen && <CreateBookingOnBehalfModal onClose={() => setBookOpen(false)} toast={toast} />}
     </div>
   );
 }
@@ -274,3 +288,223 @@ const Row = ({ k, v }) => (
     <span className="text-right" style={{ maxWidth: "60%" }}>{v}</span>
   </div>
 );
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// AddCustomerModal — manager creates a walk-in / phone-in customer.
+// ────────────────────────────────────────────────────────────────────────
+export function AddCustomerModal({ onClose, onSaved, toast }) {
+  const [form, setForm] = useState({
+    email: "", first_name: "", last_name: "", phone: "", city: "", notes: "",
+  });
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!form.email || !form.first_name) { toast("Email and first name are required", "error"); return; }
+    setBusy(true);
+    try {
+      const r = await api.post("/manager/customers", form);
+      toast(r.data?.existing ? "Customer already existed — linked" : "Customer added ✓", "success");
+      onSaved && onSaved(r.data?.user);
+    } catch (e) { toast(fmt(e), "error"); }
+    setBusy(false);
+  };
+
+  return (
+    <div
+      data-testid="mgr-add-customer-modal"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,4,20,0.75)",
+        display: "grid", placeItems: "center", zIndex: 900, padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div className="card card-pad" style={{ maxWidth: 480, width: "100%", background: "#0F0F1B" }}
+        onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-serif fw-700 fs-18 mb-12">Add Customer</h3>
+        <div className="grid grid-2 gap-8">
+          <input className="input" placeholder="First name *" value={form.first_name}
+            onChange={(e) => setForm({ ...form, first_name: e.target.value })}
+            data-testid="mgr-add-fn" />
+          <input className="input" placeholder="Last name" value={form.last_name}
+            onChange={(e) => setForm({ ...form, last_name: e.target.value })}
+            data-testid="mgr-add-ln" />
+        </div>
+        <input className="input mt-8" placeholder="Email *" value={form.email}
+          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          data-testid="mgr-add-email" />
+        <div className="grid grid-2 gap-8 mt-8">
+          <input className="input" placeholder="Phone" value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            data-testid="mgr-add-phone" />
+          <input className="input" placeholder="City" value={form.city}
+            onChange={(e) => setForm({ ...form, city: e.target.value })}
+            data-testid="mgr-add-city" />
+        </div>
+        <textarea className="input mt-8" placeholder="Notes (optional)" rows={2}
+          value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          data-testid="mgr-add-notes" />
+        <div className="flex gap-8 mt-12" style={{ justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-gold" onClick={submit} disabled={busy} data-testid="mgr-add-save">
+            {busy ? "Saving…" : "Add Customer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// CreateBookingOnBehalfModal — manager creates a booking for a chosen
+// customer + artist. Basic fields; central financial engine computes the
+// pricing server-side.
+// ────────────────────────────────────────────────────────────────────────
+export function CreateBookingOnBehalfModal({ onClose, toast }) {
+  const [step, setStep] = useState(1);
+  const [customers, setCustomers] = useState([]);
+  const [artists, setArtists] = useState([]);
+  const [q, setQ] = useState("");
+  const [aq, setAq] = useState("");
+  const [form, setForm] = useState({
+    customer_id: "", artist_id: "", package_fee: "",
+    event_type: "wedding", event_type_other: "",
+    event_date: "", number_of_days: 1,
+    venue: "", venue_address: "", city: "", notes: "",
+  });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get(`/manager/customers?q=${encodeURIComponent(q)}&limit=20`)
+      .then((r) => setCustomers(r.data?.items || [])).catch(() => setCustomers([]));
+  }, [q]);
+  useEffect(() => {
+    api.get(`/search?q=${encodeURIComponent(aq)}&limit=20`)
+      .then((r) => setArtists(r.data?.artists || r.data?.items || r.data || []))
+      .catch(() => setArtists([]));
+  }, [aq]);
+
+  const submit = async () => {
+    if (!form.customer_id || !form.artist_id || !form.event_date || !form.venue || !form.venue_address || !form.city) {
+      toast("Fill all mandatory fields (customer, artist, date, venue, address, city)", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const payload = { ...form, package_fee: parseFloat(form.package_fee || 0), number_of_days: parseInt(form.number_of_days || 1) };
+      const r = await api.post("/manager/bookings", payload);
+      toast(`Booking created ✓ ${r.data?.booking?.ref || ""}`, "success");
+      onClose();
+    } catch (e) { toast(fmt(e), "error"); }
+    setBusy(false);
+  };
+
+  return (
+    <div
+      data-testid="mgr-create-booking-modal"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,4,20,0.75)",
+        display: "grid", placeItems: "center", zIndex: 900, padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div className="card card-pad" style={{ maxWidth: 640, width: "100%", background: "#0F0F1B", maxHeight: "90vh", overflow: "auto" }}
+        onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-serif fw-700 fs-18 mb-12">Create Booking on Behalf</h3>
+
+        {step === 1 && (
+          <>
+            <div className="fw-700 fs-13 mb-4">1. Pick Customer</div>
+            <input className="input mb-8" placeholder="Search customers (name / email / phone)"
+              value={q} onChange={(e) => setQ(e.target.value)} data-testid="mgr-book-cust-search" />
+            <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8 }}>
+              {customers.map((c) => (
+                <div key={c.id}
+                  onClick={() => { setForm({ ...form, customer_id: c.id, city: c.city || form.city }); setStep(2); }}
+                  style={{ padding: 10, cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+                  data-testid={`mgr-book-cust-${c.id}`}>
+                  <div className="fw-700 fs-13">{c.first_name} {c.last_name}</div>
+                  <div className="text-muted fs-11">{c.email} · {c.phone || "—"}</div>
+                </div>
+              ))}
+              {customers.length === 0 && <div className="text-muted pad-16 fs-13">No customers match. Use "Add Customer" first.</div>}
+            </div>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <div className="fw-700 fs-13 mb-4">2. Pick Artist</div>
+            <input className="input mb-8" placeholder="Search artists"
+              value={aq} onChange={(e) => setAq(e.target.value)} data-testid="mgr-book-artist-search" />
+            <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8 }}>
+              {(artists || []).map((a) => {
+                const aid = a.user_id || a.id;
+                const name = a.stage_name || a.name || `${a.first_name || ""} ${a.last_name || ""}`.trim() || "Artist";
+                return (
+                  <div key={aid} onClick={() => { setForm({ ...form, artist_id: aid }); setStep(3); }}
+                    style={{ padding: 10, cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+                    data-testid={`mgr-book-artist-${aid}`}>
+                    <div className="fw-700 fs-13">{name}</div>
+                    <div className="text-muted fs-11">{a.category || "—"} · {a.city || "—"}</div>
+                  </div>
+                );
+              })}
+              {(!artists || artists.length === 0) && <div className="text-muted pad-16 fs-13">No artists match your search.</div>}
+            </div>
+            <div className="flex gap-8 mt-8"><button className="btn btn-ghost btn-sm" onClick={() => setStep(1)}>← Back</button></div>
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <div className="fw-700 fs-13 mb-8">3. Event Details</div>
+            <div className="grid grid-2 gap-8">
+              <select className="input" value={form.event_type}
+                onChange={(e) => setForm({ ...form, event_type: e.target.value })} data-testid="mgr-book-etype">
+                <option value="wedding">Wedding</option>
+                <option value="corporate">Corporate</option>
+                <option value="private">Private</option>
+                <option value="festival">Festival</option>
+                <option value="birthday">Birthday</option>
+                <option value="others">Others</option>
+              </select>
+              {form.event_type === "others" && (
+                <input className="input" placeholder="Please specify"
+                  value={form.event_type_other}
+                  onChange={(e) => setForm({ ...form, event_type_other: e.target.value })}
+                  data-testid="mgr-book-etype-other" />
+              )}
+            </div>
+            <div className="grid grid-2 gap-8 mt-8">
+              <input type="date" className="input" value={form.event_date}
+                onChange={(e) => setForm({ ...form, event_date: e.target.value })} data-testid="mgr-book-date" />
+              <input type="number" min={1} className="input" placeholder="No. of Days *"
+                value={form.number_of_days}
+                onChange={(e) => setForm({ ...form, number_of_days: e.target.value })} data-testid="mgr-book-days" />
+            </div>
+            <input className="input mt-8" placeholder="Venue *"
+              value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} data-testid="mgr-book-venue" />
+            <input className="input mt-8" placeholder="Full Address *"
+              value={form.venue_address} onChange={(e) => setForm({ ...form, venue_address: e.target.value })} data-testid="mgr-book-addr" />
+            <input className="input mt-8" placeholder="City *"
+              value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} data-testid="mgr-book-city" />
+            <input type="number" className="input mt-8" placeholder="Package Fee (₹)"
+              value={form.package_fee} onChange={(e) => setForm({ ...form, package_fee: e.target.value })} data-testid="mgr-book-fee" />
+            <textarea className="input mt-8" placeholder="Notes" rows={2}
+              value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="mgr-book-notes" />
+
+            <div className="flex gap-8 mt-12" style={{ justifyContent: "flex-end" }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setStep(2)}>← Back</button>
+              <button className="btn btn-gold" onClick={submit} disabled={busy} data-testid="mgr-book-submit">
+                {busy ? "Creating…" : "Create Booking"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -149,6 +149,23 @@ export default function AdminDashboard() {
                 <Kpi icon="⚠️" cls="kpi-icon-red" num={stats.open_disputes || 0} label="Open Disputes" />
                 <Kpi icon="⭐" cls="kpi-icon-gold" num={stats.avg_rating || 0} label="Avg. Artist Rating" />
               </div>
+
+              {/* Feb-2026 requirement KPIs — funnel & operational health */}
+              <div className="kpi-grid mb-24" data-testid="admin-kpis-req">
+                <Kpi icon="🎯" cls="kpi-icon-purple" num={stats.new_leads || 0} label="New Leads" />
+                <Kpi icon="✅" cls="kpi-icon-green" num={stats.active_bookings || 0} label="Active Bookings" />
+                <Kpi icon="📆" cls="kpi-icon-blue" num={stats.upcoming_events || 0} label="Upcoming Events" />
+                <Kpi icon="📜" cls="kpi-icon-amber" num={stats.agreements_pending || 0} label="Agreements Pending" />
+              </div>
+              <div className="kpi-grid mb-24">
+                <Kpi icon="💳" cls="kpi-icon-amber" num={stats.customer_payment_pending || 0} label="Customer Payments Pending" />
+                <Kpi icon="⏰" cls="kpi-icon-red" num={stats.overdue_payments || 0} label="Overdue Payments" />
+                <Kpi icon="💸" cls="kpi-icon-purple" num={stats.artist_payout_pending || 0} label="Artist Payouts Pending" />
+                <Kpi icon="💰" cls="kpi-icon-gold" num={fmtINRFull(stats.remaining_amount || 0)} label="Remaining ₹ Across Bookings" />
+              </div>
+              <div className="kpi-grid mb-24">
+                <Kpi icon="🎭" cls="kpi-icon-purple" num={stats.agency_bookings || 0} label="Agency Bookings" />
+              </div>
             </>
           )}
 

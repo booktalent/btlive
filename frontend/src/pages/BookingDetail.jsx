@@ -148,6 +148,9 @@ export default function BookingDetail() {
           </div>
         </div>
 
+        {/* ── Booking Timeline (full lifecycle) ─────────────────── */}
+        <BookingTimeline booking={booking} payouts={payouts} />
+
         {/* ── Payment Timeline ──────────────────────────────────── */}
         <div className="mb-16">
           <PaymentTimeline bookingId={id} canEdit={canEditPayments} />
@@ -180,6 +183,152 @@ export default function BookingDetail() {
           <Link to={user?.role === "admin" ? "/admin" : user?.role === "manager" ? "/manager" : "/customer"}
                 className="btn btn-ghost btn-sm" data-testid="bd-back">← Back to dashboard</Link>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// BookingTimeline — visual audit trail of every important stage.
+// Derives its stages from the booking document + payout ledger so it works
+// without a dedicated status_history collection.
+// ────────────────────────────────────────────────────────────────────────
+function BookingTimeline({ booking, payouts }) {
+  if (!booking) return null;
+  const p = booking.pricing || {};
+  const total = Number(p.total || 0);
+  const paid = Number(booking.paid_amount || 0);
+  const totalPayout = (payouts || []).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const evtDate = booking.event_date || "";
+  const today = new Date().toISOString().slice(0, 10);
+  const evtInFuture = evtDate && evtDate >= today;
+
+  const stages = [
+    {
+      key: "lead_created",
+      label: "Lead / Booking Created",
+      at: booking.created_at,
+      done: !!booking.created_at,
+    },
+    {
+      key: "manager_assigned",
+      label: "Manager Assigned",
+      at: booking.manager_assigned_at,
+      done: !!booking.assigned_manager_id,
+      hint: booking.assigned_manager_id ? "Assigned" : "Auto-assigns when a lead qualifies",
+    },
+    {
+      key: "artist_selected",
+      label: "Artist Selected",
+      at: booking.created_at,
+      done: !!booking.artist_id,
+    },
+    {
+      key: "booking_confirmed",
+      label: "Booking Confirmed",
+      at: booking.confirmed_at,
+      done: ["confirmed", "started", "completed", "reviewed"].includes(booking.status),
+      hint: booking.status === "pending_artist" ? "Awaiting artist confirmation" : "",
+    },
+    {
+      key: "payment_received",
+      label: paid > 0 ? `Payment Received · ₹${money(paid)} of ₹${money(total)}` : "Payment Received",
+      at: booking.first_payment_at,
+      done: paid > 0,
+    },
+    {
+      key: "artist_payout",
+      label: totalPayout > 0
+        ? `Artist Payout · ₹${money(totalPayout)}`
+        : "Artist Payout",
+      at: (payouts && payouts[0]?.paid_on) || null,
+      done: totalPayout > 0,
+      hint: totalPayout === 0 && paid > 0 ? "Pending — mark paid from payout ledger" : "",
+    },
+    {
+      key: "remaining_payment",
+      label: total > paid
+        ? `Remaining Payment · ₹${money(total - paid)} due`
+        : "Remaining Payment · settled",
+      at: booking.remaining_paid_at,
+      done: total > 0 && paid >= total,
+    },
+    {
+      key: "event",
+      label: `Event${evtDate ? ` · ${evtDate}` : ""}`,
+      at: evtDate,
+      done: evtDate && !evtInFuture,
+      hint: evtInFuture ? "Upcoming" : "",
+    },
+    {
+      key: "final_payment",
+      label: "Final Payment / Settlement",
+      at: booking.finalized_at,
+      done: booking.status === "completed" || booking.status === "reviewed",
+    },
+    {
+      key: "completed",
+      label: "Completed",
+      at: booking.completed_at,
+      done: booking.status === "completed" || booking.status === "reviewed",
+    },
+  ];
+
+  const currentIndex = (() => {
+    for (let i = stages.length - 1; i >= 0; i--) {
+      if (stages[i].done) return i + 1;
+    }
+    return 0;
+  })();
+
+  return (
+    <div className="card card-pad mb-16" data-testid="bd-timeline">
+      <div className="flex-between mb-12">
+        <h3 className="fw-700">Booking Timeline</h3>
+        <span className="text-muted fs-11">{currentIndex} of {stages.length} stages</span>
+      </div>
+      <div style={{ position: "relative", paddingLeft: 22 }}>
+        <div style={{
+          position: "absolute", top: 6, bottom: 6, left: 10, width: 2,
+          background: "rgba(255,255,255,0.08)",
+        }} />
+        {stages.map((s, i) => {
+          const isCurrent = i === currentIndex - 1;
+          return (
+            <div
+              key={s.key}
+              data-testid={`bd-timeline-${s.key}`}
+              style={{ position: "relative", marginBottom: 14, minHeight: 22 }}
+            >
+              <div style={{
+                position: "absolute", left: -18, top: 3, width: 18, height: 18,
+                borderRadius: "50%",
+                background: s.done ? "#6ee7a8" : isCurrent ? "#D4AF37" : "rgba(255,255,255,0.10)",
+                color: (s.done || isCurrent) ? "#0F0F1B" : "rgba(255,255,255,0.4)",
+                fontSize: 10, fontWeight: 700,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                border: isCurrent ? "3px solid rgba(212,175,55,0.35)" : "2px solid rgba(255,255,255,0.08)",
+              }}>{s.done ? "✓" : ""}</div>
+              <div style={{
+                fontSize: 13, fontWeight: isCurrent || s.done ? 700 : 500,
+                color: s.done ? "rgba(240,238,255,0.9)"
+                        : isCurrent ? "#D4AF37"
+                        : "rgba(240,238,255,0.4)",
+              }}>{s.label}</div>
+              {s.at && (
+                <div className="text-muted fs-11" style={{ marginTop: 2 }}>
+                  {String(s.at).slice(0, 10)}
+                </div>
+              )}
+              {s.hint && (
+                <div className="text-muted fs-11" style={{ marginTop: 2, fontStyle: "italic" }}>
+                  {s.hint}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
