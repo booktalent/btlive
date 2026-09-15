@@ -64,7 +64,7 @@ const SIDEBAR = [
   { id: "wa-templates",     label: "📱 WhatsApp Templates",     perm: "settings.manage" },
   { id: "at-risk",          label: "⚠️ At-Risk Bookings",       perm: "bookings.view" },
   { id: "platform-settings", label: "🏗️ Platform Settings (v2)", perm: "settings.manage" },
-  { id: "settings",         label: "⚙️ Settings",              perm: "settings.manage" },
+  { id: "settings",         label: "📝 CMS Copy",              perm: "settings.manage" },
   { id: "admins",           label: "🛡️ Admin Team",           perm: "admins.manage" },
   { id: "audit", label: "🛡️ Audit Logs", perm: "admins.manage" },
 ];
@@ -375,7 +375,16 @@ function AdminKYC({ toast }) {
                     {k.user?.first_name} {k.user?.last_name}
                     {k.artist_profile?.stage_name && <span className="text-muted fs-12" style={{ marginLeft: 8 }}>· {k.artist_profile.stage_name}</span>}
                   </div>
-                  <div className="text-muted fs-12">{k.user?.email} · Submitted {k.submitted_at?.slice(0, 10)} · <span className={`pill pill-${k.status === "approved" ? "green" : k.status === "rejected" ? "red" : "amber"}`}>{k.status}</span></div>
+                  <div className="text-muted fs-12">
+                    {k.user?.email} · Submitted {k.submitted_at?.slice(0, 10)} ·{" "}
+                    <span className={`pill pill-${k.status === "approved" ? "green" : k.status === "rejected" ? "red" : "amber"}`}>{k.status}</span>
+                    {/* Iter 90 — v2 state visibility */}
+                    {k.v2_status && k.v2_status !== k.status && (
+                      <span className="pill pill-gold" style={{ marginLeft: 4, fontSize: 10 }} title="Post-approval v2 state" data-testid={`kyc-v2-${k.user_id}`}>
+                        {k.v2_status}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-muted fs-11 mt-4">Docs: {Object.keys(k.documents || {}).join(", ") || "—"}{k.pan_number && ` · PAN ${k.pan_number}`}{k.aadhaar_number_masked && ` · Aadhaar ${k.aadhaar_number_masked}`}</div>
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(isOpen ? null : k.user_id)} data-testid={`kyc-view-${k.user_id}`}>{isOpen ? "Hide" : "View"}</button>

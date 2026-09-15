@@ -29,7 +29,7 @@ import Footer from "./components/Footer";
 import CustomerDashboard from "./pages/CustomerDashboard";
 import ArtistDashboard from "./pages/ArtistDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
-import { AgencyDashboard, CorporateDashboard } from "./pages/RoleDashboards";
+import { CorporateDashboard } from "./pages/RoleDashboards";
 import NotFound from "./pages/NotFound";
 import CmsPage from "./pages/CmsPage";
 import HelpCenter from "./pages/HelpCenter";
@@ -119,7 +119,6 @@ function App() {
                 <Route path="/customer" element={<Protected roles={ROLES_CUSTOMER}><CustomerDashboard /></Protected>} />
                 <Route path="/artist" element={<Protected roles={ROLES_ARTIST}><ArtistDashboard /></Protected>} />
                 <Route path="/agency/*" element={<Protected roles={ROLES_AGENCY}><AgencyDashboardV2 /></Protected>} />
-                <Route path="/agency-legacy" element={<Protected roles={ROLES_AGENCY}><AgencyDashboard /></Protected>} />
                 <Route path="/corporate" element={<Protected roles={ROLES_CORPORATE}><CorporateDashboard /></Protected>} />
                 <Route path="/admin" element={<Protected roles={ROLES_ADMIN}><AdminDashboard /></Protected>} />
                 <Route path="*" element={<NotFound />} />

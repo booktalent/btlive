@@ -110,9 +110,15 @@ def make_router(
             {"$set": sub_doc},
             upsert=True,
         )
-        await db.users.update_one({"id": user["id"]}, {"$set": {"kyc_status": "pending"}})
+        # Iter 90 — Use sync helper so all 3 collections stay aligned.
         if user["role"] == "artist":
-            await db.artist_profiles.update_one({"user_id": user["id"]}, {"$set": {"kyc_status": "pending"}})
+            from kyc_sync import sync_kyc_status
+            await sync_kyc_status(db, user_id=user["id"], legacy_status="pending")
+        else:
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"kyc_status": "kyc_under_review", "kyc_legacy_status": "pending"}},
+            )
 
         # Notify admins so they can act fast
         try:
@@ -148,9 +154,13 @@ def make_router(
             if u and u.get("role") == "artist":
                 ap = await db.artist_profiles.find_one(
                     {"user_id": u["id"]},
-                    {"stage_name": 1, "category": 1, "city": 1, "_id": 0},
+                    {"stage_name": 1, "category": 1, "city": 1, "kyc_status": 1, "_id": 0},
                 )
                 d["artist_profile"] = ap
+                # Iter 90 — expose the v2 pipeline state so the admin UI
+                # can show post-approval progress (tnc_pending →
+                # agreement_generated → live).
+                d["v2_status"] = (ap or {}).get("kyc_status")
             out.append(d)
         return out
 
@@ -176,14 +186,18 @@ def make_router(
                 "reason": body.reason,
             }},
         )
-        await db.users.update_one(
-            {"id": body.artist_id},
-            {"$set": {"kyc_status": new_status, "verified": new_status == "approved"}},
+        # Iter 90 — Single source of truth via kyc_sync helper.
+        # This atomically updates artist_profiles (canonical) + users
+        # (cache) + kyc_submissions (audit) with matching v2 status.
+        from kyc_sync import sync_kyc_status
+        synced = await sync_kyc_status(
+            db, user_id=body.artist_id,
+            legacy_status=new_status,
+            reason=body.reason,
+            decided_by=admin.get("email"),
         )
-        await db.artist_profiles.update_one(
-            {"user_id": body.artist_id},
-            {"$set": {"kyc_status": new_status, "verified_badge": new_status == "approved"}},
-        )
+        # For downstream notification templates
+        v2_status = synced["v2"]
 
         target_user = await db.users.find_one({"id": body.artist_id})
         titles = {

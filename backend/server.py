@@ -4107,6 +4107,15 @@ async def startup():
     from routes.iter88 import payout_retry_loop as _pl, report_schedule_loop as _rsl  # noqa
     asyncio.create_task(_pl(db))
     asyncio.create_task(_rsl(db))
+    # Iter 90 — One-shot KYC status backfill (align all 3 collections
+    # to artist_profiles.kyc_status). Idempotent, safe every boot.
+    try:
+        from kyc_sync import backfill_all as _kyc_backfill  # noqa
+        stats = await _kyc_backfill(db)
+        if stats["fixed"]:
+            log.info("[kyc_sync] backfill fixed %d/%d drifted users", stats["fixed"], stats["scanned"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("[kyc_sync] backfill failed: %s", e)
 
 
 async def _seed_demo():
