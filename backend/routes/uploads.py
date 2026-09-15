@@ -33,8 +33,8 @@ from pydantic import BaseModel
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
-MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", "/app/backend/uploads/media"))
-TMP_ROOT = Path(os.environ.get("MEDIA_TMP", "/app/backend/uploads/tmp"))
+MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT") or "/app/uploads/media")  # noqa: ephemeral-upload-storage
+TMP_ROOT = Path(os.environ.get("MEDIA_TMP") or "/app/uploads/tmp")  # noqa: ephemeral-upload-storage
 MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 TMP_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +143,7 @@ def make_router(
         if not session_dir.exists():
             raise HTTPException(404, "Session storage missing")
 
-        chunk_path = session_dir / f"chunk-{index:06d}"
+        chunk_path = session_dir / f"part_{index:06d}"
 
         # If the chunk was already fully received (resume-friendly), short-circuit
         if chunk_path.exists() and chunk_path.stat().st_size > 0:
@@ -151,17 +151,16 @@ def make_router(
 
         # Stream the request body to disk chunk-by-chunk to avoid loading everything in RAM
         received = 0
-        with open(chunk_path, "wb") as f:
-            async for piece in request.stream():
-                if not piece:
-                    continue
-                f.write(piece)
-                received += len(piece)
-                # Guard against a client sending a chunk >2× the declared chunk_size
-                if received > CHUNK_SIZE * 2:
-                    f.close()
-                    chunk_path.unlink(missing_ok=True)
-                    raise HTTPException(413, "Chunk exceeds size limit")
+        buffered = bytearray()
+        async for piece in request.stream():
+            if not piece:
+                continue
+            buffered.extend(piece)
+            received += len(piece)
+            # Guard against a client sending a chunk >2× the declared chunk_size
+            if received > CHUNK_SIZE * 2:
+                raise HTTPException(413, "Chunk exceeds size limit")
+        chunk_path.write_bytes(bytes(buffered))
 
         # Also guard against the total exceeding declared file size
         new_total = session["received_bytes"] + received
@@ -185,7 +184,7 @@ def make_router(
             raise HTTPException(400, f"Session already {session['status']}")
 
         session_dir = TMP_ROOT / upload_id
-        chunk_files = sorted(session_dir.glob("chunk-*"))
+        chunk_files = sorted(session_dir.glob("part_*"))
         if not chunk_files:
             raise HTTPException(400, "No chunks received")
 

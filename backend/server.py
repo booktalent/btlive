@@ -339,7 +339,7 @@ class RegisterBody(BaseModel):
     # Iter 66 — Corporate role temporarily hidden from public signup. Kept in
     # the Literal so existing corporate users can still be created via the
     # admin panel + backfilled data. Public /auth/register rejects it below.
-    role: Literal["customer", "artist", "agency", "corporate"]
+    role: Literal["customer", "artist", "agency", "corporate", "manager"]
     # artist-specific
     category: Optional[str] = None
     city: Optional[str] = None
@@ -1394,13 +1394,12 @@ async def video_upload_chunk(
         raise HTTPException(404, "Upload session not found or expired.")
     if sess.get("assembled"):
         raise HTTPException(400, "This upload session is already finalised.")
-    chunk_path = os.path.join(sess["session_dir"], f"chunk_{chunk_index:06d}.bin")
+    chunk_path = os.path.join(sess["session_dir"], f"part_{chunk_index:06d}.bin")
     # Stream chunk to disk so we never buffer > chunk_size in memory.
     data = await chunk.read()
     if len(data) > _MAX_CHUNK_BYTES:
         raise HTTPException(413, f"Chunk too large. Max {_MAX_CHUNK_BYTES // (1024*1024)} MB per chunk.")
-    with open(chunk_path, "wb") as f:
-        f.write(data)
+    Path(chunk_path).write_bytes(data)
     await db.video_upload_sessions.update_one(
         {"id": session_id}, {"$inc": {"chunks_received": 1}},
     )
@@ -1421,7 +1420,7 @@ async def video_upload_finish(
 
     session_dir = sess["session_dir"]
     # Assemble chunks in ascending index order.
-    parts = sorted(f for f in os.listdir(session_dir) if f.startswith("chunk_"))
+    parts = sorted(f for f in os.listdir(session_dir) if f.startswith("part_"))
     if not parts:
         raise HTTPException(400, "No chunks received.")
 
@@ -4384,6 +4383,13 @@ app.include_router(_iter9_router, prefix="/api")
 # Iter11 — ICS calendar, CSV exports, AI semantic search
 _iter11_router = make_iter11_router(db, get_current_user, admin_only)
 app.include_router(_iter11_router, prefix="/api")
+
+# Iter 82 — Platform Settings + Audit Log (v2 financial-engine foundation).
+# GST %, Platform Fee %, Payment Schedule, Payout Mode feature flag,
+# Instant Book rules & required KYC docs all live here. Frontend reads
+# from /api/settings/public; only admin can write via /api/settings/admin.
+from routes.settings import make_settings_router  # noqa: E402
+app.include_router(make_settings_router(db, admin_only, get_current_user), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user

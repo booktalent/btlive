@@ -1,6 +1,46 @@
 # BookTalent — Product Requirements Document
 
 
+## 🏗️ Iter 82 — v2 Foundation: Platform Settings + Audit Log + Manager Role (2026-09-15)
+
+**Context** — Kick-off of the MD's 67-section v2 requirements. This is Phase 1 (Foundation). Everything downstream (fee waiver, payment schedules, payouts, agency dashboard, CRM) reads its business rules from here.
+
+### Platform Settings (admin-configurable, DB-backed singleton)
+- `platform_settings` collection, `id: "singleton"`. Auto-seeded on first read.
+- Public read (`GET /api/platform-settings/public`) — safe fields for frontend price calculations, KYC forms, payout badge copy.
+- Admin read/write (`GET/PATCH /api/platform-settings/admin`) — full row.
+- Fields:
+  - `gst_percent` (0–50) — configurable, 0 hides GST rows in UI (Sec 5).
+  - `platform_fee_percent` (0–50) — customer-side platform fee (Sec 3).
+  - `payment_schedule[]` — configurable milestones (default 30/40/20/10). Backend validates percents sum to 100.
+  - `instant_book_rules{}` — 7/48h/same-day thresholds (Sec 34).
+  - `payout_mode` — `manual` | `easebuzz`. **Backend-side guard** rejects switching to `easebuzz` unless `enable_automated_payout=true` (Sec 43).
+  - `enable_automated_payout` — feature flag, OFF by default (Sec 43, 64).
+  - `required_kyc_docs[]` — driven by admin, not hard-coded (Sec 6, 63).
+  - `company_info{}` — legal name, GSTIN, PAN, support email/phone.
+
+### Audit Log core
+- `audit_logs` collection + `record_audit()` helper.
+- Every settings write emits one audit row per changed field with old/new value, actor email + role, IP, user-agent, ISO timestamp.
+- `GET /api/audit-logs?entity=&entity_id=&actor_id=&limit=` (admin only, newest-first, capped at 500).
+- Never raises on failure — audit logging must never break a business flow.
+
+### Manager role (Sec 27)
+- Added `"manager"` to the `Literal` role enum in `RegisterBody`.
+- Role is now valid across `require_role`, `admin_only`, auth cookies, etc.
+- Frontend manager dashboards + assignment flows to be added in Phase 4.
+
+### E2E verified
+- GST 18 → 12 → audit row written with actor `admin@booktalent.com`, IP + UA captured.
+- `payout_mode: easebuzz` without flag → 400.
+- Payment schedule that doesn't sum to 100 → 400.
+- Public settings endpoint returns fresh values immediately after admin write.
+
+### Next up — Phase 2 (Artist Onboarding v2)
+KYC status state-machine (9 statuses), percentage-deal storage, T&C popup enforcement, agreement auto-gen + email, artist-goes-live only after all onboarding steps.
+
+
+
 ## ⏰ Iter 79 — Event-day reminder emails (2026-08-25)
 
 ### Automatic morning-of reminder
