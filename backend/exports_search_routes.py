@@ -70,7 +70,7 @@ def build_ics(*, uid: str, summary: str, description: str, location: str,
     return body.encode("utf-8")
 
 
-def make_iter11_router(db, get_current_user, admin_only) -> APIRouter:
+def make_exports_search_router(db, get_current_user, admin_only) -> APIRouter:
     r = APIRouter()
 
     # ─────────────────────────────────────────────────────────────

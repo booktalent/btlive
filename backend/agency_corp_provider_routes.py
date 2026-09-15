@@ -591,11 +591,15 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         booking = await db.bookings.find_one({"id": booking_id})
         if not booking:
             raise HTTPException(404, "Booking not found")
-        if user["role"] != "admin" and user["id"] not in (booking.get("customer_id"), booking.get("artist_id")):
+        # Iter 91 — Assigned managers can moderate the chat too.
+        is_participant = user["id"] in (booking.get("customer_id"), booking.get("artist_id"))
+        is_manager = user.get("role") == "manager" and booking.get("assigned_manager_id") == user["id"]
+        if user["role"] != "admin" and not is_participant and not is_manager:
             raise HTTPException(403, "Not a participant")
         # Payment gate — block file / voice / video-request uploads until Platform Service Fee paid.
         # Legacy bookings (no payment_status field) are unlocked once they're past `pending_payment`.
-        if user["role"] != "admin":
+        # Managers and admins bypass the payment gate (moderator access).
+        if user["role"] != "admin" and not is_manager:
             ps = booking.get("payment_status")
             status = booking.get("status")
             unlocked = (ps and ps != "unpaid") or (status and status != "pending_payment")

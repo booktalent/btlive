@@ -157,11 +157,14 @@ def make_chat_router(db, get_current_user) -> APIRouter:
         b = await db.bookings.find_one({"id": booking_id})
         if not b:
             raise HTTPException(404, "Booking not found")
-        if role != "admin" and user_id not in (b.get("customer_id"), b.get("artist_id")):
+        # Iter 91 — Assigned manager can moderate the chat too.
+        is_participant = user_id in (b.get("customer_id"), b.get("artist_id"))
+        is_manager = role == "manager" and b.get("assigned_manager_id") == user_id
+        if role != "admin" and not is_participant and not is_manager:
             raise HTTPException(403, "Not a participant on this booking")
         # Payment gate: customer/artist cannot chat until the platform service fee is paid.
-        # Admin always bypasses (for moderation / dispute support).
-        if enforce_payment and role != "admin" and not _is_chat_unlocked(b):
+        # Admin + assigned manager always bypass (moderator access / dispute support).
+        if enforce_payment and role != "admin" and not is_manager and not _is_chat_unlocked(b):
             raise HTTPException(
                 403,
                 "Chat Access Denied — Complete Platform Service Fee payment to unlock chat.",
@@ -175,9 +178,11 @@ def make_chat_router(db, get_current_user) -> APIRouter:
         b = await db.bookings.find_one({"id": booking_id})
         if not b:
             raise HTTPException(404, "Booking not found")
-        if user["role"] != "admin" and user["id"] not in (b.get("customer_id"), b.get("artist_id")):
+        is_participant = user["id"] in (b.get("customer_id"), b.get("artist_id"))
+        is_manager = user["role"] == "manager" and b.get("assigned_manager_id") == user["id"]
+        if user["role"] != "admin" and not is_participant and not is_manager:
             raise HTTPException(403, "Not a participant on this booking")
-        unlocked = _is_chat_unlocked(b) or user["role"] == "admin"
+        unlocked = _is_chat_unlocked(b) or user["role"] == "admin" or is_manager
         return {
             "enabled": unlocked,
             "payment_status": b.get("payment_status") or "unpaid",

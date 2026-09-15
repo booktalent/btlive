@@ -115,8 +115,11 @@ export default function ArtistDashboard() {
   }, [user, showWizard]);
 
   // Auto-show wizard if onboarding required (test-unblocking scaffold)
+  // Iter 91 — Respect seen_welcome_at so already-onboarded artists don't
+  // get the modal on every login.
   useEffect(() => {
     if (!user || user.role !== "artist") return;
+    if (user.seen_welcome_at) return;   // dismissed persistently earlier
     api.get("/onboarding/me").then((r) => {
       if (r.data?.required && !r.data?.completed) setShowWizard(true);
     }).catch(() => {});
@@ -334,7 +337,20 @@ export default function ArtistDashboard() {
           {tab === "kyc" && <KYC toast={toast} refresh={refresh} />}
         </div>
       </main>
-      {showWizard && <OnboardingWizard user={user} onComplete={() => { setShowWizard(false); refresh(); refreshMe(); }} />}
+      {showWizard && <OnboardingWizard
+        user={user}
+        onComplete={async () => {
+          setShowWizard(false);
+          // Iter 91 — mark this artist as having seen the welcome
+          // wizard so it doesn't auto-open on subsequent logins.
+          try { await api.post("/user/mark-welcome-seen"); } catch {}
+          refresh(); refreshMe();
+        }}
+        onClose={async () => {
+          setShowWizard(false);
+          try { await api.post("/user/mark-welcome-seen"); } catch {}
+        }}
+      />}
     </div>
   );
 }

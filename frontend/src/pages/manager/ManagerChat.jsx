@@ -76,6 +76,9 @@ function ThreadListItem({ thread, active, onSelect }) {
 function MessageBubble({ msg, isMine }) {
   const align = isMine ? "flex-end" : "flex-start";
   const bgColor = isMine ? "rgba(212,175,55,0.14)" : "rgba(255,255,255,0.04)";
+  const apiBase = api.defaults.baseURL || "";
+  const isImage = msg.type === "file" && (msg.filename || "").match(/\.(jpg|jpeg|png|gif|webp)$/i);
+  const isPdf = msg.type === "file" && (msg.filename || "").match(/\.pdf$/i);
   return (
     <div style={{ display: "flex", justifyContent: align, marginBottom: 10 }} data-testid={`mc-msg-${msg.id}`}>
       <div style={{ maxWidth: "72%" }}>
@@ -89,7 +92,7 @@ function MessageBubble({ msg, isMine }) {
         )}
         <div style={{
           background: bgColor,
-          padding: "10px 14px",
+          padding: msg.type === "file" ? 8 : "10px 14px",
           borderRadius: 12,
           borderTopRightRadius: isMine ? 4 : 12,
           borderTopLeftRadius: isMine ? 12 : 4,
@@ -98,7 +101,45 @@ function MessageBubble({ msg, isMine }) {
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
         }}>
-          {msg.content}
+          {/* Iter 91 — inline image previews + PDF download chip */}
+          {msg.media_id && isImage && (
+            <a href={`${apiBase}/media/${msg.media_id}`} target="_blank" rel="noreferrer">
+              <img
+                src={`${apiBase}/media/${msg.media_id}`}
+                alt={msg.filename}
+                style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 8, display: "block" }}
+                data-testid={`mc-img-${msg.id}`}
+              />
+            </a>
+          )}
+          {msg.media_id && isPdf && (
+            <a
+              href={`${apiBase}/media/${msg.media_id}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: "flex", gap: 10, alignItems: "center", textDecoration: "none", padding: 6 }}
+              data-testid={`mc-pdf-${msg.id}`}
+            >
+              <div style={{ fontSize: 28 }}>📄</div>
+              <div>
+                <div className="fw-700 fs-13">{msg.filename || "Document.pdf"}</div>
+                <div className="text-muted fs-11">Tap to open PDF</div>
+              </div>
+            </a>
+          )}
+          {msg.media_id && !isImage && !isPdf && (
+            <a
+              href={`${apiBase}/media/${msg.media_id}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: "flex", gap: 10, alignItems: "center", textDecoration: "none", padding: 6 }}
+              data-testid={`mc-file-${msg.id}`}
+            >
+              <div style={{ fontSize: 24 }}>📎</div>
+              <div className="fw-700 fs-13">{msg.filename || "Attachment"}</div>
+            </a>
+          )}
+          {!msg.media_id && msg.content}
         </div>
         <div className="text-muted fs-10 mt-4" style={{ textAlign: align === "flex-end" ? "right" : "left" }}>
           {fmtTime(msg.created_at)}
@@ -117,7 +158,9 @@ export default function ManagerChat() {
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const scrollerRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const loadThreads = async () => {
     try {
@@ -162,6 +205,36 @@ export default function ManagerChat() {
       setDraft("");
     } catch (e) { toast(fmt(e), "error"); }
     setSending(false);
+  };
+
+  // Iter 91 — Attach image or PDF; converts to base64 data-url and posts
+  // to the existing /chat/{id}/upload endpoint which stores in db.media
+  // and returns a chat_message row with media_id + filename.
+  const attach = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selected) return;
+    // 15 MB cap enforced server-side too.
+    if (file.size > 15 * 1024 * 1024) {
+      toast("File too large (max 15 MB)", "error");
+      return;
+    }
+    setUploading(true);
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const rd = new FileReader();
+        rd.onload = () => res(rd.result);
+        rd.onerror = rej;
+        rd.readAsDataURL(file);
+      });
+      const r = await api.post(`/chat/${selected.booking_id}/upload`, {
+        type: "file",
+        filename: file.name,
+        data_url: dataUrl,
+      });
+      setMessages((prev) => [...prev, r.data]);
+    } catch (err) { toast(fmt(err), "error"); }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
@@ -244,6 +317,24 @@ export default function ManagerChat() {
                 {/* Reply box */}
                 <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: 12 }}>
                   <div className="flex gap-8">
+                    <button
+                      className="btn btn-ghost"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      data-testid="mc-attach"
+                      title="Attach image or PDF (max 15 MB)"
+                      style={{ padding: "0 12px" }}
+                    >
+                      {uploading ? "…" : "📎"}
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*,application/pdf"
+                      style={{ display: "none" }}
+                      onChange={attach}
+                      data-testid="mc-file-input"
+                    />
                     <textarea
                       className="field-input"
                       placeholder="Type as manager (customer & artist will both see this)…"
@@ -266,7 +357,7 @@ export default function ManagerChat() {
                     </button>
                   </div>
                   <div className="text-muted fs-10 mt-4">
-                    Press Enter to send · Shift+Enter for newline · Customer contact details in messages are auto-redacted.
+                    Press Enter to send · Shift+Enter for newline · 📎 for image or PDF · Customer contact details in messages are auto-redacted.
                   </div>
                 </div>
               </>

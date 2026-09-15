@@ -36,9 +36,9 @@ from email_service import (
 from image_service import compress_image, make_thumbnail
 from urllib.parse import quote_plus
 import rate_limit
-from iter7_routes import make_router as make_iter7_router
-from iter9_routes import make_router as make_iter9_router
-from iter11_routes import make_iter11_router
+from admin_config_routes import make_router as make_admin_config_router
+from agency_corp_provider_routes import make_router as make_agency_corp_router
+from exports_search_routes import make_exports_search_router
 from chat_routes import make_chat_router
 from notification_service import dispatch as notify_dispatch
 from routes import reviews as routes_reviews
@@ -1132,6 +1132,24 @@ async def complete_onboarding(user: dict = Depends(get_current_user)):
     await db.artist_profiles.update_one(
         {"user_id": user["id"]},
         {"$set": {"onboarding_completed": True, "onboarding_completed_at": utcnow()}},
+    )
+    # Iter 91 — Completing onboarding also implicitly marks the welcome
+    # modal as seen (so it never auto-opens again).
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"seen_welcome_at": utcnow()}},
+    )
+    return {"ok": True}
+
+
+# Iter 91 — Dismiss the welcome/onboarding modal without completing it.
+# Used by the wizard's "×" close button so the modal doesn't auto-open
+# on every login for artists who chose to explore the dashboard first.
+@api.post("/user/mark-welcome-seen")
+async def mark_welcome_seen(user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"seen_welcome_at": utcnow()}},
     )
     return {"ok": True}
 
@@ -4417,7 +4435,7 @@ _easebuzz_registered = False
 
 
 # Iteration 7 — Enterprise routes (Admin ERP, Boost, Notifications, Advanced Search)
-_iter7_router = make_iter7_router(db, get_current_user, admin_only)
+_iter7_router = make_admin_config_router(db, get_current_user, admin_only)
 app.include_router(_iter7_router, prefix="/api")
 
 # Live chat (REST + WebSocket)
@@ -4425,11 +4443,11 @@ _chat_router = make_chat_router(db, get_current_user)
 app.include_router(_chat_router, prefix="/api")
 
 # Iter9 — Agency / Corporate / Chat upload / Provider wiring
-_iter9_router = make_iter9_router(db, get_current_user, admin_only)
+_iter9_router = make_agency_corp_router(db, get_current_user, admin_only)
 app.include_router(_iter9_router, prefix="/api")
 
 # Iter11 — ICS calendar, CSV exports, AI semantic search
-_iter11_router = make_iter11_router(db, get_current_user, admin_only)
+_iter11_router = make_exports_search_router(db, get_current_user, admin_only)
 app.include_router(_iter11_router, prefix="/api")
 
 # Iter 82 — Platform Settings + Audit Log (v2 financial-engine foundation).

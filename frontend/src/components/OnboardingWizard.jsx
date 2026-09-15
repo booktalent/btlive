@@ -7,7 +7,7 @@ import { useToast } from "../lib/toast";
  * Renders as a full-screen overlay on top of /artist when status.completed === false.
  * Auto-resumes from the next incomplete step.
  */
-export default function OnboardingWizard({ user, onComplete }) {
+export default function OnboardingWizard({ user, onComplete, onClose }) {
   const toast = useToast();
   const [status, setStatus] = useState(null);
   const [step, setStep] = useState(1);
@@ -143,6 +143,13 @@ export default function OnboardingWizard({ user, onComplete }) {
     onComplete?.();
   };
 
+  // Iter 91 — Persistent dismiss without marking onboarding as complete.
+  // Sets seen_welcome_at so it doesn't auto-open again; artist can still
+  // return to it from the KYC/Profile tab.
+  const dismiss = () => {
+    onClose?.();
+  };
+
   if (!status || !status.required || status.completed) return null;
 
   return (
@@ -151,7 +158,10 @@ export default function OnboardingWizard({ user, onComplete }) {
         <div style={{ padding: "24px 28px", borderBottom: "1px solid var(--glass-border)" }}>
           <div className="flex justify-between items-center mb-12">
             <div className="font-serif fs-20 fw-700">Welcome to <span className="text-gold">BookTalent</span></div>
-            <button className="btn btn-ghost btn-xs" onClick={skip} data-testid="wiz-skip">Skip for now</button>
+            <div className="flex gap-8">
+              <button className="btn btn-ghost btn-xs" onClick={skip} data-testid="wiz-skip">Skip for now</button>
+              <button className="btn btn-ghost btn-xs" onClick={dismiss} data-testid="wiz-dismiss" title="Close and don't show again on next login">×</button>
+            </div>
           </div>
           <div className="text-muted fs-13">Get booking-ready in 5 quick steps · Step {step} of 5</div>
           <div className="steps mt-12" style={{ marginBottom: 0 }}>
