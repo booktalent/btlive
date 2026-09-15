@@ -83,9 +83,27 @@ db = client[DB_NAME]
 app = FastAPI(title="BookTalent API")
 api = APIRouter(prefix="/api")
 
+# CORS hardening (Iter 87): default is a safe dev-only list. In production
+# set CORS_ORIGINS to a comma-separated allowlist of your frontend origins.
+# Using ["*"] with allow_credentials=True is unsafe AND a browser hard-rejects
+# it, so an explicit allowlist is required for cookie/JWT auth flows.
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+if _cors_raw and _cors_raw != "*":
+    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+    _cors_origin_regex = None
+else:
+    # Sensible fallback for local dev + preview environments.
+    _cors_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+    ]
+    _cors_origin_regex = r"https://.*\.(preview\.emergentagent\.com|booktalent\.in)$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -4425,6 +4443,10 @@ app.include_router(make_crm_pay_router(db, get_current_user, admin_only), prefix
 # + WhatsApp channel abstraction (Sec 45-48, 55, 51).
 from routes.v2_more import make_v2_more_router  # noqa: E402
 app.include_router(make_v2_more_router(db, get_current_user, admin_only), prefix="/api")
+
+# Iter 87 — Admin Reports + Unified Audit Log
+from routes.reports import make_reports_router  # noqa: E402
+app.include_router(make_reports_router(db, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user

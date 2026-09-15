@@ -35,7 +35,22 @@ def utcnow() -> str:
 # ═══════════════════════════════════════════════════════════════════════
 # WhatsApp channel abstraction
 # ═══════════════════════════════════════════════════════════════════════
-WHATSAPP_PROVIDER = (os.environ.get("WHATSAPP_PROVIDER") or "").strip().lower()  # "" | "gupshup" | "meta"
+WHATSAPP_PROVIDER = (os.environ.get("WHATSAPP_PROVIDER") or "").strip().lower()  # "" | "wachatsender" | "gupshup" | "meta"
+
+# Event → wachatsender template mapping (Iter 87).
+# Set WA_TEMPLATE_<EVENT_NAME> env vars to override. E.g.:
+#   WA_TEMPLATE_BOOKING_CONFIRMED=booking_confirmed
+#   WA_TEMPLATE_PAYMENT_RECEIVED=payment_received
+#   WA_TEMPLATE_PAYOUT_RELEASED=payout_released
+#   WA_TEMPLATE_KYC_APPROVED=kyc_approved
+# When a template isn't set (or hasn't been approved on the wachatsender
+# console yet), we fall back to plain `message_body` text mode — which
+# already works out-of-the-box.
+def _wa_template_for_event(event: str) -> Optional[str]:
+    if not event:
+        return None
+    key = "WA_TEMPLATE_" + event.upper().replace(".", "_").replace("-", "_")
+    return (os.environ.get(key) or "").strip() or None
 
 
 async def send_whatsapp(db: AsyncIOMotorDatabase, *, to: str, template: str,
@@ -73,9 +88,18 @@ async def send_whatsapp(db: AsyncIOMotorDatabase, *, to: str, template: str,
                 raise RuntimeError("wachatsender misconfigured — set WACHATSENDER_TOKEN/WACHATSENDER_VENDOR_UID")
             # Map notification body → template field_1 by default. Caller can override via params.
             p = params or {}
+            # Prefer the event-specific approved template if one is configured
+            # in env (WA_TEMPLATE_<EVENT>). Otherwise fall back to plain
+            # message_body — which the wachatsender API also accepts.
+            resolved_template = (
+                p.get("template_name")
+                or _wa_template_for_event(template)
+                or template
+                or default_tpl
+            )
             req_payload: Dict[str, Any] = {
                 "phone_number": to_normalized,
-                "template_name": p.get("template_name") or template or default_tpl,
+                "template_name": resolved_template,
                 "template_language": p.get("template_language") or tpl_lang,
                 # wachatsender requires message_body for text-mode fall-through;
                 # field_1 is used when the approved template has a body placeholder.

@@ -685,21 +685,66 @@ export function AdminSettings({ toast }) {
 
 export function AdminAudit() {
   const [list, setList] = useState([]);
-  useEffect(() => { api.get("/admin/audit-logs?limit=200").then((r) => setList(r.data)); }, []);
+  const [filters, setFilters] = useState({ actor: "", action: "", entity: "", start: "", end: "" });
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "300" });
+      if (filters.actor) params.set("actor", filters.actor);
+      if (filters.action) params.set("action", filters.action);
+      if (filters.entity) params.set("entity", filters.entity);
+      if (filters.start) params.set("start", filters.start);
+      if (filters.end) params.set("end", filters.end);
+      const r = await api.get(`/admin/audit-logs/unified?${params.toString()}`);
+      setList(r.data.items || []);
+    } catch { /* leave empty */ }
+    setLoading(false);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
+
   return (
     <div className="card" data-testid="admin-audit">
-      <div className="card-head"><div className="card-title">🛡️ Audit Logs ({list.length})</div></div>
+      <div className="card-head" style={{ justifyContent: "space-between", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div className="card-title">🛡️ Audit Logs ({list.length})</div>
+        <div className="flex gap-8" style={{ flexWrap: "wrap" }}>
+          <input className="input" placeholder="Actor (email or id)" value={filters.actor}
+            onChange={(e) => setFilters({ ...filters, actor: e.target.value })}
+            data-testid="audit-filter-actor" style={{ width: 180 }} />
+          <input className="input" placeholder="Action (regex)" value={filters.action}
+            onChange={(e) => setFilters({ ...filters, action: e.target.value })}
+            data-testid="audit-filter-action" style={{ width: 160 }} />
+          <input className="input" placeholder="Entity" value={filters.entity}
+            onChange={(e) => setFilters({ ...filters, entity: e.target.value })}
+            data-testid="audit-filter-entity" style={{ width: 130 }} />
+          <input className="input" type="date" value={filters.start}
+            onChange={(e) => setFilters({ ...filters, start: e.target.value })}
+            data-testid="audit-filter-start" title="Start date" />
+          <input className="input" type="date" value={filters.end}
+            onChange={(e) => setFilters({ ...filters, end: e.target.value })}
+            data-testid="audit-filter-end" title="End date" />
+          <button className="btn btn-gold btn-sm" onClick={load} data-testid="audit-filter-apply">Filter</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilters({ actor: "", action: "", entity: "", start: "", end: "" }); setTimeout(load, 50); }}
+            data-testid="audit-filter-clear">Clear</button>
+        </div>
+      </div>
       <div className="table-wrap">
         <table className="table">
-          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Target ID</th></tr></thead>
+          <thead><tr><th>Time</th><th>Source</th><th>Actor</th><th>Action</th><th>Entity</th><th>Entity ID</th><th>IP</th></tr></thead>
           <tbody>
-            {list.map((a) => (
-              <tr key={a.id} data-testid={`audit-${a.id}`}>
-                <td className="fs-11 text-muted">{a.created_at?.slice(0, 19).replace("T", " ")}</td>
-                <td className="fs-12">{a.actor_email || a.actor_id?.slice(0, 8)}</td>
+            {loading && <tr><td colSpan="7" className="text-muted text-center pad-16">Loading…</td></tr>}
+            {!loading && list.length === 0 && <tr><td colSpan="7" className="text-muted text-center pad-16">No audit entries match your filters</td></tr>}
+            {list.map((a, i) => (
+              <tr key={i} data-testid={`audit-row-${i}`}>
+                <td className="fs-11 text-muted">{(a.at || "").slice(0, 19).replace("T", " ")}</td>
+                <td><span className={`pill pill-${a.source === "admin" ? "gold" : "green"}`} style={{ fontSize: 10 }}>{a.source}</span></td>
+                <td className="fs-12">{a.actor_email || (a.actor_id || "").slice(0, 8)}</td>
                 <td className="font-mono fs-12">{a.action}</td>
-                <td>{a.target_type}</td>
-                <td className="fs-11 text-muted">{a.target_id?.slice(0, 8)}</td>
+                <td>{a.entity || "—"}</td>
+                <td className="fs-11 text-muted">{(a.entity_id || "").slice(0, 12)}</td>
+                <td className="fs-11 text-muted">{a.ip || "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -710,55 +755,240 @@ export function AdminAudit() {
 }
 
 export function AdminReports() {
+  const [subtab, setSubtab] = useState("revenue");
   const [days, setDays] = useState(30);
   const [revenue, setRevenue] = useState(null);
   const [top, setTop] = useState([]);
+  // Iter 87 — new report data slots
+  const [artistBookings, setArtistBookings] = useState(null);
+  const [managerLeads, setManagerLeads] = useState(null);
+  const [waivers, setWaivers] = useState(null);
+  const [range, setRange] = useState({ start: "", end: "" });
+
   const load = () => {
-    api.get(`/admin/reports/revenue?days=${days}`).then((r) => setRevenue(r.data));
-    api.get(`/admin/reports/top-artists?limit=10`).then((r) => setTop(r.data));
+    api.get(`/admin/reports/revenue?days=${days}`).then((r) => setRevenue(r.data)).catch(() => {});
+    api.get(`/admin/reports/top-artists?limit=10`).then((r) => setTop(r.data)).catch(() => {});
+  };
+  const loadArtistBookings = () => {
+    const qs = new URLSearchParams();
+    if (range.start) qs.set("start", range.start);
+    if (range.end) qs.set("end", range.end);
+    api.get(`/admin/reports/artist-bookings?${qs}`).then((r) => setArtistBookings(r.data)).catch(() => {});
+  };
+  const loadManagerLeads = () => {
+    api.get(`/admin/reports/manager-leads`).then((r) => setManagerLeads(r.data)).catch(() => {});
+  };
+  const loadWaivers = () => {
+    const qs = new URLSearchParams();
+    if (range.start) qs.set("start", range.start);
+    if (range.end) qs.set("end", range.end);
+    api.get(`/admin/reports/platform-waivers?${qs}`).then((r) => setWaivers(r.data)).catch(() => {});
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [days]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (subtab === "artist-bookings") loadArtistBookings();
+    if (subtab === "manager-leads") loadManagerLeads();
+    if (subtab === "waivers") loadWaivers();
+  }, [subtab]);
+
+  const downloadCsv = async (endpoint, filename) => {
+    const qs = new URLSearchParams({ format: "csv" });
+    if (range.start) qs.set("start", range.start);
+    if (range.end) qs.set("end", range.end);
+    try {
+      const r = await api.get(`${endpoint}?${qs.toString()}`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a");
+      a.href = url; a.download = filename; a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) { /* silent */ }
+  };
+
   return (
     <div className="card" data-testid="admin-reports">
-      <div className="card-head" style={{ justifyContent: "space-between", display: "flex", alignItems: "center" }}>
+      <div className="card-head" style={{ justifyContent: "space-between", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div className="card-title">📈 Reports & Analytics</div>
-        <select value={days} onChange={(e) => setDays(parseInt(e.target.value))} className="input" style={{ width: 160 }} data-testid="rep-days">
-          <option value={7}>Last 7 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={90}>Last 90 days</option>
-          <option value={365}>Last year</option>
-        </select>
-      </div>
-      <div style={{ padding: 14 }}>
-        {revenue && (
-          <div className="kpi-grid mb-24">
-            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.gmv)}</div><div className="kpi-label">Marketplace GMV<br/><span className="fs-10 text-muted">(artist fees — informational)</span></div></div>
-            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.platform_revenue)}</div><div className="kpi-label">Platform Service Revenue<br/><span className="fs-10 text-muted">(BookTalent net earnings)</span></div></div>
-            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.gst_collected || 0)}</div><div className="kpi-label">GST Collected</div></div>
-            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.boost_revenue)}</div><div className="kpi-label">Boost Revenue</div></div>
-            <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.net_revenue || (revenue.platform_revenue + revenue.boost_revenue))}</div><div className="kpi-label">Net BookTalent Revenue</div></div>
-            <div className="kpi"><div className="kpi-num">{revenue.bookings}</div><div className="kpi-label">Bookings</div></div>
+        {subtab === "revenue" && (
+          <select value={days} onChange={(e) => setDays(parseInt(e.target.value))} className="input" style={{ width: 160 }} data-testid="rep-days">
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+            <option value={365}>Last year</option>
+          </select>
+        )}
+        {(subtab === "artist-bookings" || subtab === "waivers") && (
+          <div className="flex gap-8">
+            <input className="input" type="date" value={range.start}
+              onChange={(e) => setRange({ ...range, start: e.target.value })}
+              data-testid="rep-range-start" title="Event date from" />
+            <input className="input" type="date" value={range.end}
+              onChange={(e) => setRange({ ...range, end: e.target.value })}
+              data-testid="rep-range-end" title="Event date to" />
+            <button className="btn btn-gold btn-sm" data-testid="rep-range-apply"
+              onClick={() => { if (subtab === "artist-bookings") loadArtistBookings(); else loadWaivers(); }}>
+              Apply
+            </button>
           </div>
         )}
-        <h4 className="font-serif fs-16 fw-700" style={{ marginBottom: 12 }}>Top Artists by Revenue</h4>
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>#</th><th>Artist</th><th>Category</th><th>City</th><th>Bookings</th><th>Revenue</th></tr></thead>
-            <tbody>
-              {top.map((t, i) => (
-                <tr key={t.artist_id} data-testid={`rep-artist-${t.artist_id}`}>
-                  <td className="fw-700">{i + 1}</td>
-                  <td>{t.stage_name}</td>
-                  <td>{t.category}</td>
-                  <td>{t.city}</td>
-                  <td>{t.bookings}</td>
-                  <td className="text-gold font-serif fw-700">{fmtINRFull(t.revenue || 0)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      </div>
+
+      <div className="flex gap-8 pad-16" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)", flexWrap: "wrap" }}>
+        <button className={`btn btn-sm ${subtab === "revenue" ? "btn-gold" : "btn-ghost"}`}
+          onClick={() => setSubtab("revenue")} data-testid="rep-tab-revenue">💰 Revenue</button>
+        <button className={`btn btn-sm ${subtab === "artist-bookings" ? "btn-gold" : "btn-ghost"}`}
+          onClick={() => setSubtab("artist-bookings")} data-testid="rep-tab-artist-bookings">🎤 Artist Bookings</button>
+        <button className={`btn btn-sm ${subtab === "manager-leads" ? "btn-gold" : "btn-ghost"}`}
+          onClick={() => setSubtab("manager-leads")} data-testid="rep-tab-manager-leads">👤 Manager Leads</button>
+        <button className={`btn btn-sm ${subtab === "waivers" ? "btn-gold" : "btn-ghost"}`}
+          onClick={() => setSubtab("waivers")} data-testid="rep-tab-waivers">🎁 Platform Waivers</button>
+      </div>
+
+      <div style={{ padding: 14 }}>
+        {subtab === "revenue" && (
+          <>
+            {revenue && (
+              <div className="kpi-grid mb-24">
+                <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.gmv)}</div><div className="kpi-label">Marketplace GMV<br/><span className="fs-10 text-muted">(artist fees — informational)</span></div></div>
+                <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.platform_revenue)}</div><div className="kpi-label">Platform Service Revenue<br/><span className="fs-10 text-muted">(BookTalent net earnings)</span></div></div>
+                <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.gst_collected || 0)}</div><div className="kpi-label">GST Collected</div></div>
+                <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.boost_revenue)}</div><div className="kpi-label">Boost Revenue</div></div>
+                <div className="kpi"><div className="kpi-num text-gold">{fmtINRFull(revenue.net_revenue || (revenue.platform_revenue + revenue.boost_revenue))}</div><div className="kpi-label">Net BookTalent Revenue</div></div>
+                <div className="kpi"><div className="kpi-num">{revenue.bookings}</div><div className="kpi-label">Bookings</div></div>
+              </div>
+            )}
+            <h4 className="font-serif fs-16 fw-700" style={{ marginBottom: 12 }}>Top Artists by Revenue</h4>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>#</th><th>Artist</th><th>Category</th><th>City</th><th>Bookings</th><th>Revenue</th></tr></thead>
+                <tbody>
+                  {top.map((t, i) => (
+                    <tr key={t.artist_id} data-testid={`rep-artist-${t.artist_id}`}>
+                      <td className="fw-700">{i + 1}</td>
+                      <td>{t.stage_name}</td>
+                      <td>{t.category}</td>
+                      <td>{t.city}</td>
+                      <td>{t.bookings}</td>
+                      <td className="text-gold font-serif fw-700">{fmtINRFull(t.revenue || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {subtab === "artist-bookings" && (
+          <div data-testid="rep-artist-bookings-view">
+            <div className="flex-between mb-16">
+              <div className="text-muted fs-13">
+                {artistBookings ? `${artistBookings.count} artists · ${artistBookings.totals?.bookings || 0} bookings · GMV ${fmtINRFull(artistBookings.totals?.gross_revenue || 0)}` : "Loading…"}
+              </div>
+              <button className="btn btn-ghost btn-sm" data-testid="rep-csv-artist-bookings"
+                onClick={() => downloadCsv("/admin/reports/artist-bookings", "artist_bookings.csv")}>
+                ⬇ Download CSV
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>#</th><th>Artist</th><th>Email</th><th>Bookings</th><th>Gross Revenue</th><th>Artist Payable</th><th>Platform Fee</th><th>GST</th><th>Paid</th><th>Pending</th></tr></thead>
+                <tbody>
+                  {(artistBookings?.items || []).map((t, i) => (
+                    <tr key={t.artist_id} data-testid={`rep-ab-row-${t.artist_id}`}>
+                      <td className="fw-700">{i + 1}</td>
+                      <td>{t.artist_name}</td>
+                      <td className="fs-11 text-muted">{t.artist_email}</td>
+                      <td>{t.bookings_count}</td>
+                      <td className="text-gold font-serif fw-700">{fmtINRFull(t.gross_revenue)}</td>
+                      <td>{fmtINRFull(t.artist_payable)}</td>
+                      <td>{fmtINRFull(t.platform_fee)}</td>
+                      <td>{fmtINRFull(t.gst)}</td>
+                      <td className="text-green">{t.paid_count}</td>
+                      <td className="text-gold">{t.pending_payout_count}</td>
+                    </tr>
+                  ))}
+                  {artistBookings && artistBookings.items.length === 0 && (
+                    <tr><td colSpan="10" className="text-muted text-center pad-16">No bookings in selected range</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {subtab === "manager-leads" && (
+          <div data-testid="rep-manager-leads-view">
+            <div className="flex-between mb-16">
+              <div className="text-muted fs-13">
+                {managerLeads ? `${managerLeads.count} managers · 12-stage pipeline` : "Loading…"}
+              </div>
+              <button className="btn btn-ghost btn-sm" data-testid="rep-csv-manager-leads"
+                onClick={() => downloadCsv("/admin/reports/manager-leads", "manager_leads.csv")}>
+                ⬇ Download CSV
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>#</th><th>Manager</th><th>Email</th><th>Total</th><th>Won</th><th>Lost</th><th>In Pipeline</th><th>Conversion %</th></tr></thead>
+                <tbody>
+                  {(managerLeads?.items || []).map((m, i) => (
+                    <tr key={m.manager_id} data-testid={`rep-ml-row-${m.manager_id}`}>
+                      <td className="fw-700">{i + 1}</td>
+                      <td>{m.manager_name || "—"}</td>
+                      <td className="fs-11 text-muted">{m.manager_email}</td>
+                      <td className="fw-700">{m.total_leads}</td>
+                      <td className="text-green">{m.won}</td>
+                      <td className="text-red">{m.lost}</td>
+                      <td className="text-gold">{m.in_pipeline}</td>
+                      <td className="fw-700">{m.conversion_pct}%</td>
+                    </tr>
+                  ))}
+                  {managerLeads && managerLeads.items.length === 0 && (
+                    <tr><td colSpan="8" className="text-muted text-center pad-16">No managers configured</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {subtab === "waivers" && (
+          <div data-testid="rep-waivers-view">
+            <div className="flex-between mb-16">
+              <div className="text-muted fs-13">
+                {waivers ? `${waivers.count} bookings · Total waived: ${fmtINRFull(waivers.totals?.waived_amount || 0)}` : "Loading…"}
+              </div>
+              <button className="btn btn-ghost btn-sm" data-testid="rep-csv-waivers"
+                onClick={() => downloadCsv("/admin/reports/platform-waivers", "platform_waivers.csv")}>
+                ⬇ Download CSV
+              </button>
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Ref</th><th>Event Date</th><th>Artist</th><th>Customer</th><th>Service Artist?</th><th>Gross Total</th><th>Actual Fee</th><th>Would-be Fee</th><th>Waived</th></tr></thead>
+                <tbody>
+                  {(waivers?.items || []).map((w) => (
+                    <tr key={w.booking_id} data-testid={`rep-w-row-${w.booking_id}`}>
+                      <td className="font-mono fs-11">{w.ref}</td>
+                      <td>{w.event_date}</td>
+                      <td>{w.artist_name}</td>
+                      <td className="fs-12">{w.customer_name}</td>
+                      <td>{w.is_service_artist ? "✓" : "—"}</td>
+                      <td>{fmtINRFull(w.gross_total)}</td>
+                      <td>{fmtINRFull(w.actual_platform_fee)}</td>
+                      <td className="text-muted">{fmtINRFull(w.would_be_platform_fee)}</td>
+                      <td className="text-gold font-serif fw-700">{fmtINRFull(w.waived_amount)}</td>
+                    </tr>
+                  ))}
+                  {waivers && waivers.items.length === 0 && (
+                    <tr><td colSpan="9" className="text-muted text-center pad-16">No platform fee waivers in selected range</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
