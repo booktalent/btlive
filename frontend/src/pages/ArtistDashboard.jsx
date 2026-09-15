@@ -1893,6 +1893,97 @@ function Boost({ refresh, toast }) {
   );
 }
 
+function KycProgressBar() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    api.get("/kyc/pipeline").then((r) => setData(r.data)).catch(() => setData(null));
+  }, []);
+  if (!data) return null;
+
+  return (
+    <div className="card card-pad mb-16" data-testid="kyc-progress">
+      <div className="flex-between mb-12">
+        <div>
+          <h3 className="font-serif fw-700 mb-4">Your artist onboarding journey</h3>
+          <div className="text-muted fs-13">
+            {data.is_error ? (
+              <span className="text-red">⚠ {data.error_reason}</span>
+            ) : (
+              (data.stages.find((s) => s.status === "current") || {}).action
+              || "Getting you live on BookTalent."
+            )}
+          </div>
+        </div>
+        {data.agreement_url && (
+          <a className="btn btn-ghost btn-sm" href={data.agreement_url} target="_blank" rel="noopener noreferrer" data-testid="kyc-agreement-dl">
+            ⬇ Agreement
+          </a>
+        )}
+      </div>
+
+      {/* Progress rail */}
+      <div style={{ position: "relative", padding: "8px 0" }}>
+        {/* Base line */}
+        <div style={{
+          position: "absolute", top: 21, left: 12, right: 12, height: 3,
+          background: "rgba(255,255,255,0.08)", borderRadius: 2, zIndex: 0,
+        }} />
+        {/* Fill line — up to current step */}
+        <div style={{
+          position: "absolute", top: 21, left: 12,
+          width: `calc((100% - 24px) * ${data.step_index / Math.max(1, data.stages.length - 1)})`,
+          height: 3,
+          background: data.is_error
+            ? "linear-gradient(90deg,#D4AF37,#e57373)"
+            : "linear-gradient(90deg,#D4AF37,#6ee7a8)",
+          borderRadius: 2, zIndex: 1, transition: "width 500ms ease",
+        }} />
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${data.stages.length}, 1fr)`, gap: 4, position: "relative", zIndex: 2 }}>
+          {data.stages.map((s, i) => {
+            const isDone = s.status === "done";
+            const isCurrent = s.status === "current";
+            const isPending = s.status === "pending";
+            const err = data.is_error && isCurrent;
+            return (
+              <div key={s.id} className="text-center" data-testid={`kyc-stage-${s.id}`}>
+                {/* Dot */}
+                <div style={{
+                  width: 42, height: 42, borderRadius: "50%",
+                  background: err ? "#e57373"
+                              : isDone ? "#6ee7a8"
+                              : isCurrent ? "#D4AF37"
+                              : "rgba(255,255,255,0.05)",
+                  color: (isDone || isCurrent || err) ? "#0F0F1B" : "rgba(255,255,255,0.35)",
+                  border: isCurrent ? "3px solid rgba(212,175,55,0.35)" : "2px solid rgba(255,255,255,0.08)",
+                  boxShadow: isCurrent ? "0 0 0 4px rgba(212,175,55,0.12)" : "none",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 16, fontWeight: 700, margin: "0 auto",
+                  transition: "all 300ms ease",
+                }}>
+                  {isDone ? "✓" : err ? "!" : i + 1}
+                </div>
+                {/* Label */}
+                <div style={{
+                  marginTop: 8, fontSize: 11, fontWeight: isCurrent ? 700 : 500,
+                  color: isCurrent ? "#D4AF37"
+                          : isDone ? "rgba(255,255,255,0.85)"
+                          : "rgba(255,255,255,0.4)",
+                  textTransform: isPending ? "none" : "uppercase",
+                  letterSpacing: isCurrent ? ".08em" : "0",
+                  lineHeight: 1.3,
+                }}>
+                  {s.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function KYC({ toast, refresh }) {
   const [aadhaarFile, setAadhaarFile] = useState("");
   const [panFile, setPanFile] = useState("");
@@ -1949,6 +2040,9 @@ function KYC({ toast, refresh }) {
 
   return (
     <div className="card card-pad" data-testid="kyc-tab">
+      {/* Iter 90b — full 9-stage progress bar so artists see where they are */}
+      <KycProgressBar />
+
       <h2 className="font-serif fs-20 fw-700 mb-8">KYC Verification</h2>
       <p className="text-muted fs-13 mb-20">Verify your identity to unlock payouts, the Verified Badge, and premium features.</p>
 

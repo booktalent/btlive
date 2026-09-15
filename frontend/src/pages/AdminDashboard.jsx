@@ -395,6 +395,32 @@ function AdminKYC({ toast }) {
                     <button className="btn btn-red btn-sm" onClick={() => decide(k.user_id, "reject")} data-testid={`kyc-reject-${k.user_id}`}>✕ Reject</button>
                   </>
                 ) : null}
+                {/* Iter 90b — Agreement viewer for artists past T&C acceptance */}
+                {["agreement_generated", "live"].includes(k.v2_status) && (
+                  <>
+                    <a
+                      className="btn btn-ghost btn-sm"
+                      href={`${api.defaults.baseURL}/admin/agreements/${k.user_id}/download`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid={`kyc-agreement-view-${k.user_id}`}
+                      title="Open signed agreement PDF"
+                    >📄 View Agreement</a>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={async () => {
+                        if (!window.confirm("Re-issue agreement? Old one will be archived with audit trail.")) return;
+                        try {
+                          await api.post(`/admin/agreements/${k.user_id}/reissue`);
+                          toast("Agreement re-issued successfully", "success");
+                          reload();
+                        } catch (e) { toast(formatApiError(e), "error"); }
+                      }}
+                      data-testid={`kyc-agreement-reissue-${k.user_id}`}
+                      title="Regenerate PDF (e.g. after commission change)"
+                    >↻ Re-issue</button>
+                  </>
+                )}
               </div>
               {isOpen && k.documents && (
                 <div className="grid grid-3 gap-12 mt-12" style={{ marginTop: 12 }} data-testid={`kyc-docs-${k.user_id}`}>

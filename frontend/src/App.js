@@ -20,6 +20,7 @@ import Auth from "./pages/Auth";
 import ForgotPassword from "./pages/ForgotPassword";
 import { ManagerDashboard, LeadBoard, LeadDetail } from "./pages/manager/ManagerCRM";
 import ManagerLeaderboard from "./pages/manager/ManagerLeaderboard";
+import ManagerChat from "./pages/manager/ManagerChat";
 import Search from "./pages/Search";
 import ArtistProfile from "./pages/ArtistProfile";
 import BookingFlow from "./pages/BookingFlow";
@@ -97,6 +98,7 @@ function App() {
                 <Route path="/reset-password" element={<ForgotPassword />} />
                 <Route path="/manager" element={<ManagerDashboard />} />
                 <Route path="/manager/leaderboard" element={<ManagerLeaderboard />} />
+                <Route path="/manager/chat" element={<ManagerChat />} />
                 <Route path="/manager/leads" element={<LeadBoard />} />
                 <Route path="/manager/leads/:id" element={<LeadDetail />} />
                 <Route path="/search" element={<Search />} />
