@@ -69,7 +69,7 @@ const SIDEBAR = [
   { id: "wa-templates",     label: "📱 WhatsApp Templates",     perm: "settings.manage" },
   { id: "at-risk",          label: "⚠️ At-Risk Bookings",       perm: "bookings.view" },
   { id: "platform-settings", label: "🏗️ Platform Settings (v2)", perm: "settings.manage" },
-  { id: "settings",         label: "📢 Site Notices & Blog Banner", perm: "settings.manage" },
+  { id: "settings",         label: "📢 Site Notices", perm: "settings.manage" },
   { id: "admins",           label: "🛡️ Admin Team",           perm: "admins.manage" },
   { id: "audit", label: "🛡️ Audit Logs", perm: "admins.manage" },
 ];

@@ -618,18 +618,9 @@ const HIDDEN_LEGACY_SETTINGS = new Set([
 export function AdminSettings({ toast }) {
   const [list, setList] = useState([]);
   const [draft, setDraft] = useState({});
-  const [blog, setBlog] = useState({ blog_hero_image: "", blog_hero_title: "", blog_hero_subtitle: "", blog_hero_cta_label: "", blog_hero_cta_url: "" });
   const load = () => api.get("/admin/settings").then((r) => {
     setList(r.data);
     setDraft({});
-    const map = Object.fromEntries((r.data || []).map((s) => [s.key, s.value]));
-    setBlog({
-      blog_hero_image: map.blog_hero_image || "",
-      blog_hero_title: map.blog_hero_title || "",
-      blog_hero_subtitle: map.blog_hero_subtitle || "",
-      blog_hero_cta_label: map.blog_hero_cta_label || "",
-      blog_hero_cta_url: map.blog_hero_cta_url || "",
-    });
   });
   useEffect(() => { load(); }, []);
   const save = async (key) => {
@@ -639,13 +630,13 @@ export function AdminSettings({ toast }) {
     await api.put(`/admin/settings/${key}`, { value });
     toast("Saved"); load();
   };
-  const saveBlog = async () => {
-    for (const [k, v] of Object.entries(blog)) {
-      await api.put(`/admin/settings/${k}`, { value: v });
-    }
-    toast("Blog banner saved"); load();
-  };
-  const visible = (list || []).filter((s) => !HIDDEN_LEGACY_SETTINGS.has(s.key));
+  // Iter 99 — hide blog_hero_* keys from the generic table since they are now
+  // edited via the Blogs tab's "Blog Index Page Banner" card.
+  const BLOG_BANNER_KEYS = new Set([
+    "blog_hero_image", "blog_hero_title", "blog_hero_subtitle",
+    "blog_hero_cta_label", "blog_hero_cta_url",
+  ]);
+  const visible = (list || []).filter((s) => !HIDDEN_LEGACY_SETTINGS.has(s.key) && !BLOG_BANNER_KEYS.has(s.key));
   return (
     <div data-testid="admin-settings">
       {/* Iter 89 — pointer banner so nobody edits GST here anymore */}
@@ -656,25 +647,11 @@ export function AdminSettings({ toast }) {
           the Financial Engine. This page keeps only copy/CMS-style key-value settings.
         </div>
       </div>
-
-      {/* Blog Featured Banner panel */}
-      <div className="card mb-24">
-        <div className="card-head">
-          <div className="card-title">🖼️ Blog Page Featured Banner <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— hero shown on /blog</span></div>
-        </div>
-        <div style={{ padding: 14 }}>
-          <input className="input mb-8" placeholder="Banner image URL (1600×600 recommended)" value={blog.blog_hero_image} onChange={(e) => setBlog({ ...blog, blog_hero_image: e.target.value })} style={{ width: "100%" }} data-testid="blog-hero-image" />
-          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
-            <input className="input" placeholder="Banner title" value={blog.blog_hero_title} onChange={(e) => setBlog({ ...blog, blog_hero_title: e.target.value })} data-testid="blog-hero-title" />
-            <input className="input" placeholder="Banner subtitle" value={blog.blog_hero_subtitle} onChange={(e) => setBlog({ ...blog, blog_hero_subtitle: e.target.value })} data-testid="blog-hero-subtitle" />
-          </div>
-          <div className="grid grid-2 gap-12" style={{ marginBottom: 12 }}>
-            <input className="input" placeholder="CTA label (e.g. Subscribe)" value={blog.blog_hero_cta_label} onChange={(e) => setBlog({ ...blog, blog_hero_cta_label: e.target.value })} data-testid="blog-hero-cta-label" />
-            <input className="input" placeholder="CTA URL" value={blog.blog_hero_cta_url} onChange={(e) => setBlog({ ...blog, blog_hero_cta_url: e.target.value })} data-testid="blog-hero-cta-url" />
-          </div>
-          <button className="btn btn-gold" onClick={saveBlog} data-testid="blog-hero-save">Save Blog Banner</button>
-          <a className="btn btn-ghost" href="/blog" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }} data-testid="blog-hero-preview">Preview /blog ↗</a>
-          <div className="text-muted fs-11" style={{ marginTop: 10 }}>Per-article banners are set inside each blog post (Admin → Blogs → Edit).</div>
+      {/* Iter 99 — pointer for blog banner */}
+      <div className="card card-pad mb-16" style={{ background: "rgba(155,89,182,0.06)", border: "1px solid rgba(155,89,182,0.2)" }}>
+        <div className="fw-700 mb-4">🖼️ Looking for the Blog Banner?</div>
+        <div className="text-muted fs-13">
+          Blog Index Page banner + per-article banners are now managed under <b>📝 Blogs</b> in the sidebar.
         </div>
       </div>
 
@@ -1160,6 +1137,7 @@ export function AdminProviders({ toast }) {
 
 // ═══════════════════════════════════════════════════════════════════════
 // Blogs — admin CRUD with per-article featured banner (Iter 41)
+// + Global /blog index page banner (moved here from Site Notices in Iter 99)
 // ═══════════════════════════════════════════════════════════════════════
 export function AdminBlogs({ toast }) {
   const EMPTY = {
@@ -1173,8 +1151,36 @@ export function AdminBlogs({ toast }) {
   const [showBanner, setShowBanner] = useState(false);
   const [tagInput, setTagInput] = useState("");
 
+  // Global /blog index page banner — stored as key/value on /admin/settings.
+  const [indexBanner, setIndexBanner] = useState({
+    blog_hero_image: "", blog_hero_title: "", blog_hero_subtitle: "",
+    blog_hero_cta_label: "", blog_hero_cta_url: "",
+  });
+  const [indexBannerBusy, setIndexBannerBusy] = useState(false);
+
   const load = () => api.get("/admin/blogs").then((r) => setList(r.data)).catch(() => setList([]));
-  useEffect(() => { load(); }, []);
+  const loadIndexBanner = () => api.get("/admin/settings").then((r) => {
+    const map = Object.fromEntries((r.data || []).map((s) => [s.key, s.value]));
+    setIndexBanner({
+      blog_hero_image: map.blog_hero_image || "",
+      blog_hero_title: map.blog_hero_title || "",
+      blog_hero_subtitle: map.blog_hero_subtitle || "",
+      blog_hero_cta_label: map.blog_hero_cta_label || "",
+      blog_hero_cta_url: map.blog_hero_cta_url || "",
+    });
+  }).catch(() => {});
+  useEffect(() => { load(); loadIndexBanner(); }, []);
+
+  const saveIndexBanner = async () => {
+    setIndexBannerBusy(true);
+    try {
+      for (const [k, v] of Object.entries(indexBanner)) {
+        await api.put(`/admin/settings/${k}`, { value: v });
+      }
+      toast("Blog index banner saved");
+    } catch (e) { toast(e?.response?.data?.detail || "Save failed", "error"); }
+    setIndexBannerBusy(false);
+  };
 
   const save = async () => {
     if (!form.title.trim() || !form.slug.trim()) return toast("Title & slug required");
@@ -1206,10 +1212,36 @@ export function AdminBlogs({ toast }) {
   const removeTag = (t) => setForm({ ...form, tags: form.tags.filter((x) => x !== t) });
 
   return (
-    <div className="card" data-testid="admin-blogs">
-      <div className="card-head">
-        <div className="card-title">📝 Blogs ({list.length}) <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— live on /blog & /blog/&lt;slug&gt;</span></div>
+    <div data-testid="admin-blogs-wrap">
+      {/* Global /blog index page banner — Iter 99 consolidation */}
+      <div className="card mb-16" data-testid="blog-index-banner-card">
+        <div className="card-head">
+          <div className="card-title">🖼️ Blog Index Page Banner <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— hero shown at the top of /blog</span></div>
+        </div>
+        <div style={{ padding: 14 }}>
+          <input className="input mb-8" placeholder="Banner image URL (1600×600 recommended)" value={indexBanner.blog_hero_image} onChange={(e) => setIndexBanner({ ...indexBanner, blog_hero_image: e.target.value })} style={{ width: "100%" }} data-testid="blog-index-hero-image" />
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
+            <input className="input" placeholder="Banner title" value={indexBanner.blog_hero_title} onChange={(e) => setIndexBanner({ ...indexBanner, blog_hero_title: e.target.value })} data-testid="blog-index-hero-title" />
+            <input className="input" placeholder="Banner subtitle" value={indexBanner.blog_hero_subtitle} onChange={(e) => setIndexBanner({ ...indexBanner, blog_hero_subtitle: e.target.value })} data-testid="blog-index-hero-subtitle" />
+          </div>
+          <div className="grid grid-2 gap-12" style={{ marginBottom: 12 }}>
+            <input className="input" placeholder="CTA label (e.g. Subscribe)" value={indexBanner.blog_hero_cta_label} onChange={(e) => setIndexBanner({ ...indexBanner, blog_hero_cta_label: e.target.value })} data-testid="blog-index-hero-cta-label" />
+            <input className="input" placeholder="CTA URL" value={indexBanner.blog_hero_cta_url} onChange={(e) => setIndexBanner({ ...indexBanner, blog_hero_cta_url: e.target.value })} data-testid="blog-index-hero-cta-url" />
+          </div>
+          <button className="btn btn-gold" onClick={saveIndexBanner} disabled={indexBannerBusy} data-testid="blog-index-hero-save">
+            {indexBannerBusy ? "Saving…" : "Save Index Banner"}
+          </button>
+          <a className="btn btn-ghost" href="/blog" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }} data-testid="blog-index-hero-preview">Preview /blog ↗</a>
+          <div className="text-muted fs-11" style={{ marginTop: 10 }}>
+            👇 Per-article banners are set below by editing each blog post.
+          </div>
+        </div>
       </div>
+
+      <div className="card" data-testid="admin-blogs">
+        <div className="card-head">
+          <div className="card-title">📝 Blogs ({list.length}) <span className="text-muted fs-11" style={{ marginLeft: 8 }}>— live on /blog & /blog/&lt;slug&gt;</span></div>
+        </div>
       <div style={{ padding: 14 }}>
         <div className="grid grid-2 gap-12" style={{ marginBottom: 8 }}>
           <input className="input" placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="blog-title" />
@@ -1279,6 +1311,7 @@ export function AdminBlogs({ toast }) {
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </div>
   );
