@@ -1845,6 +1845,8 @@ function AdminCommercialDeals({ toast }) {
   const [typeFilter, setTypeFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(null);      // artist_id being edited
+  const [draft, setDraft] = useState({ artist_type: "normal", percentage_deal: 0 });
+  const [saving, setSaving] = useState(false);
   const [historyFor, setHistoryFor] = useState(null); // {artist_id, name}
   const [historyRows, setHistoryRows] = useState([]);
 
@@ -1870,17 +1872,34 @@ function AdminCommercialDeals({ toast }) {
     } catch (e) { toast(formatApiError(e), "error"); setHistoryRows([]); }
   };
 
-  const saveDeal = async (row, patch) => {
+  const startEdit = (row) => {
+    setEditing(row.artist_id);
+    setDraft({
+      artist_type: row.artist_type || (row.is_service_artist ? "service" : "normal"),
+      percentage_deal: Number(row.percentage_deal) || 0,
+    });
+  };
+
+  const cancelEdit = () => { setEditing(null); setDraft({ artist_type: "normal", percentage_deal: 0 }); };
+
+  const saveDeal = async (row) => {
+    // Validate before hitting API
+    if (draft.artist_type === "service" && (!draft.percentage_deal || draft.percentage_deal <= 0)) {
+      toast("Service artists ke liye Commission % 0 se zyada hona chahiye", "error");
+      return;
+    }
+    setSaving(true);
     try {
       const body = {
-        artist_type: patch.artist_type ?? row.artist_type,
-        percentage_deal: patch.percentage_deal ?? row.percentage_deal,
+        artist_type: draft.artist_type,
+        percentage_deal: draft.artist_type === "service" ? Number(draft.percentage_deal) : 0,
       };
       await api.patch(`/admin/artists/${row.artist_id}/commercial-deal`, body);
       toast(`Updated deal for ${row.name}`, "success");
-      setEditing(null);
+      cancelEdit();
       load();
     } catch (e) { toast(formatApiError(e), "error"); }
+    setSaving(false);
   };
 
   return (
@@ -1940,8 +1959,8 @@ function AdminCommercialDeals({ toast }) {
                 <td>
                   {isEditing ? (
                     <select
-                      defaultValue={row.artist_type}
-                      onChange={(e) => saveDeal(row, { artist_type: e.target.value, percentage_deal: e.target.value === "normal" ? 0 : row.percentage_deal })}
+                      value={draft.artist_type}
+                      onChange={(e) => setDraft({ ...draft, artist_type: e.target.value, percentage_deal: e.target.value === "normal" ? 0 : draft.percentage_deal })}
                       data-testid={`cd-type-${row.artist_id}`}
                       className="input" style={{ padding: "3px 6px" }}>
                       <option value="normal">Normal</option>
@@ -1954,16 +1973,19 @@ function AdminCommercialDeals({ toast }) {
                   )}
                 </td>
                 <td>
-                  {isEditing && row.artist_type === "service" ? (
-                    <input
-                      type="number" min="0" max="50" step="0.5"
-                      defaultValue={row.percentage_deal}
-                      onBlur={(e) => {
-                        const v = parseFloat(e.target.value);
-                        if (v !== row.percentage_deal) saveDeal(row, { percentage_deal: v });
-                      }}
-                      data-testid={`cd-pct-${row.artist_id}`}
-                      className="input" style={{ width: 70, padding: "3px 6px" }} />
+                  {isEditing ? (
+                    draft.artist_type === "service" ? (
+                      <input
+                        type="number" min="0.5" max="50" step="0.5"
+                        value={draft.percentage_deal}
+                        onChange={(e) => setDraft({ ...draft, percentage_deal: e.target.value })}
+                        data-testid={`cd-pct-${row.artist_id}`}
+                        className="input" style={{ width: 80, padding: "3px 6px" }}
+                        placeholder="e.g. 10"
+                      />
+                    ) : (
+                      <span className="text-muted fs-11">N/A (Normal)</span>
+                    )
                   ) : (
                     row.is_service_artist ? <b>{row.percentage_deal}%</b> : "—"
                   )}
@@ -1973,10 +1995,15 @@ function AdminCommercialDeals({ toast }) {
                 <td className="fs-11 text-muted">{row.commercial_deal_set_by || "—"}</td>
                 <td>
                   {isEditing ? (
-                    <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)} data-testid={`cd-done-${row.artist_id}`}>Done</button>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button className="btn btn-gold btn-sm" onClick={() => saveDeal(row)} disabled={saving} data-testid={`cd-save-${row.artist_id}`}>
+                        {saving ? "Saving…" : "💾 Save"}
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={cancelEdit} disabled={saving} data-testid={`cd-cancel-${row.artist_id}`}>Cancel</button>
+                    </div>
                   ) : (
                     <div style={{ display: "flex", gap: 4 }}>
-                      <button className="btn btn-gold btn-sm" onClick={() => setEditing(row.artist_id)} data-testid={`cd-edit-${row.artist_id}`}>✎ Edit</button>
+                      <button className="btn btn-gold btn-sm" onClick={() => startEdit(row)} data-testid={`cd-edit-${row.artist_id}`}>✎ Edit</button>
                       <button className="btn btn-ghost btn-sm" onClick={() => openHistory(row)} data-testid={`cd-hist-${row.artist_id}`}>🕒 History</button>
                     </div>
                   )}
