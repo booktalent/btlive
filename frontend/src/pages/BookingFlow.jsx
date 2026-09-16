@@ -1030,7 +1030,7 @@ export default function BookingFlow() {
                 ) : (
                   <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee ({feePercent}%)</span><span>{fmtINRFull(platformFee)}</span></div>
                 )}
-                {gstVisible && (
+                {gstVisible && gst > 0 && (
                   <div className="flex justify-between mb-8 fs-13"><span className="text-muted">GST ({gstPercent}% on {quoteMeta?.is_service_artist ? "Artist Fee" : "Artist Fee + Platform Fee"})</span><span>{fmtINRFull(gst)}</span></div>
                 )}
                 <div className="divider" style={{ margin: "12px 0" }} />
