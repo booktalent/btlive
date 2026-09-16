@@ -2419,3 +2419,42 @@ Testing agent report: `/app/test_reports/iteration_84.json` — **100% backend (
 - Backend edited: `server.py` (router mount + email callers), `email_service.py`, `routes/req_batch_2.py` (preset share fields).
 - Frontend edited: `pages/AdminDashboard.jsx` (sidebar rows + AdminRefundAuditor + AdminBulkPayouts), `pages/manager/ManagerCRM.jsx` (share checkbox, toggleShare, chip styling).
 
+
+---
+
+## Iter 97 — Requirement Batch 4 (5 items) · Feb 2026
+
+Testing agent report: `/app/test_reports/iteration_85.json` — **9 backend PASS / 1 SKIP (permission edge case, no second manager), 3/3 frontend verified.** Zero issues.
+
+### 1. Payout Batch CSV Import
+- `routes/req_batch_4.py::batch_preview` + `batch_apply` — parse an uploaded bank export CSV, auto-match rows to pending payouts using:
+  1. Booking-ref hit inside Narration / Description / Reference No / UTR fields.
+  2. Fallback: exact-outstanding-amount match if the reference didn't yield exactly one candidate.
+- Ambiguous (multiple candidates) and unmatched rows are surfaced separately so admin can act. `candidates_missing_in_csv` shows pending payouts the CSV didn't cover.
+- Apply reuses `crm_pay._record_payout` + emits `artist_payout` timeline events + writes `payout.csv_batch_apply` audit rows.
+- Frontend `AdminBulkPayouts` — drag-drop zone (`bp-csv-drop`) that also accepts click-to-browse, preview panel (`bp-csv-preview`) with matched-rows table + Apply button (`bp-csv-apply`), ambiguous/unmatched counts.
+
+### 2. Refund SLA Slack alerts
+- `refund_sla_loop` — 6-hourly background task registered in server startup alongside the other loops.
+- `_refund_sla_sweep` — finds every `refund_requests` row with `status='pending_counter_ack'` and `created_at` older than 48 h that hasn't been alerted, formats a single Slack message with up to 12 breaches, then stamps each row with `sla_alert_sent_at` for idempotency.
+- Admin can force-fire via `POST /api/admin/refunds/sla-sweep` (used by testing).
+
+### 3. Preset team stats
+- `manager_booking_presets` now carries `usage_count` and `last_used_at`. New `POST /api/manager/booking-presets/{id}/use` increments both (and writes a `manager_preset_uses` audit row).
+- Access control: only the owner or team members (if shared) can bump usage — private presets from another manager return 403.
+- Frontend `ManagerCRM.jsx` — `applyPreset` now fire-and-forget calls `/use`, and each chip renders a `{n}×` badge (`mgr-preset-uses-<id>`) when used.
+
+### 4. Email timeline in all notifications
+- `email_service.py::_payment_receipt_html` + `send_payment_receipt_email` accept optional `timeline_html`. `easebuzz.py` verifier now builds the snippet from the first booking and passes it in.
+- `routes/crm_pay.py::send_payment_reminders` — payment-reminder emails now append the compact timeline snippet.
+- Event-reminder and booking-confirmation emails already carry it since Iter 96 — every customer touch point now shows the same 8-stage lifecycle rail.
+
+### 5. Refund Auditor Saved Views
+- Per-admin `refund_saved_views` collection. New endpoints: `GET/POST /admin/refunds/saved-views`, `DELETE /admin/refunds/saved-views/{id}`.
+- Frontend `AdminRefundAuditor` — "Save view" input (`rf-view-name` + `rf-view-save`) captures the current status/date/text filters; saved chips (`rf-view-<id>`) apply the combo in one click.
+
+### Files touched
+- Backend new: `routes/req_batch_4.py`.
+- Backend edited: `server.py` (router + SLA loop wiring), `email_service.py`, `routes/crm_pay.py` (payment reminder), `routes/easebuzz.py` (payment receipt).
+- Frontend edited: `pages/AdminDashboard.jsx` (CSV importer + saved views), `pages/manager/ManagerCRM.jsx` (usage badge + /use call).
+
