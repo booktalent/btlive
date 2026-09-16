@@ -44,6 +44,24 @@ from pydantic import BaseModel, Field
 log = logging.getLogger("iter88")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SEC-002 — CSV formula-injection guard
+# ─────────────────────────────────────────────────────────────────────────────
+_CSV_FORMULA_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_cell(v: Any) -> Any:
+    """Prefix a leading formula character with a single quote so Excel /
+    Google Sheets treats the cell as text. Non-strings passthrough."""
+    if isinstance(v, str) and v and v[0] in _CSV_FORMULA_CHARS:
+        return "'" + v
+    return v
+
+
+def _safe_row(r: Dict[str, Any], columns: List[str]) -> List[Any]:
+    return [_sanitize_cell(r.get(c, "")) for c in columns]
+
+
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -264,7 +282,7 @@ async def _csv_artist_bookings(db) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf); w.writerow(columns)
     for r in rows:
-        w.writerow([r.get(c, "") for c in columns])
+        w.writerow(_safe_row(r, columns))
     return buf.getvalue().encode("utf-8")
 
 
@@ -298,7 +316,7 @@ async def _csv_manager_leads(db) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf); w.writerow(columns)
     for r in rows:
-        w.writerow([r.get(c, "") for c in columns])
+        w.writerow(_safe_row(r, columns))
     return buf.getvalue().encode("utf-8")
 
 
@@ -328,7 +346,7 @@ async def _csv_waivers(db) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf); w.writerow(columns)
     for r in rows:
-        w.writerow([r.get(c, "") for c in columns])
+        w.writerow(_safe_row(r, columns))
     return buf.getvalue().encode("utf-8")
 
 

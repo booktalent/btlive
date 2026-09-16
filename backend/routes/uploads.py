@@ -288,16 +288,34 @@ def make_router(
 
     # ── 5. SERVE FILE ────────────────────────────────────────────────────────
     @r.get("/media/{media_id}/file")
-    async def media_file(media_id: str):
-        """Stream the original file. For dark-luxury media types (gallery/video/
-        reel/portfolio) we don't gate — they're public artist portfolio content.
-        KYC / review-attachment / chat-attachment are served through their
-        existing gated routes elsewhere."""
+    async def media_file(media_id: str, request: Request):
+        """Stream the original file. Portfolio media (gallery/video/reel) is
+        public; KYC / review / contract / agreement types are gated to the
+        owner or an admin with KYC permissions (SEC-001)."""
         doc = await db.media.find_one({"id": media_id})
         if not doc:
             raise HTTPException(404, "Not found")
         if doc.get("storage") != "filesystem" or not doc.get("path"):
             raise HTTPException(404, "Not available via file endpoint (legacy media)")
+        # SEC-001 gate for private types.
+        if (doc.get("type") or "").lower() in {"kyc", "review", "contract", "agreement"}:
+            auth = request.headers.get("Authorization") or ""
+            token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+            if not token:
+                raise HTTPException(401, "Authentication required for this asset.")
+            try:
+                import jwt as _jwt
+                payload = _jwt.decode(token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+                caller = await db.users.find_one({"id": payload.get("sub")})
+            except Exception:
+                raise HTTPException(401, "Invalid or expired token.")
+            if not caller:
+                raise HTTPException(401, "Invalid session.")
+            owner = doc.get("user_id") == caller.get("id")
+            perms = caller.get("perms") or caller.get("permissions") or []
+            kyc_admin = caller.get("role") == "admin" or "kyc.manage" in perms or "kyc.view" in perms
+            if not (owner or kyc_admin):
+                raise HTTPException(403, "You do not have permission to view this asset.")
         p = Path(doc["path"])
         if not p.exists():
             raise HTTPException(410, "File missing on disk")

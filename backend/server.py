@@ -97,8 +97,18 @@ else:
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
+        # Iter 99.4 SEC-004 — canonical production origins pinned here so we
+        # don't rely on a wildcard subdomain regex that could accidentally
+        # trust a sibling *.preview.emergentagent.com attacker origin.
+        "https://booktalent.in",
+        "https://www.booktalent.in",
     ]
-    _cors_origin_regex = r"https://.*\.(preview\.emergentagent\.com|booktalent\.in)$"
+    # Preview subdomain only allowed if it is THIS exact app's preview host.
+    # We infer it from BACKEND_PUBLIC_URL when set; otherwise no wildcard.
+    _preview_host = (os.environ.get("BACKEND_PUBLIC_URL") or "").rstrip("/")
+    if _preview_host and _preview_host.startswith("https://"):
+        _cors_origins.append(_preview_host)
+    _cors_origin_regex = None  # No wildcard regex in prod (SEC-004).
 
 app.add_middleware(
     CORSMiddleware,
@@ -1259,10 +1269,13 @@ async def media_upload(body: MediaUploadBody, user: dict = Depends(get_current_u
 
 
 @api.get("/media/{media_id}/thumb")
-async def media_thumb(media_id: str):
+async def media_thumb(media_id: str, request: Request):
     doc = await db.media.find_one({"id": media_id})
     if not doc:
         raise HTTPException(404, "Not found")
+    # SEC-001 — private-type thumbs (KYC/review) require auth too, because
+    # some doc thumbnails visibly reveal the underlying document.
+    await _authorize_media_access(doc, request)
     # New filesystem-stored media (Sprint 2 chunked uploads) — serve the JPEG thumb from disk
     if doc.get("storage") == "filesystem" and doc.get("thumb_path"):
         from pathlib import Path as _P
@@ -1332,11 +1345,54 @@ async def media_replace(media_id: str, body: MediaUploadBody, user: dict = Depen
     return {"ok": True, "id": media_id, "size": len(raw)}
 
 
+# Iter 99.3 SEC-001 — Media types that MUST require auth + ownership/admin.
+# Portfolio-type media (profile, cover, gallery, video, reel) remain public
+# because they render on public artist pages. Sensitive docs are gated below.
+_PRIVATE_MEDIA_TYPES = {"kyc", "review", "contract", "agreement"}
+
+
+def _has_kyc_admin_perm(user: dict) -> bool:
+    """True if user is admin/subadmin with KYC visibility permission."""
+    if not user:
+        return False
+    if user.get("role") == "admin":
+        return True
+    perms = user.get("perms") or user.get("permissions") or []
+    return "kyc.manage" in perms or "kyc.view" in perms
+
+
+async def _authorize_media_access(doc: dict, request: Request) -> None:
+    """Raise 401/403 unless media is public OR caller is owner OR caller is
+    an admin with KYC perms. Called from /media/{id} and /media/{id}/thumb."""
+    if (doc.get("type") or "").lower() not in _PRIVATE_MEDIA_TYPES:
+        return  # public portfolio asset
+    # Extract bearer token from Authorization header (JSON API) — same logic
+    # as get_current_user but without raising for missing header up-front so
+    # we can differentiate 401 vs 403.
+    auth = request.headers.get("Authorization") or ""
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    if not token:
+        raise HTTPException(401, "Authentication required for this asset.")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        caller = await db.users.find_one({"id": payload.get("sub")})
+    except Exception:
+        raise HTTPException(401, "Invalid or expired token.")
+    if not caller:
+        raise HTTPException(401, "Invalid session.")
+    if doc.get("user_id") == caller.get("id"):
+        return
+    if _has_kyc_admin_perm(caller):
+        return
+    raise HTTPException(403, "You do not have permission to view this asset.")
+
+
 @api.get("/media/{media_id}")
-async def media_get(media_id: str):
+async def media_get(media_id: str, request: Request):
     doc = await db.media.find_one({"id": media_id})
     if not doc:
         raise HTTPException(404, "Not found")
+    await _authorize_media_access(doc, request)
     # Iter 76 — When the media was stored in Emergent Object Storage
     # (large videos), fetch its bytes from there instead of decoding a
     # base64 blob in Mongo. Small photos & legacy rows keep the base64

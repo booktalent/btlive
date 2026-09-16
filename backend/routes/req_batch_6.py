@@ -96,6 +96,57 @@ _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
 _URL_LEAK_RE = re.compile(r"\b(?:wa\.me|whatsapp\.com|t\.me|instagram\.com/direct)\S+", re.IGNORECASE)
 
 
+# SEC-003 — Bypass-resistant contact masking.
+# Adversarial patterns we now cover:
+#   1. Full-width / mathematical digits ('9' vs '9') → NFKC normalize
+#   2. Spelled-out digits ("nine eight seven six") → collapsed to digits
+#   3. "at" / "dot" / "(at)" evasions in emails
+#   4. Wide spacing / punctuation between digits (9-8-7-6-5-4-3-2-1-0)
+#   5. Zero-width and directional marks stripped
+
+import unicodedata
+
+_ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\u200e\u200f\u2060\ufeff]")
+_DIGIT_WORDS = {
+    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+    # common Hindi/Hinglish variants
+    "shunya": "0", "ek": "1", "do": "2", "teen": "3", "char": "4",
+    "paanch": "5", "chhe": "6", "chhah": "6", "saat": "7", "aath": "8", "nau": "9",
+}
+_DIGIT_WORDS_RE = re.compile(r"\b(" + "|".join(_DIGIT_WORDS) + r")\b", re.IGNORECASE)
+_AT_OBFUSC_RE = re.compile(r"\s*(?:\[|\()?\s*(?:at|@)\s*(?:\]|\))?\s*", re.IGNORECASE)
+_DOT_OBFUSC_RE = re.compile(r"\s*(?:\[|\()?\s*(?:dot|\.)\s*(?:\]|\))?\s*", re.IGNORECASE)
+
+
+def _normalize_for_scan(text: str) -> str:
+    """Aggressively normalize the string so we can spot obfuscated PII.
+    We never REPLACE the user's text with this — it's only fed to the
+    regexes to detect leaks. The original text is what we sub-in [phone
+    hidden] against, so casual chat is untouched."""
+    if not text:
+        return text
+    # 1. NFKC folds full-width digits (９) → ASCII (9), mathematical alnum → ASCII.
+    t = unicodedata.normalize("NFKC", text)
+    # 2. Strip zero-width & directional invisibles.
+    t = _ZERO_WIDTH_RE.sub("", t)
+    # 3. Convert digit words to digits so "nine eight seven..." becomes "9876...".
+    t = _DIGIT_WORDS_RE.sub(lambda m: _DIGIT_WORDS[m.group(1).lower()], t)
+    # 4. Collapse whitespace / dots / hyphens BETWEEN adjacent digits so
+    #    "9 8 7 6 5 4 3 2 1 0" or "9.8.7..." become contiguous "9876543210"
+    #    that the phone regex catches. Iterate because a single pass only
+    #    closes every other gap.
+    for _ in range(4):
+        new_t = re.sub(r"(\d)[\s\.\-–—_·•]+(\d)", r"\1\2", t)
+        if new_t == t:
+            break
+        t = new_t
+    # 5. Reconstruct email obfuscations: "user (at) gmail (dot) com" → "user@gmail.com".
+    t = _AT_OBFUSC_RE.sub("@", t)
+    t = _DOT_OBFUSC_RE.sub(".", t)
+    return t
+
+
 def redact_contact_info(text: str) -> Tuple[str, List[Dict[str, str]]]:
     """Return (redacted_text, hits[]). Hits carry the redacted kind
     and a masked preview for auditing."""
@@ -103,6 +154,12 @@ def redact_contact_info(text: str) -> Tuple[str, List[Dict[str, str]]]:
         return text, []
     hits: List[Dict[str, str]] = []
     out = text
+
+    # SEC-003 — Scan a normalized copy for hits. If any match is found in
+    # the normalized text, we blanket-mask the ORIGINAL to be safe rather
+    # than trying to reverse-map the offsets (fewer edge cases → less bypass
+    # surface). Casual text with no leaks stays untouched.
+    scan_text = _normalize_for_scan(text)
 
     def _mask(match_obj, kind: str) -> str:
         raw = match_obj.group(0)
@@ -124,6 +181,24 @@ def redact_contact_info(text: str) -> Tuple[str, List[Dict[str, str]]]:
     out = _URL_LEAK_RE.sub(lambda m: _mask(m, "url"), out)
     out = _EMAIL_RE.sub(lambda m: _mask(m, "email"), out)
     out = _PHONE_RE.sub(lambda m: _mask(m, "phone"), out)
+
+    # If the normalized scan surfaces PII the original regexes missed
+    # (obfuscated cases), replace the entire message with a hidden marker
+    # so we never leak. This is deliberately blunt — bypass attempts get
+    # flagged and the message becomes useless to the recipient.
+    if scan_text != text:
+        extra_hits: List[Dict[str, str]] = []
+        _URL_LEAK_RE.sub(lambda m: (extra_hits.append({"kind": "url", "preview": m.group(0)[:24] + "…"}) or "[link hidden]"), scan_text)
+        _EMAIL_RE.sub(lambda m: (extra_hits.append({"kind": "email", "preview": (m.group(0).split("@", 1)[0][:2]) + "…@…"}) or "[email hidden]"), scan_text)
+        _PHONE_RE.sub(lambda m: (extra_hits.append({"kind": "phone", "preview": "…" + re.sub(r"\D", "", m.group(0))[-4:]}) or "[phone hidden]"), scan_text)
+        # Only trigger blunt replacement if the normalized scan found new hits
+        # that weren't caught by the direct regex pass.
+        original_hit_count = len(hits)
+        if extra_hits and (out == text or len(extra_hits) > original_hit_count):
+            for h in extra_hits:
+                hits.append(h)
+            out = "[message hidden — contains contact info]"
+
     return out, hits
 
 
