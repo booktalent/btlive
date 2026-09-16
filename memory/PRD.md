@@ -2387,3 +2387,35 @@ Backend 5/5 pytest pass, frontend 3/3 verified end-to-end after two follow-up fi
 - Manager modal step-2 artist search now uses correct endpoint `/api/artists/search` (previous `/api/search` returned 404).
 - Agency KPI label typo `"Remaining ₹"` → `"Remaining Payment"`.
 
+
+---
+
+## Iter 96 — Requirement Batch 3 (4 items) · Feb 2026
+
+Testing agent report: `/app/test_reports/iteration_84.json` — **100% backend (12/12), 100% frontend (3/3)**, zero bugs.
+
+### 1. Admin Refund Auditor
+- `routes/req_batch_3.py::refund_audit` — `GET /api/admin/refunds/audit` returns hydrated refund rows (booking ref, event date, customer/artist name+email, booking total) with filters: `status`, `from_date`, `to_date`, `q` (matches ref or party email). Also returns `totals` block with count / ₹ pending / ₹ accepted / ₹ rejected.
+- `GET /api/admin/refunds/audit/export.csv` — one-click CSV for the finance team (14 columns).
+- `GET /api/admin/refunds/audit/export.pdf` — landscape A4 PDF built via `reportlab` (already in requirements.txt). Includes header, filter summary, KPI totals row, and full data table.
+- Frontend `AdminDashboard.jsx::AdminRefundAuditor` — new sidebar tab (`🔎 Refund Auditor`) with 4 KPI tiles, filter row, and two download buttons using `fetch()+Authorization` header so admin-token blob downloads work.
+
+### 2. Preset Sharing for managers
+- `routes/req_batch_2.py` — `manager_booking_presets` gained `shared: bool`. `GET /manager/booking-presets` now returns own + team-shared presets, annotated with `owned` and `owner_name`. New `PATCH /manager/booking-presets/{id}/share {shared}` toggle.
+- `ManagerCRM.jsx::CreateBookingOnBehalfModal` — preset chips now show a "shared" green outline for team presets, an inline "private/shared" toggle on owned presets, plus a "Share with team" checkbox in the Save form. Team-shared presets from other managers display "👥 " prefix + owner name tooltip.
+
+### 3. Timeline snippet in emails
+- `routes/req_batch_3.py::build_email_timeline_html(booking, events)` — compact 8-stage table (Created → Manager Assigned → Artist Selected → Confirmed → Payment → Payout → Event Day → Final Settled) with ● green filled for completed, ○ muted for pending, and dates on the right.
+- `email_service.py` — `send_booking_confirmation_email` and `send_event_reminder_email` (+ `_reminder_html`) now accept optional `timeline_html=""` param.
+- `server.py:2609+` (booking confirmation) and `server.py:3054+` (event reminder loop) build the snippet via `fetch_booking_events()` and pass it into the email. Fallback: if the snippet build fails, emails still send with an empty block.
+
+### 4. Bulk Payout Marker
+- `routes/req_batch_3.py::bulk_mark_paid` — `POST /api/admin/payouts/bulk-mark-paid` accepts `{default_method, default_paid_on, rows:[{booking_id,amount,method,utr,notes,paid_on}]}` and internally calls `crm_pay._record_payout()` per row (so the ledger + `bookings.artist_payout_status="paid"` update stays identical to the single-payout admin flow). Each success also emits an `artist_payout` timeline event and an `audit_logs` entry with `action="payout.bulk_mark_paid"`.
+- `GET /api/admin/payouts/pending-list` — convenience list for the UI showing every booking that received customer payment but whose artist payout is still outstanding.
+- Frontend `AdminDashboard.jsx::AdminBulkPayouts` — sidebar tab (`📦 Bulk Payouts`), select-all / clear / per-row checkboxes, editable amount + UTR per row, default method + paid-on. Selected count + total ₹ shown live before submit. Failed rows are surfaced via toast + console.warn.
+
+### Files touched
+- Backend new: `routes/req_batch_3.py`.
+- Backend edited: `server.py` (router mount + email callers), `email_service.py`, `routes/req_batch_2.py` (preset share fields).
+- Frontend edited: `pages/AdminDashboard.jsx` (sidebar rows + AdminRefundAuditor + AdminBulkPayouts), `pages/manager/ManagerCRM.jsx` (share checkbox, toggleShare, chip styling).
+
