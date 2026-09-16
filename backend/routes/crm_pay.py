@@ -192,11 +192,20 @@ async def _milestone_reminder_tick(db: AsyncIOMotorDatabase) -> None:
                 "due":         f"Payment due today — ₹{m['amount']:,.0f}",
                 "overdue":     f"⚠ Overdue payment — ₹{m['amount']:,.0f}",
             }[kind]
+            # Build the compact timeline snippet so every reminder email
+            # carries booking context (Sec 20 / Iter 96).
+            try:
+                from routes.req_batch_3 import build_email_timeline_html, fetch_booking_events
+                _events = await fetch_booking_events(db, booking.get("id") or "")
+                timeline_html = build_email_timeline_html(booking, _events)
+            except Exception:
+                timeline_html = ""
             html = f"""<p>Hi {booking.get('customer_name','')},</p>
             <p>Your booking <b>{booking.get('ref','')}</b> has a milestone due:</p>
             <ul><li><b>{m['label']}</b>: ₹{m['amount']:,.0f}</li>
             <li>Due: <b>{m['due_date']}</b></li></ul>
-            <p>Please log in to BookTalent to complete payment.</p>"""
+            <p>Please log in to BookTalent to complete payment.</p>
+            {timeline_html or ""}"""
             try:
                 await asyncio.to_thread(_send_sync, cust_email, subject, html, subject)
             except Exception as e:

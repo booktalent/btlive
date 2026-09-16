@@ -951,6 +951,8 @@ function AdminRefundAuditor({ toast }) {
   const [items, setItems] = useState([]);
   const [totals, setTotals] = useState({});
   const [loading, setLoading] = useState(false);
+  const [views, setViews] = useState([]);
+  const [viewName, setViewName] = useState("");
 
   const qs = () => {
     const p = new URLSearchParams();
@@ -971,6 +973,41 @@ function AdminRefundAuditor({ toast }) {
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const loadViews = () =>
+    api.get("/admin/refunds/saved-views").then((r) => setViews(r.data?.items || [])).catch(() => setViews([]));
+  useEffect(() => { loadViews(); }, []);
+
+  const saveView = async () => {
+    if (!viewName.trim()) { toast("Give the view a name first", "error"); return; }
+    try {
+      const r = await api.post("/admin/refunds/saved-views", {
+        name: viewName.trim(),
+        filters: { status, from_date: from, to_date: to, q },
+      });
+      setViews((v) => [r.data.view, ...v]);
+      setViewName("");
+      toast("View saved ✓", "success");
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  const applyView = (v) => {
+    const f = v.filters || {};
+    setStatus(f.status || "");
+    setFrom(f.from_date || "");
+    setTo(f.to_date || "");
+    setQ(f.q || "");
+    // trigger load with the new filter values
+    setTimeout(load, 20);
+  };
+
+  const removeView = async (id) => {
+    if (!window.confirm("Delete this saved view?")) return;
+    try {
+      await api.delete(`/admin/refunds/saved-views/${id}`);
+      setViews((v) => v.filter((x) => x.id !== id));
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
 
   const dl = (kind) => {
     const url = `${api.defaults.baseURL}/admin/refunds/audit/export.${kind}?${qs()}`;
@@ -1004,6 +1041,44 @@ function AdminRefundAuditor({ toast }) {
         <Kpi icon="⏳" cls="kpi-icon-amber" num={fmtINRFull(totals.amount_pending || 0)} label="₹ Pending" />
         <Kpi icon="✅" cls="kpi-icon-green" num={fmtINRFull(totals.amount_accepted || 0)} label="₹ Accepted" />
         <Kpi icon="✋" cls="kpi-icon-red" num={fmtINRFull(totals.amount_rejected || 0)} label="₹ Rejected" />
+      </div>
+
+      {/* Saved views */}
+      <div style={{ padding: "0 14px 8px" }} data-testid="rf-saved-views">
+        <div className="flex-between mb-4" style={{ flexWrap: "wrap", gap: 8 }}>
+          <div className="text-muted fs-11">
+            Saved views — one-click filter combos for month-end audits
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              className="input"
+              style={{ width: 180 }}
+              placeholder="Name current filters…"
+              value={viewName}
+              onChange={(e) => setViewName(e.target.value)}
+              data-testid="rf-view-name"
+            />
+            <button className="btn btn-ghost btn-sm" onClick={saveView} disabled={!viewName.trim()} data-testid="rf-view-save">
+              💾 Save view
+            </button>
+          </div>
+        </div>
+        {views.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {views.map((v) => (
+              <span key={v.id}
+                style={{
+                  display: "inline-flex", gap: 6, alignItems: "center",
+                  border: "1px solid rgba(212,175,55,0.35)", borderRadius: 999,
+                  padding: "3px 10px", fontSize: 11, background: "rgba(212,175,55,0.06)",
+                }}
+                data-testid={`rf-view-${v.id}`}>
+                <span style={{ cursor: "pointer" }} onClick={() => applyView(v)}>{v.name}</span>
+                <span style={{ cursor: "pointer", color: "#e57373" }} onClick={() => removeView(v.id)}>×</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -1063,6 +1138,9 @@ function AdminBulkPayouts({ toast }) {
   const [defaultMethod, setDefaultMethod] = useState("neft");
   const [defaultPaidOn, setDefaultPaidOn] = useState(new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
+  const [csvPreview, setCsvPreview] = useState(null);   // { matched, ambiguous, unmatched }
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const load = async () => {
     try {
@@ -1118,6 +1196,57 @@ function AdminBulkPayouts({ toast }) {
   const chosenTotal = rows.filter((r) => selected[r.booking_id])
     .reduce((s, r) => s + parseFloat(r.pay_amount || r.outstanding || 0), 0);
 
+  // ── CSV import handlers ──────────────────────────────────────────
+  const uploadCsv = async (file) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    setCsvBusy(true);
+    try {
+      const r = await api.post("/admin/payouts/batch-preview", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setCsvPreview(r.data);
+      toast(`Parsed ${r.data.parsed_rows} rows · ${r.data.matched.length} auto-matched`, "success");
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setCsvBusy(false);
+  };
+
+  const applyCsvMatched = async () => {
+    if (!csvPreview?.matched?.length) return;
+    if (!window.confirm(`Mark ${csvPreview.matched.length} auto-matched payouts as paid?`)) return;
+    setCsvBusy(true);
+    try {
+      const payload = {
+        default_method: defaultMethod,
+        default_paid_on: defaultPaidOn,
+        rows: csvPreview.matched.map((m) => ({
+          booking_id: m.booking_id,
+          amount: m.amount,
+          utr: m.utr || "",
+          method: defaultMethod,
+          paid_on: m.paid_on || defaultPaidOn,
+          notes: `CSV batch · ${m.match_reason}`,
+        })),
+      };
+      const r = await api.post("/admin/payouts/batch-apply", payload);
+      toast(
+        `✅ Marked ${r.data.succeeded}/${r.data.processed} paid · ₹${(r.data.total_amount || 0).toLocaleString("en-IN")}`,
+        r.data.failed ? "warning" : "success",
+      );
+      setCsvPreview(null);
+      load();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setCsvBusy(false);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) uploadCsv(f);
+  };
+
   return (
     <div className="card" data-testid="admin-bulk-payouts">
       <div className="card-head">
@@ -1150,6 +1279,93 @@ function AdminBulkPayouts({ toast }) {
         <button className="btn btn-gold btn-sm" onClick={submit} disabled={busy || chosenCount === 0} data-testid="bp-submit">
           {busy ? "Processing…" : `Mark ${chosenCount || ""} Paid`}
         </button>
+      </div>
+
+      {/* CSV drag-drop importer */}
+      <div style={{ padding: "0 14px 12px" }}>
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          onClick={() => document.getElementById("bp-csv-input")?.click()}
+          data-testid="bp-csv-drop"
+          style={{
+            border: `1.5px dashed ${dragOver ? "#D4AF37" : "rgba(255,255,255,0.18)"}`,
+            background: dragOver ? "rgba(212,175,55,0.06)" : "rgba(255,255,255,0.02)",
+            borderRadius: 10, padding: 18, textAlign: "center", cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <div className="fs-14 fw-700 mb-4">📥 Drag & drop bank export CSV</div>
+          <div className="text-muted fs-12">
+            or click to browse · UTRs auto-match to pending payouts by amount and booking reference
+          </div>
+          <input
+            id="bp-csv-input"
+            type="file"
+            accept=".csv,text/csv"
+            style={{ display: "none" }}
+            onChange={(e) => uploadCsv(e.target.files?.[0])}
+            data-testid="bp-csv-input"
+          />
+        </div>
+
+        {csvBusy && <div className="text-muted fs-12 mt-8">Working on it…</div>}
+
+        {csvPreview && (
+          <div className="card card-pad mt-8" data-testid="bp-csv-preview"
+                style={{ background: "rgba(255,255,255,0.02)" }}>
+            <div className="flex-between mb-8">
+              <div>
+                <b>{csvPreview.matched.length}</b> matched ·
+                <b className="text-warn">{" "}{csvPreview.ambiguous.length}</b> ambiguous ·
+                <b style={{ color: "#e57373" }}>{" "}{csvPreview.unmatched.length}</b> unmatched
+                {" · "}
+                <span className="text-muted fs-12">
+                  {csvPreview.candidates_missing_in_csv} pending payout(s) not covered
+                </span>
+              </div>
+              <div className="flex gap-8">
+                <button className="btn btn-ghost btn-sm" onClick={() => setCsvPreview(null)}>Cancel</button>
+                <button className="btn btn-gold btn-sm"
+                        onClick={applyCsvMatched}
+                        disabled={csvBusy || !csvPreview.matched.length}
+                        data-testid="bp-csv-apply">
+                  ✅ Apply {csvPreview.matched.length} matched
+                </button>
+              </div>
+            </div>
+            {csvPreview.matched.length > 0 && (
+              <table className="tbl">
+                <thead><tr><th>Booking</th><th>Match</th><th>Amount</th><th>Outstanding</th><th>UTR</th></tr></thead>
+                <tbody>
+                  {csvPreview.matched.slice(0, 10).map((m) => (
+                    <tr key={m.booking_id + m.row} data-testid={`bp-csv-m-${m.booking_id}`}>
+                      <td>{m.booking_ref}</td>
+                      <td><span className="pill pill-green">{m.match_reason}</span></td>
+                      <td>{fmtINRFull(m.amount)}</td>
+                      <td>{fmtINRFull(m.outstanding)}</td>
+                      <td style={{ fontFamily: "monospace", fontSize: 12 }}>{m.utr || "—"}</td>
+                    </tr>
+                  ))}
+                  {csvPreview.matched.length > 10 && (
+                    <tr><td colSpan={5} className="text-muted fs-11">…and {csvPreview.matched.length - 10} more matched rows</td></tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+            {csvPreview.ambiguous.length > 0 && (
+              <div className="text-muted fs-11 mt-4">
+                ⚠️ {csvPreview.ambiguous.length} row(s) match multiple candidates — resolve manually below.
+              </div>
+            )}
+            {csvPreview.unmatched.length > 0 && (
+              <div className="text-muted fs-11 mt-4">
+                🔎 {csvPreview.unmatched.length} row(s) had no match — likely non-payout entries or missing bookings.
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <table className="tbl">

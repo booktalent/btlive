@@ -406,6 +406,14 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
       notes: p.notes_template || f.notes,
     }));
     toast(`Applied preset "${p.name}"`, "success");
+    // Bump usage counter server-side (fire-and-forget).
+    api.post(`/manager/booking-presets/${p.id}/use`)
+      .then((r) => {
+        setPresets((ps) => ps.map((x) => x.id === p.id
+          ? { ...x, usage_count: r.data.usage_count, last_used_at: r.data.last_used_at }
+          : x));
+      })
+      .catch(() => { /* usage tracking is best-effort */ });
   };
 
   const savePreset = async () => {
@@ -530,7 +538,10 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} data-testid="mgr-preset-list">
                   {presets.map((p) => (
                     <span key={p.id}
-                      title={p.owned ? "Your preset" : `Shared by ${p.owner_name || "team"}`}
+                      title={
+                        `${p.owned ? "Your preset" : `Shared by ${p.owner_name || "team"}`}` +
+                        (p.usage_count ? ` · used ${p.usage_count}×` : " · never used")
+                      }
                       style={{
                         display: "inline-flex", gap: 6, alignItems: "center",
                         border: `1px solid ${p.shared ? "rgba(110,231,168,0.45)" : "rgba(212,175,55,0.35)"}`,
@@ -541,6 +552,17 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
                       <span style={{ cursor: "pointer" }} onClick={() => applyPreset(p)}>
                         {p.shared && !p.owned && "👥 "}{p.name}
                       </span>
+                      {p.usage_count > 0 && (
+                        <span
+                          data-testid={`mgr-preset-uses-${p.id}`}
+                          style={{
+                            fontSize: 10, padding: "1px 6px", borderRadius: 999,
+                            background: "rgba(255,255,255,0.08)", color: "rgba(240,238,255,0.75)",
+                          }}
+                          title={`Used ${p.usage_count}× · last on ${(p.last_used_at || "").slice(0, 10) || "unknown"}`}>
+                          {p.usage_count}×
+                        </span>
+                      )}
                       {p.owned && (
                         <span
                           onClick={() => toggleShare(p)}

@@ -227,6 +227,17 @@ async def _finalise_bookings_after_success(
     # Fire receipt email (mock-safe when RESEND_API_KEY empty).
     try:
         from email_service import send_payment_receipt_email
+        # Build the compact timeline snippet using the first booking so the
+        # customer sees the full lifecycle at-a-glance.
+        timeline_html = ""
+        try:
+            from routes.req_batch_3 import build_email_timeline_html, fetch_booking_events
+            first_booking_id = (docs[0] or {}).get("id") if docs else None
+            if first_booking_id:
+                _events = await fetch_booking_events(db, first_booking_id)
+                timeline_html = build_email_timeline_html(docs[0], _events)
+        except Exception:
+            pass
         await send_payment_receipt_email(
             to_email=receipt_email or "",
             name=receipt_name or "",
@@ -237,6 +248,7 @@ async def _finalise_bookings_after_success(
             easepayid=str(gateway_response.get("easepayid") or ""),
             artist_name=receipt_artist or "",
             event_date=receipt_event_date or "",
+            timeline_html=timeline_html,
         )
     except Exception as e:
         log.warning("Receipt email dispatch failed: %s", e)

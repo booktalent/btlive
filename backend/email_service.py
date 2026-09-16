@@ -406,7 +406,7 @@ async def send_event_reminder_email(to_email: str, name: str, role: str, artist_
 
 def _payment_receipt_html(name: str, refs: list, amount: float, txnid: str,
                           gateway: str, easepayid: str = "", artist_name: str = "",
-                          event_date: str = "") -> str:
+                          event_date: str = "", timeline_html: str = "") -> str:
     ref_rows = "".join(
         f'<tr><td style="padding:6px 0;color:rgba(240,238,255,0.7);font-size:13px;">Booking</td>'
         f'<td style="padding:6px 0;text-align:right;"><code style="color:#F1D17A;background:rgba(212,175,55,0.12);padding:3px 9px;border-radius:6px;font-size:13px;">{r}</code></td></tr>'
@@ -452,6 +452,7 @@ def _payment_receipt_html(name: str, refs: list, amount: float, txnid: str,
       {ref_rows}
     </table>
   </td></tr>
+  <tr><td style="padding:0 40px 8px;">{timeline_html or ""}</td></tr>
   <tr><td style="padding:0 40px 32px;">
     <p style="color:rgba(240,238,255,0.5);font-size:12px;line-height:1.6;margin:0;">Keep this receipt for your records. Questions? Reply to this email and our concierge team will help.</p>
   </td></tr>
@@ -461,12 +462,13 @@ def _payment_receipt_html(name: str, refs: list, amount: float, txnid: str,
 async def send_payment_receipt_email(
     to_email: str, name: str, booking_refs: list, amount: float, txnid: str,
     gateway: str, easepayid: str = "", artist_name: str = "", event_date: str = "",
+    timeline_html: str = "",
 ) -> dict:
     """Sent the instant a payment is verified. Includes txnid, gateway ref,
     amount and all booking references (single or batch)."""
     if not to_email:
         return {"sent": False, "mock": True, "error": "no_email"}
     subject = f"Payment received — ₹{amount:,.2f} · {txnid}"
-    html = _payment_receipt_html(name, booking_refs, amount, txnid, gateway, easepayid, artist_name, event_date)
+    html = _payment_receipt_html(name, booking_refs, amount, txnid, gateway, easepayid, artist_name, event_date, timeline_html)
     text = f"Payment of ₹{amount:,.2f} received. Transaction: {txnid}. Bookings: {', '.join(booking_refs)}"
     return await asyncio.to_thread(_send_sync, to_email, subject, html, text)

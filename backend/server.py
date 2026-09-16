@@ -4194,6 +4194,9 @@ async def startup():
     # Analytics Slack alerts — daily GMV/churn health sweep.
     from routes.analytics_alerts import analytics_alerts_loop as _aal  # noqa
     asyncio.create_task(_aal(db))
+    # Refund SLA Slack alerts — 48h counter-party ack breach sweep.
+    from routes.req_batch_4 import refund_sla_loop as _rsla  # noqa
+    asyncio.create_task(_rsla(db))
     # Iter 90 — One-shot KYC status backfill (align all 3 collections
     # to artist_profiles.kyc_status). Idempotent, safe every boot.
     try:
@@ -4579,6 +4582,10 @@ app.include_router(make_req_batch_2_router(db, get_current_user, admin_only), pr
 # Feb-2026 requirement batch 3 — refund auditor + bulk payout + email timeline helper
 from routes.req_batch_3 import make_req_batch_3_router  # noqa: E402
 app.include_router(make_req_batch_3_router(db, get_current_user, admin_only), prefix="/api")
+
+# Feb-2026 requirement batch 4 — CSV payout import + refund SLA + preset stats + saved views
+from routes.req_batch_4 import make_req_batch_4_router  # noqa: E402
+app.include_router(make_req_batch_4_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
