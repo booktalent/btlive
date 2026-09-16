@@ -297,8 +297,9 @@ def make_router(
             raise HTTPException(404, "Not found")
         if doc.get("storage") != "filesystem" or not doc.get("path"):
             raise HTTPException(404, "Not available via file endpoint (legacy media)")
-        # SEC-001 gate for private types.
-        if (doc.get("type") or "").lower() in {"kyc", "review", "contract", "agreement"}:
+        # SEC-001 / SEC-003 gate for private types.
+        mtype = (doc.get("type") or "").lower()
+        if mtype in {"kyc", "review", "contract", "agreement", "chat"}:
             auth = request.headers.get("Authorization") or ""
             token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
             if not token:
@@ -312,9 +313,29 @@ def make_router(
             if not caller:
                 raise HTTPException(401, "Invalid session.")
             owner = doc.get("user_id") == caller.get("id")
-            perms = caller.get("perms") or caller.get("permissions") or []
+            perms = (
+                caller.get("perms")
+                or caller.get("permissions")
+                or caller.get("admin_permissions")
+                or []
+            )
             kyc_admin = caller.get("role") == "admin" or "kyc.manage" in perms or "kyc.view" in perms
-            if not (owner or kyc_admin):
+            # Chat participants (customer/artist/manager) may view.
+            chat_participant = False
+            if mtype == "chat":
+                thread = None
+                if doc.get("thread_id"):
+                    thread = await db.chat_v2_threads.find_one({"id": doc["thread_id"]})
+                if not thread and doc.get("booking_id"):
+                    thread = await db.chat_v2_threads.find_one({"booking_id": doc["booking_id"]})
+                if thread and caller.get("id") in {thread.get("customer_id"), thread.get("artist_id"), thread.get("manager_id")}:
+                    chat_participant = True
+                elif doc.get("booking_id"):
+                    bk = await db.bookings.find_one({"id": doc["booking_id"]},
+                                                     {"_id": 0, "customer_id": 1, "artist_id": 1, "manager_id": 1}) or {}
+                    if caller.get("id") in {bk.get("customer_id"), bk.get("artist_id"), bk.get("manager_id")}:
+                        chat_participant = True
+            if not (owner or kyc_admin or chat_participant):
                 raise HTTPException(403, "You do not have permission to view this asset.")
         p = Path(doc["path"])
         if not p.exists():

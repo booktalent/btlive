@@ -44,22 +44,12 @@ from pydantic import BaseModel, Field
 log = logging.getLogger("iter88")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SEC-002 — CSV formula-injection guard
-# ─────────────────────────────────────────────────────────────────────────────
-_CSV_FORMULA_CHARS = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _sanitize_cell(v: Any) -> Any:
-    """Prefix a leading formula character with a single quote so Excel /
-    Google Sheets treats the cell as text. Non-strings passthrough."""
-    if isinstance(v, str) and v and v[0] in _CSV_FORMULA_CHARS:
-        return "'" + v
-    return v
+# SEC-002 — CSV formula-injection guard; use the shared helper (csv_safe.py).
+from csv_safe import safe_row  # noqa: E402
 
 
 def _safe_row(r: Dict[str, Any], columns: List[str]) -> List[Any]:
-    return [_sanitize_cell(r.get(c, "")) for c in columns]
+    return safe_row([r.get(c, "") for c in columns])
 
 
 def utcnow_iso() -> str:

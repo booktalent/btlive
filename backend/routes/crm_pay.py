@@ -628,28 +628,33 @@ def make_crm_pay_router(db: AsyncIOMotorDatabase, get_current_user, require_admi
         thread = await db.chat_v2_threads.find_one({"id": body.thread_id})
         if not thread:
             raise HTTPException(404, "Thread not found")
-        # Iter 99 — Contact-masking enforcer.
-        # For every managed thread (i.e. tied to a Service artist booking)
-        # we now mask leaked phone/email/URL contact hints from ANY sender
-        # (not just the artist) and fire a Slack alert if we caught
-        # anything. This uses the shared helper in routes/req_batch_6
-        # which also writes an audit log.
+        # SEC-002 — Participant authorization. Only the thread's customer,
+        # artist, or assigned manager may write. Admins are always allowed
+        # for moderation. Previously ANY authenticated user with the thread
+        # UUID could inject / impersonate messages.
+        participants = {thread.get("customer_id"), thread.get("artist_id"), thread.get("manager_id")}
+        if user.get("role") != "admin" and user["id"] not in participants:
+            raise HTTPException(403, "You are not a participant of this conversation.")
+        # Iter 99.5 SEC-002 — Contact-masking enforcer.
+        # For every managed thread (Service-artist booking chat) OR any
+        # thread whose linked artist has is_service_artist=true, mask
+        # phone/email/URL from EVERY sender. Previously the gate required a
+        # booking_id on the thread which was never populated → masking
+        # never ran. `redact_for_thread` now enforces from the thread
+        # itself and looks up the artist profile if is_managed is unset.
         visible_body = body.body
         raw_body = body.body
-        booking_id = thread.get("booking_id")
-        if thread.get("is_managed") and booking_id:
-            try:
-                from routes.req_batch_6 import redact_and_alert
-                visible_body, _hits = await redact_and_alert(
-                    db, booking_id=booking_id,
-                    sender_id=user["id"], sender_role=user.get("role"),
-                    body_original=body.body,
-                )
-            except Exception:  # noqa: BLE001
-                # Fall back to the legacy sender-specific redactor if the
-                # new helper misbehaves — we never want a chat write to fail.
-                if user["id"] == thread.get("artist_id"):
-                    visible_body = _redact_contact_info(body.body)
+        try:
+            from routes.req_batch_6 import redact_for_thread
+            visible_body, _hits = await redact_for_thread(
+                db, thread=thread,
+                sender_id=user["id"], sender_role=user.get("role"),
+                body_original=body.body,
+            )
+        except Exception:  # noqa: BLE001
+            # Legacy fallback — never fail a chat write on masker error.
+            if user["id"] == thread.get("artist_id"):
+                visible_body = _redact_contact_info(body.body)
         msg = {
             "id": str(uuid.uuid4()),
             "thread_id": body.thread_id,

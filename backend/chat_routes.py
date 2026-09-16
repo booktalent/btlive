@@ -199,13 +199,39 @@ def make_chat_router(db, get_current_user) -> APIRouter:
     @r.post("/chat/{booking_id}/messages")
     async def post_message(booking_id: str, body: ChatMessageBody, user: dict = Depends(get_current_user)):
         booking = await _check_access(booking_id, user["id"], user["role"])
+        raw = body.content[:4000]
+        # SEC-001 — Contact-masking on the live booking chat. Builds a
+        # thread-shaped dict so the shared helper enforces on Service
+        # artists exactly as it does for chat_v2.
+        visible = raw
+        try:
+            from routes.req_batch_6 import redact_for_thread
+            _thread_shape = {
+                "id": booking_id,
+                "booking_id": booking_id,
+                "artist_id": booking.get("artist_id"),
+                "customer_id": booking.get("customer_id"),
+                "manager_id": booking.get("manager_id"),
+                "is_managed": bool(booking.get("is_managed") or booking.get("is_service_artist")),
+            }
+            visible, _hits = await redact_for_thread(
+                db, thread=_thread_shape,
+                sender_id=user["id"], sender_role=user.get("role"),
+                body_original=raw,
+            )
+        except Exception:  # noqa: BLE001
+            # Fail-closed on Service-artist bookings: if the masker breaks,
+            # drop the message entirely rather than leak contact info.
+            if booking.get("is_service_artist") or booking.get("is_managed"):
+                raise HTTPException(503, "Message could not be verified. Please try again in a moment.")
         msg = {
             "id": new_id(),
             "booking_id": booking_id,
             "sender_id": user["id"],
             "sender_role": user["role"],
             "sender_name": f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or user.get("email", ""),
-            "content": body.content[:4000],
+            "content": visible,
+            "content_original": raw,
             "type": body.type,
             "read_by": [user["id"]],
             "created_at": utcnow(),
@@ -222,7 +248,7 @@ def make_chat_router(db, get_current_user) -> APIRouter:
                     "user_id": other,
                     "type": "chat",
                     "title": f"New message from {msg['sender_name']}",
-                    "body": body.content[:120],
+                    "body": visible[:120],
                     "link": f"/dashboard/bookings/{booking_id}",
                     "read": False,
                     "created_at": utcnow(),
@@ -290,13 +316,35 @@ def make_chat_router(db, get_current_user) -> APIRouter:
                     content = (data.get("content") or "")[:4000]
                     if not content.strip():
                         continue
+                    # SEC-001 — Contact-masking on WebSocket chat path too.
+                    visible = content
+                    try:
+                        from routes.req_batch_6 import redact_for_thread
+                        _thread_shape = {
+                            "id": booking_id,
+                            "booking_id": booking_id,
+                            "artist_id": booking.get("artist_id"),
+                            "customer_id": booking.get("customer_id"),
+                            "manager_id": booking.get("manager_id"),
+                            "is_managed": bool(booking.get("is_managed") or booking.get("is_service_artist")),
+                        }
+                        visible, _hits = await redact_for_thread(
+                            db, thread=_thread_shape,
+                            sender_id=user_id, sender_role=user.get("role"),
+                            body_original=content,
+                        )
+                    except Exception:
+                        # Fail-closed on Service artist bookings.
+                        if booking.get("is_service_artist") or booking.get("is_managed"):
+                            continue
                     msg = {
                         "id": new_id(),
                         "booking_id": booking_id,
                         "sender_id": user_id,
                         "sender_role": user.get("role"),
                         "sender_name": f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or user.get("email", ""),
-                        "content": content,
+                        "content": visible,
+                        "content_original": content,
                         "type": data.get("type") or "text",
                         "read_by": [user_id],
                         "created_at": utcnow(),
@@ -312,7 +360,7 @@ def make_chat_router(db, get_current_user) -> APIRouter:
                                 "user_id": other,
                                 "type": "chat",
                                 "title": f"New message from {msg['sender_name']}",
-                                "body": content[:120],
+                                "body": visible[:120],
                                 "link": f"/dashboard/bookings/{booking_id}",
                                 "read": False,
                                 "created_at": utcnow(),

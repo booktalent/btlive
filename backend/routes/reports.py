@@ -27,6 +27,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from csv_safe import safe_row  # SEC — formula-injection guard
+
 log = logging.getLogger("reports")
 
 
@@ -36,7 +38,7 @@ def _rows_to_csv(rows: List[Dict[str, Any]], columns: List[str], filename: str) 
     writer = csv.writer(buf)
     writer.writerow(columns)
     for row in rows:
-        writer.writerow([row.get(c, "") for c in columns])
+        writer.writerow(safe_row([row.get(c, "") for c in columns]))
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),

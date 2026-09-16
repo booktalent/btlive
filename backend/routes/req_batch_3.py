@@ -25,6 +25,8 @@ from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 
+from csv_safe import safe_row  # SEC — formula-injection guard
+
 log = logging.getLogger("req_batch_3")
 
 
@@ -212,7 +214,7 @@ def make_req_batch_3_router(db: AsyncIOMotorDatabase, get_current_user, require_
             "Customer Email", "Artist", "Artist Email", "Created", "Accepted On",
         ])
         for h in data["items"]:
-            w.writerow([
+            w.writerow(safe_row([
                 h.get("booking_ref"), h.get("event_date"), h.get("booking_total"),
                 h.get("amount"), h.get("status"), h.get("reason", ""),
                 h.get("requested_by_role"), h.get("counter_role"),
@@ -220,7 +222,7 @@ def make_req_batch_3_router(db: AsyncIOMotorDatabase, get_current_user, require_
                 h.get("artist_name"), h.get("artist_email"),
                 (h.get("created_at") or "")[:19],
                 (h.get("counter_accepted_at") or "")[:19],
-            ])
+            ]))
         buf.seek(0)
         return StreamingResponse(
             iter([buf.getvalue()]),

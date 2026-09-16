@@ -1348,7 +1348,7 @@ async def media_replace(media_id: str, body: MediaUploadBody, user: dict = Depen
 # Iter 99.3 SEC-001 — Media types that MUST require auth + ownership/admin.
 # Portfolio-type media (profile, cover, gallery, video, reel) remain public
 # because they render on public artist pages. Sensitive docs are gated below.
-_PRIVATE_MEDIA_TYPES = {"kyc", "review", "contract", "agreement"}
+_PRIVATE_MEDIA_TYPES = {"kyc", "review", "contract", "agreement", "chat"}
 
 
 def _has_kyc_admin_perm(user: dict) -> bool:
@@ -1357,14 +1357,49 @@ def _has_kyc_admin_perm(user: dict) -> bool:
         return False
     if user.get("role") == "admin":
         return True
-    perms = user.get("perms") or user.get("permissions") or []
+    # Sub-admins may store perms under any of these keys (historical drift).
+    perms = (
+        user.get("perms")
+        or user.get("permissions")
+        or user.get("admin_permissions")
+        or []
+    )
     return "kyc.manage" in perms or "kyc.view" in perms
+
+
+async def _is_chat_participant(doc: dict, caller: dict) -> bool:
+    """True when caller either owns the chat media, is the booking's
+    customer/artist/assigned-manager, or is the other side of the chat
+    thread that carries this attachment."""
+    if not caller:
+        return False
+    if doc.get("user_id") == caller.get("id"):
+        return True
+    # Look up an owning thread / booking to authorize the counterparty.
+    thread = None
+    if doc.get("thread_id"):
+        thread = await db.chat_v2_threads.find_one({"id": doc["thread_id"]})
+    if not thread and doc.get("booking_id"):
+        thread = await db.chat_v2_threads.find_one({"booking_id": doc["booking_id"]})
+    if thread:
+        allowed_ids = {
+            thread.get("customer_id"), thread.get("artist_id"), thread.get("manager_id")
+        }
+        if caller.get("id") in allowed_ids:
+            return True
+    if doc.get("booking_id"):
+        bk = await db.bookings.find_one({"id": doc["booking_id"]},
+                                         {"_id": 0, "customer_id": 1, "artist_id": 1, "manager_id": 1}) or {}
+        if caller.get("id") in {bk.get("customer_id"), bk.get("artist_id"), bk.get("manager_id")}:
+            return True
+    return False
 
 
 async def _authorize_media_access(doc: dict, request: Request) -> None:
     """Raise 401/403 unless media is public OR caller is owner OR caller is
     an admin with KYC perms. Called from /media/{id} and /media/{id}/thumb."""
-    if (doc.get("type") or "").lower() not in _PRIVATE_MEDIA_TYPES:
+    mtype = (doc.get("type") or "").lower()
+    if mtype not in _PRIVATE_MEDIA_TYPES:
         return  # public portfolio asset
     # Extract bearer token from Authorization header (JSON API) — same logic
     # as get_current_user but without raising for missing header up-front so
@@ -1381,6 +1416,9 @@ async def _authorize_media_access(doc: dict, request: Request) -> None:
     if not caller:
         raise HTTPException(401, "Invalid session.")
     if doc.get("user_id") == caller.get("id"):
+        return
+    # Chat attachments: allow booking participants (customer, artist, manager).
+    if mtype == "chat" and await _is_chat_participant(doc, caller):
         return
     if _has_kyc_admin_perm(caller):
         return

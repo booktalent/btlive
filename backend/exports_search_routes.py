@@ -20,6 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 
+from csv_safe import safe_row  # SEC — formula-injection guard
+
 log = logging.getLogger("booktalent.iter11")
 
 
@@ -157,7 +159,7 @@ def make_exports_search_router(db, get_current_user, admin_only) -> APIRouter:
                 comm_pct = commission_map.get(b["artist_id"], 0)
                 comm_amt = round(artist_fee * comm_pct / 100, 2)
                 row += [f"{comm_pct:.1f}", _money(comm_amt)]
-            w.writerow(row)
+            w.writerow(safe_row(row))
         buf.seek(0)
         return StreamingResponse(
             iter([buf.getvalue()]),
@@ -178,12 +180,12 @@ def make_exports_search_router(db, get_current_user, admin_only) -> APIRouter:
         async for b in db.bookings.find({"created_at": {"$gte": cutoff}}):
             p = b.get("pricing", {}) or {}
             artist_fee = float(p.get("artist_fee", p.get("package_fee", 0) + p.get("addons_total", 0)))
-            w.writerow([
+            w.writerow(safe_row([
                 b.get("ref", ""), b.get("created_at", "")[:10], b.get("event_date", ""),
                 b.get("status", ""), b.get("customer_name", ""), b.get("artist_id", ""),
                 _money(artist_fee), _money(p.get("platform_fee", 0)),
                 _money(p.get("gst", 0)), _money(p.get("total", 0)),
-            ])
+            ]))
         buf.seek(0)
         return StreamingResponse(
             iter([buf.getvalue()]),

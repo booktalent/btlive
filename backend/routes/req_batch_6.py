@@ -218,6 +218,62 @@ async def should_enforce_masking(db: AsyncIOMotorDatabase, booking_id: str) -> b
     return bool(prof.get("is_service_artist"))
 
 
+async def redact_for_thread(db: AsyncIOMotorDatabase, *, thread: Dict[str, Any],
+                             sender_id: Optional[str], sender_role: Optional[str],
+                             body_original: str) -> Tuple[str, List[Dict[str, str]]]:
+    """SEC — thread-anchored variant so masking runs even when the thread
+    is not tied to a specific booking yet. Enforces on any thread whose
+    linked artist is a Service artist, or any thread marked is_managed."""
+    if not body_original:
+        return body_original, []
+
+    # Fast path: `is_managed` was set at thread creation time based on
+    # the artist's service flag. Fall back to a live lookup only if that
+    # flag is missing (legacy threads).
+    enforce = bool(thread.get("is_managed"))
+    if not enforce:
+        aid = thread.get("artist_id")
+        if aid:
+            prof = await db.artist_profiles.find_one(
+                {"user_id": aid}, {"_id": 0, "is_service_artist": 1}) or {}
+            enforce = bool(prof.get("is_service_artist"))
+    if not enforce:
+        return body_original, []
+
+    redacted, hits = redact_contact_info(body_original)
+    if not hits:
+        return body_original, []
+
+    entity_id = thread.get("booking_id") or thread.get("id") or "chat"
+    # Fire-and-forget alert
+    try:
+        from routes.iter89 import notify_slack
+        kinds = ", ".join(sorted({h["kind"] for h in hits}))
+        text = (
+            f":mask: *Contact leak masked* in Service-artist chat "
+            f"(thread `{thread.get('id')}`) — hidden {len(hits)} item(s) ({kinds}) "
+            f"from a {sender_role or '?'} message."
+        )
+        await notify_slack(db, text=text)
+    except Exception as e:  # noqa: BLE001
+        log.warning("redact slack alert failed: %s", e)
+
+    try:
+        await db.audit_logs.insert_one({
+            "id": str(uuid.uuid4()),
+            "actor_id": sender_id,
+            "actor_role": sender_role,
+            "action": "chat.contact_masked",
+            "entity": "thread" if not thread.get("booking_id") else "booking",
+            "entity_id": entity_id,
+            "metadata": {"hits": hits, "chars": len(body_original), "thread_id": thread.get("id")},
+            "created_at": utcnow(),
+        })
+    except Exception:
+        pass
+    return redacted, hits
+
+
 async def redact_and_alert(db: AsyncIOMotorDatabase, *, booking_id: str,
                             sender_id: Optional[str], sender_role: Optional[str],
                             body_original: str) -> Tuple[str, List[Dict[str, str]]]:

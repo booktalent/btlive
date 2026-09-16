@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from csv_safe import safe_row  # SEC — formula-injection guard
+
 log = logging.getLogger("booktalent.iter9")
 
 
@@ -412,7 +414,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
             gst = float(p.get("gst", 0))
             total_fee += fee
             total_gst += gst
-            writer.writerow([
+            writer.writerow(safe_row([
                 b.get("ref", b.get("id", "")),
                 b.get("artist_name", b.get("artist_id", "")),
                 b.get("customer_name", ""),
@@ -421,7 +423,7 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
                 float(p.get("artist_fee", 0)),
                 fee, gst, fee + gst,
                 b.get("status", ""),
-            ])
+            ]))
         writer.writerow([])
         writer.writerow(["TOTALS", "", "", "", "", "", total_fee, total_gst, total_fee + total_gst, ""])
 
