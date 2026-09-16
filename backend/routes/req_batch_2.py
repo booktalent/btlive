@@ -170,6 +170,14 @@ def make_req_batch_2_router(db: AsyncIOMotorDatabase, get_current_user, require_
             actor_id=user["id"], actor_role=role,
             metadata={"amount": amt, "reason": body.reason, "request_id": rid},
         )
+        # Watchlist Slack ping — fires only if an admin flagged this booking.
+        try:
+            from routes.req_batch_5 import maybe_ping_watchlist
+            await maybe_ping_watchlist(db, booking_id=booking_id,
+                                        action="refund_requested",
+                                        actor_role=role, amount=amt)
+        except Exception:
+            pass
         doc.pop("_id", None)
         return {"ok": True, "request": doc}
 
@@ -243,6 +251,13 @@ def make_req_batch_2_router(db: AsyncIOMotorDatabase, get_current_user, require_
             metadata={"amount": req["amount"], "auto_dispatched": auto_dispatched},
         )
         try:
+            from routes.req_batch_5 import maybe_ping_watchlist
+            await maybe_ping_watchlist(db, booking_id=booking_id,
+                                        action="refund_accepted",
+                                        actor_role=role, amount=req["amount"])
+        except Exception:
+            pass
+        try:
             await db.audit_logs.insert_one({
                 "id": str(uuid.uuid4()),
                 "actor_id": user["id"], "actor_role": role,
@@ -274,6 +289,14 @@ def make_req_batch_2_router(db: AsyncIOMotorDatabase, get_current_user, require_
             label=f"Refund rejected by {user.get('role')}",
             actor_id=user["id"], actor_role=user.get("role"),
         )
+        try:
+            from routes.req_batch_5 import maybe_ping_watchlist
+            await maybe_ping_watchlist(db, booking_id=booking_id,
+                                        action="refund_rejected",
+                                        actor_role=user.get("role"),
+                                        amount=req.get("amount"))
+        except Exception:
+            pass
         return {"ok": True}
 
     @r.get("/bookings/{booking_id}/refund-status")

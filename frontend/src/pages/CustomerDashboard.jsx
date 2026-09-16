@@ -367,6 +367,7 @@ function ExpiryCountdown({ expiresAt, urgent = false }) {
 
 export function BookingsTable({ bookings, role, onAction, onReview }) {
   const [chatBooking, setChatBooking] = useState(null);
+  const [badges, setBadges] = useState({});   // { booking_id: {stage,label,tint} }
   // Iter 75.5 — Cancellation-reason modal. Opened by every "Cancel"
   // button (artist OR customer). Reason is passed straight through to
   // `onAction(id, "cancel", { reason })`.
@@ -397,6 +398,17 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
       return () => { document.body.style.overflow = prev; };
     }
   }, [chatBooking]);
+
+  // Iter 98 — Fetch the compact lifecycle-stage badge for each booking
+  // shown here so customers/artists see the current stage at a glance
+  // without opening each row.
+  useEffect(() => {
+    if (!bookings || bookings.length === 0) return;
+    if (role !== "customer" && role !== "artist") return;
+    api.get("/bookings/mine/badges")
+      .then((r) => setBadges(r.data?.items || {}))
+      .catch(() => setBadges({}));
+  }, [bookings, role]);
 
   if (bookings.length === 0) {
     return <div className="empty"><div className="empty-icon">📋</div><div className="empty-title">No bookings yet</div></div>;
@@ -455,6 +467,32 @@ export function BookingsTable({ bookings, role, onAction, onReview }) {
                 )}
                 <td>
                   <span className={`status-pill ${pillCls}`}>{label}</span>
+                  {badges[b.id] && (
+                    <div
+                      data-testid={`bt-tl-badge-${b.id}`}
+                      title="Lifecycle stage — see the booking timeline for details"
+                      style={{
+                        display: "inline-block", marginTop: 4,
+                        fontSize: 10, padding: "2px 8px", borderRadius: 999,
+                        background: {
+                          emerald: "rgba(110,231,168,0.14)",
+                          gold: "rgba(212,175,55,0.14)",
+                          amber: "rgba(255,193,7,0.14)",
+                          violet: "rgba(180,148,244,0.14)",
+                          blue: "rgba(120,180,255,0.14)",
+                        }[badges[b.id].tint] || "rgba(255,255,255,0.06)",
+                        color: {
+                          emerald: "#6ee7a8",
+                          gold: "#D4AF37",
+                          amber: "#ffc107",
+                          violet: "#B494F4",
+                          blue: "#78B4FF",
+                        }[badges[b.id].tint] || "rgba(240,238,255,0.7)",
+                        border: "1px solid rgba(255,255,255,0.05)",
+                      }}>
+                      {badges[b.id].label}
+                    </div>
+                  )}
                   {b.status === "pending_artist" && b.expires_at && (
                     <div className="mt-4">
                       <ExpiryCountdown expiresAt={b.expires_at} urgent={role === "artist"} />

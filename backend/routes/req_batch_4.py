@@ -150,8 +150,31 @@ def _pick(row: Dict[str, Any], keys: List[str]) -> str:
     return ""
 
 
-async def _match_csv_rows(db: AsyncIOMotorDatabase, csv_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Given parsed CSV rows, return { matched, unmatched, ambiguous }."""
+async def _match_csv_rows(db: AsyncIOMotorDatabase, csv_rows: List[Dict[str, Any]],
+                          mapping: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+    """Given parsed CSV rows, return { matched, unmatched, ambiguous }.
+
+    `mapping` optionally overrides the default column-alias lists for
+    each field: amount / utr / ref_hint / paid_on. Keys not supplied
+    fall back to the defaults so partial mappings work.
+    """
+    m = mapping or {}
+    amount_keys = m.get("amount") or [
+        "amount", "amount (inr)", "amount_inr", "credit", "credit amount",
+        "debit", "debit amount", "value", "txn amount",
+    ]
+    utr_keys = m.get("utr") or [
+        "utr", "utr number", "utr no", "utr_no", "reference no", "ref no",
+        "reference", "reference number", "transaction id", "txn id", "txnid",
+    ]
+    ref_keys = m.get("ref_hint") or [
+        "booking ref", "booking id", "booking", "narration",
+        "description", "remarks", "particulars", "note",
+    ]
+    paid_on_keys = m.get("paid_on") or [
+        "value date", "value_date", "date", "txn date", "transaction date", "posting date",
+    ]
+
     # Pull the current pending payout candidates.
     candidates: List[Dict[str, Any]] = []
     cur = db.bookings.find(
@@ -184,15 +207,10 @@ async def _match_csv_rows(db: AsyncIOMotorDatabase, csv_rows: List[Dict[str, Any
     unmatched: List[Dict[str, Any]] = []
 
     for idx, r in enumerate(csv_rows):
-        amount = _num(_pick(r, [
-            "amount", "amount (inr)", "amount_inr", "credit", "credit amount",
-            "debit", "debit amount", "value", "txn amount",
-        ]))
-        utr = _pick(r, ["utr", "utr number", "utr no", "utr_no", "reference no", "ref no",
-                        "reference", "reference number", "transaction id", "txn id", "txnid"])
-        ref_hint = _pick(r, ["booking ref", "booking id", "booking", "narration",
-                             "description", "remarks", "particulars", "note"])
-        paid_on = _pick(r, ["value date", "value_date", "date", "txn date", "transaction date", "posting date"])
+        amount = _num(_pick(r, amount_keys))
+        utr = _pick(r, utr_keys)
+        ref_hint = _pick(r, ref_keys)
+        paid_on = _pick(r, paid_on_keys)
 
         if amount is None:
             unmatched.append({"row": idx, "reason": "no_amount", "raw": r})
@@ -269,6 +287,7 @@ def make_req_batch_4_router(db: AsyncIOMotorDatabase, get_current_user, require_
     # ───────────────────────────────────────────────────────────────
     @r.post("/admin/payouts/batch-preview")
     async def batch_preview(file: UploadFile = File(...),
+                             preset_id: Optional[str] = None,
                              _: dict = Depends(require_admin)):
         raw = (await file.read()).decode("utf-8-sig", errors="replace")
         if not raw.strip():
@@ -283,8 +302,27 @@ def make_req_batch_4_router(db: AsyncIOMotorDatabase, get_current_user, require_
         if not rows:
             raise HTTPException(400, "Could not parse CSV — ensure the first row contains column headers")
 
-        result = await _match_csv_rows(db, rows)
+        # Optional bank preset — pass its column mapping through so
+        # HDFC/ICICI/Axis-specific headers are recognised on re-imports.
+        mapping = None
+        preset_used = None
+        if preset_id:
+            preset = await db.csv_bank_presets.find_one({"id": preset_id}, {"_id": 0})
+            if not preset:
+                raise HTTPException(404, "Bank preset not found")
+            mapping = preset.get("mapping") or {}
+            preset_used = {"id": preset["id"], "bank_name": preset.get("bank_name")}
+            # Track last-used timestamp for the preset recommendations UI.
+            await db.csv_bank_presets.update_one(
+                {"id": preset_id},
+                {"$inc": {"usage_count": 1},
+                 "$set": {"last_used_at": datetime.now(timezone.utc).isoformat()}},
+            )
+
+        result = await _match_csv_rows(db, rows, mapping=mapping)
         result["parsed_rows"] = len(rows)
+        if preset_used:
+            result["preset"] = preset_used
         return result
 
     @r.post("/admin/payouts/batch-apply")

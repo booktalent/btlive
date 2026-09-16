@@ -4,7 +4,7 @@ import re
 from typing import Callable, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # Validation
@@ -47,6 +47,11 @@ class KYCDecideBody(BaseModel):
     artist_id: str
     decision: Literal["approve", "reject", "request_resubmission"]
     reason: Optional[str] = None
+    # Iter 98 — Admin can set the commercial deal at approval time so
+    # a new artist is either "Normal" (5% platform fee applied to customer)
+    # or "BookTalent Service" (fee waived, artist owes a % commission).
+    artist_type: Optional[Literal["normal", "service"]] = None
+    percentage_deal: Optional[float] = Field(None, ge=0, le=50)
 
 
 def make_router(
@@ -231,6 +236,26 @@ def make_router(
         )
         # For downstream notification templates
         v2_status = synced["v2"]
+
+        # Iter 98 — Commercial deal is set at approval time. Admin picks
+        # "normal" (default, 5% platform fee applied to customer) or
+        # "service" (BookTalent Service Artist, fee waived, artist pays
+        # a % commission). These flags feed `financial_engine._artist_commercial`
+        # so the waiver shows up on every subsequent /finance/quote.
+        if body.decision == "approve":
+            is_service = (body.artist_type == "service")
+            pct = float(body.percentage_deal or 0)
+            await db.artist_profiles.update_one(
+                {"user_id": body.artist_id},
+                {"$set": {
+                    "artist_type": body.artist_type or "normal",
+                    "is_service_artist": bool(is_service and pct > 0),
+                    "percentage_deal": pct if is_service else 0.0,
+                    "commercial_deal_set_at": utcnow(),
+                    "commercial_deal_set_by": admin.get("email"),
+                }},
+                upsert=False,
+            )
 
         target_user = await db.users.find_one({"id": body.artist_id})
         titles = {

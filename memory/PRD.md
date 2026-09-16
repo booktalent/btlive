@@ -2458,3 +2458,31 @@ Testing agent report: `/app/test_reports/iteration_85.json` — **9 backend PASS
 - Backend edited: `server.py` (router + SLA loop wiring), `email_service.py`, `routes/crm_pay.py` (payment reminder), `routes/easebuzz.py` (payment receipt).
 - Frontend edited: `pages/AdminDashboard.jsx` (CSV importer + saved views), `pages/manager/ManagerCRM.jsx` (usage badge + /use call).
 
+
+---
+
+## Iter 98 — 10-Point Business Concept Closure + 5-Item Batch · Feb 2026
+
+### Root fix — Admin can now set commercial deal at KYC approval
+The 10-point business model (Normal vs BookTalent Service Artist, 5% platform fee waiver, mandatory KYC → T&C → agreement → LIVE flow) was 90% implemented on the backend but the **admin UI had a gap** — the legacy `/admin/kyc/decide` endpoint didn't accept `artist_type` / `percentage_deal`, so admins could not set a new artist's percentage anywhere in the UI.
+
+Fixed by:
+- **`routes/kyc.py::KYCDecideBody`** — added optional `artist_type: "normal" | "service"` and `percentage_deal: float (0-50)`. On approve, `artist_profiles` is patched with `is_service_artist`, `percentage_deal`, `artist_type`, `commercial_deal_set_at`, `commercial_deal_set_by`.
+- **`AdminDashboard.jsx::KycApproveModal`** — new modal fires on the approve button. Two big picker tiles ("Normal Artist" / "BookTalent Service Artist"); selecting Service reveals a percentage input with an example ("₹1,00,000 → BT ₹10,000 · Artist ₹90,000"). Confirming posts `/admin/kyc/decide` with the full commercial deal.
+- **Companion endpoints in `routes/req_batch_5.py`** — `GET /api/admin/artists/{id}/commercial-deal` and `PATCH .../commercial-deal` so admins can view + change the deal any time after approval (e.g. bump 10 → 15 %).
+- Verified end-to-end: fresh approval → `/finance/quote?package_fee=100000` returns `platform_fee_waiver=-5000, platform_fee_net=0, booktalent_commission=12000, artist_payable=88000`. PATCH to 15 % → next quote returns commission=15000, artist=85000.
+- UI screenshot in this iteration confirms the modal renders correctly on the live preview.
+
+### Batch 5 items also delivered
+
+1. **CSV Bank Presets** — `routes/req_batch_5.py` gives admins CRUD over per-bank column mappings (HDFC/ICICI/Axis). `POST /admin/payouts/batch-preview?preset_id=…` applies the mapping so re-importing next month is one-click. Admin UI adds a preset picker + delete + auto-guessed save.
+2. **SLA Escalation Tiers** — `escalation_loop` background task fires two extra Slack tiers on top of the base 48 h alert: **Tier 1 at 72 h** with `<!channel>`, **Tier 2 at 96 h** with `<!here>` + an in-app founder ping to every admin/subadmin. Each tier stamps `escalation_alerts.<kind>` for idempotency.
+3. **Preset Recommendations** — `GET /manager/booking-presets/recommendations` returns top-3 most-used team-shared presets. Rendered as a distinct 🏆 green strip at the top of the Create Booking on Behalf modal.
+4. **Timeline Badge in App** — `GET /bookings/mine/badges` returns a compact `{stage,label,tint}` per booking derived from status + payment + payout state + `booking_events`. `BookingsTable` on Customer/Artist dashboards now shows a coloured lifecycle chip under each status pill.
+5. **Auditor Watchlists** — `refund_watchlist` collection (per-admin) + CRUD. Every mutual-refund action (`request`/`accept`/`reject`) now calls `req_batch_5.maybe_ping_watchlist()` which pings Slack immediately if the booking is watched, regardless of amount. Auditor page shows a "👁 Watch" toggle per row + an active-watchlist chip strip below the table.
+
+### Files touched
+- Backend new: `routes/req_batch_5.py`.
+- Backend edited: `routes/kyc.py` (deal fields), `routes/req_batch_2.py` (watchlist hooks), `routes/req_batch_4.py` (mapping-aware CSV matcher, bank-preset param), `server.py` (router + escalation loop wiring).
+- Frontend edited: `pages/AdminDashboard.jsx` (KycApproveModal + bank-preset picker + watchlist toggles + summary strip), `pages/manager/ManagerCRM.jsx` (top-3 recommendations strip), `pages/CustomerDashboard.jsx::BookingsTable` (lifecycle chip).
+

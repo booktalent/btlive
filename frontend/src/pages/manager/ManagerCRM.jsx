@@ -367,6 +367,7 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
   const [customers, setCustomers] = useState([]);
   const [artists, setArtists] = useState([]);
   const [presets, setPresets] = useState([]);
+  const [recs, setRecs] = useState([]);
   const [q, setQ] = useState("");
   const [aq, setAq] = useState("");
   const [form, setForm] = useState({
@@ -393,6 +394,10 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
     api.get("/manager/booking-presets")
       .then((r) => setPresets(r.data?.items || []))
       .catch(() => setPresets([]));
+    // Top-3 most-used team-shared presets so new managers grab proven templates first.
+    api.get("/manager/booking-presets/recommendations")
+      .then((r) => setRecs(r.data?.items || []))
+      .catch(() => setRecs([]));
   }, []);
 
   const applyPreset = (p) => {
@@ -530,6 +535,32 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
         {step === 3 && (
           <>
             <div className="fw-700 fs-13 mb-8">3. Event Details</div>
+
+            {/* Top team recommendations */}
+            {recs.length > 0 && (
+              <div className="mb-8" style={{
+                background: "linear-gradient(180deg, rgba(110,231,168,0.08), rgba(110,231,168,0.02))",
+                border: "1px solid rgba(110,231,168,0.25)", padding: 8, borderRadius: 8,
+              }} data-testid="mgr-preset-recs">
+                <div className="text-good fs-11 mb-4">🏆 Top team presets — battle-tested by your teammates</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {recs.map((p) => (
+                    <span key={p.id}
+                      title={`Used ${p.usage_count}× · Shared by ${p.owner_name || "team"}`}
+                      style={{
+                        display: "inline-flex", gap: 6, alignItems: "center",
+                        border: "1px solid rgba(110,231,168,0.5)", borderRadius: 999,
+                        padding: "4px 12px", fontSize: 11, background: "rgba(110,231,168,0.12)",
+                        cursor: "pointer", fontWeight: 700,
+                      }}
+                      onClick={() => applyPreset(p)}
+                      data-testid={`mgr-preset-rec-${p.id}`}>
+                      🏆 {p.name} <span style={{ opacity: 0.75, fontWeight: 400 }}>· {p.usage_count}×</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Preset picker + save */}
             {presets.length > 0 && (

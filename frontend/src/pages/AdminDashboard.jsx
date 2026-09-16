@@ -356,19 +356,31 @@ function AdminKYC({ toast }) {
   const [list, setList] = useState([]);
   const [status, setStatus] = useState("pending");
   const [expanded, setExpanded] = useState(null);
+  const [approveState, setApproveState] = useState(null); // { artist_id, name }
   const reload = () => api.get(`/admin/kyc?status=${status}`).then((r) => setList(r.data)).catch(() => setList([]));
   // `reload` is a new closure every render — including it triggers infinite fetch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [status]);
 
-  const decide = async (artist_id, decision) => {
+  const decide = async (artist_id, decision, extra = {}) => {
+    // Iter 98 — Approve now routes through a modal that captures
+    // artist_type + percentage_deal so the commercial deal is set at
+    // the moment of approval (matching Sec 4 of the business concept).
+    if (decision === "approve" && !extra._skipModal) {
+      const row = list.find((k) => k.user_id === artist_id);
+      setApproveState({
+        artist_id,
+        name: `${row?.user?.first_name || ""} ${row?.user?.last_name || ""}`.trim() || "Artist",
+      });
+      return;
+    }
     let reason = "";
     if (decision === "reject" || decision === "request_resubmission") {
       reason = window.prompt(`Reason for ${decision === "reject" ? "rejection" : "resubmission"}:`, "") || "";
       if (!reason.trim()) { toast("Reason is required", "error"); return; }
     }
     try {
-      await api.post("/admin/kyc/decide", { artist_id, decision, reason });
+      await api.post("/admin/kyc/decide", { artist_id, decision, reason, ...extra });
       toast(`KYC ${decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "resubmission requested"}`);
       reload();
     } catch (e) { toast(formatApiError(e), "error"); }
@@ -465,9 +477,124 @@ function AdminKYC({ toast }) {
           );
         })}
       </div>
+      {approveState && (
+        <KycApproveModal
+          artist={approveState}
+          onCancel={() => setApproveState(null)}
+          onConfirm={async ({ artist_type, percentage_deal }) => {
+            setApproveState(null);
+            await decide(approveState.artist_id, "approve", {
+              _skipModal: true, artist_type, percentage_deal,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
+
+
+// ────────────────────────────────────────────────────────────────────────
+// KycApproveModal — captures artist_type ("normal" / "service") and, if
+// service, the percentage_deal. Submitted as part of /admin/kyc/decide
+// so the artist's commercial terms are locked at approval time.
+// ────────────────────────────────────────────────────────────────────────
+function KycApproveModal({ artist, onCancel, onConfirm }) {
+  const [type, setType] = useState("normal");
+  const [pct, setPct] = useState(10);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (type === "service" && (!pct || pct <= 0 || pct > 50)) {
+      alert("Enter a BookTalent commission percentage between 1 and 50.");
+      return;
+    }
+    setBusy(true);
+    await onConfirm({
+      artist_type: type,
+      percentage_deal: type === "service" ? Number(pct) : 0,
+    });
+    setBusy(false);
+  };
+
+  return (
+    <div
+      data-testid="kyc-approve-modal"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,4,20,0.82)",
+        display: "grid", placeItems: "center", zIndex: 900, padding: 16,
+        backdropFilter: "blur(6px)",
+      }}
+      onClick={onCancel}>
+      <div className="card card-pad"
+        style={{ maxWidth: 480, width: "100%", background: "#0F0F1B" }}
+        onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-serif fw-700 fs-18 mb-4">Approve KYC · {artist.name}</h3>
+        <p className="text-muted fs-12 mb-12">
+          Set the commercial deal now. This is what the customer sees on every future checkout.
+        </p>
+
+        <div className="field-label mb-4">Artist type</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <label
+            data-testid="kyc-type-normal"
+            onClick={() => setType("normal")}
+            style={{
+              flex: 1, padding: 12, borderRadius: 10, cursor: "pointer",
+              border: type === "normal" ? "1.5px solid #D4AF37" : "1.5px solid rgba(255,255,255,0.1)",
+              background: type === "normal" ? "rgba(212,175,55,0.08)" : "rgba(255,255,255,0.03)",
+            }}>
+            <div className="fw-700 fs-13">Normal Artist</div>
+            <div className="text-muted fs-11 mt-4">
+              Customer pays a 5% Platform Fee. No commission from artist.
+            </div>
+          </label>
+          <label
+            data-testid="kyc-type-service"
+            onClick={() => setType("service")}
+            style={{
+              flex: 1, padding: 12, borderRadius: 10, cursor: "pointer",
+              border: type === "service" ? "1.5px solid #6ee7a8" : "1.5px solid rgba(255,255,255,0.1)",
+              background: type === "service" ? "rgba(110,231,168,0.08)" : "rgba(255,255,255,0.03)",
+            }}>
+            <div className="fw-700 fs-13">BookTalent Service Artist</div>
+            <div className="text-muted fs-11 mt-4">
+              Customer's 5% Platform Fee waived. Artist gives BookTalent a % commission.
+            </div>
+          </label>
+        </div>
+
+        {type === "service" && (
+          <div className="mb-12" data-testid="kyc-service-pct-wrap">
+            <div className="field-label mb-4">BookTalent Commission (%)</div>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              step={0.5}
+              className="input"
+              value={pct}
+              onChange={(e) => setPct(e.target.value)}
+              data-testid="kyc-service-pct"
+              placeholder="10"
+            />
+            <div className="text-muted fs-11 mt-4">
+              e.g. 10 → on a ₹1,00,000 booking, BookTalent = ₹10,000 · Artist = ₹90,000.
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost btn-sm" onClick={onCancel} data-testid="kyc-approve-cancel">Cancel</button>
+          <button className="btn btn-green btn-sm" onClick={submit} disabled={busy} data-testid="kyc-approve-confirm">
+            {busy ? "Approving…" : "✓ Approve & Set Deal"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function AdminRefunds({ toast }) {
   const [list, setList] = useState({ items: [] });
@@ -953,6 +1080,30 @@ function AdminRefundAuditor({ toast }) {
   const [loading, setLoading] = useState(false);
   const [views, setViews] = useState([]);
   const [viewName, setViewName] = useState("");
+  const [watches, setWatches] = useState([]);
+  const watchIds = new Set(watches.map((w) => w.booking_id));
+
+  const loadWatches = () => api.get("/admin/refunds/watchlist")
+    .then((r) => setWatches(r.data?.items || []))
+    .catch(() => setWatches([]));
+  useEffect(() => { loadWatches(); }, []);
+
+  const addWatch = async (bid) => {
+    try {
+      await api.post("/admin/refunds/watchlist", { booking_id: bid, note: "" });
+      loadWatches();
+      toast("Added to watchlist — Slack will ping on any refund activity", "success");
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  const removeWatch = async (bid) => {
+    const w = watches.find((x) => x.booking_id === bid);
+    if (!w) return;
+    try {
+      await api.delete(`/admin/refunds/watchlist/${w.id}`);
+      loadWatches();
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
 
   const qs = () => {
     const p = new URLSearchParams();
@@ -1104,25 +1255,63 @@ function AdminRefundAuditor({ toast }) {
         <thead>
           <tr>
             <th>Booking</th><th>Event</th><th>Amount</th><th>Status</th>
-            <th>Requested By</th><th>Customer</th><th>Artist</th><th>Created</th>
+            <th>Requested By</th><th>Customer</th><th>Artist</th><th>Created</th><th>Watch</th>
           </tr>
         </thead>
         <tbody>
-          {items.length === 0 && <tr><td colSpan={8} className="empty">No refund requests match your filters</td></tr>}
-          {items.map((h) => (
-            <tr key={h.id} data-testid={`rf-row-${h.id}`}>
-              <td><Link to={`/bookings/${h.booking_id}`}>{h.booking_ref}</Link></td>
-              <td>{h.event_date || "—"}</td>
-              <td>{fmtINRFull(h.amount)}</td>
-              <td><span className={`pill pill-${h.status === "accepted" ? "green" : h.status === "rejected" ? "red" : "gold"}`}>{h.status}</span></td>
-              <td>{h.requested_by_role}</td>
-              <td title={h.customer_email}>{h.customer_name || h.customer_email}</td>
-              <td title={h.artist_email}>{h.artist_name || h.artist_email}</td>
-              <td>{(h.created_at || "").slice(0, 10)}</td>
-            </tr>
-          ))}
+          {items.length === 0 && <tr><td colSpan={9} className="empty">No refund requests match your filters</td></tr>}
+          {items.map((h) => {
+            const isWatched = watchIds.has(h.booking_id);
+            return (
+              <tr key={h.id} data-testid={`rf-row-${h.id}`}>
+                <td><Link to={`/bookings/${h.booking_id}`}>{h.booking_ref}</Link></td>
+                <td>{h.event_date || "—"}</td>
+                <td>{fmtINRFull(h.amount)}</td>
+                <td><span className={`pill pill-${h.status === "accepted" ? "green" : h.status === "rejected" ? "red" : "gold"}`}>{h.status}</span></td>
+                <td>{h.requested_by_role}</td>
+                <td title={h.customer_email}>{h.customer_name || h.customer_email}</td>
+                <td title={h.artist_email}>{h.artist_name || h.artist_email}</td>
+                <td>{(h.created_at || "").slice(0, 10)}</td>
+                <td>
+                  <button
+                    className={`btn btn-sm ${isWatched ? "btn-gold" : "btn-ghost"}`}
+                    onClick={() => (isWatched ? removeWatch(h.booking_id) : addWatch(h.booking_id))}
+                    title={isWatched ? "Watching — click to unwatch" : "Watch this booking for future refund activity"}
+                    data-testid={`rf-watch-${h.booking_id}`}
+                    style={{ fontSize: 12 }}>
+                    {isWatched ? "👁 Watching" : "👁 Watch"}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+
+      {watches.length > 0 && (
+        <div style={{ padding: "10px 14px 18px" }} data-testid="rf-watchlist-summary">
+          <div className="text-muted fs-11 mb-4">Active watchlist ({watches.length}) — Slack pings on any refund activity here</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {watches.map((w) => (
+              <span key={w.id}
+                style={{
+                  display: "inline-flex", gap: 6, alignItems: "center",
+                  border: "1px solid rgba(212,175,55,0.35)", borderRadius: 999,
+                  padding: "3px 10px", fontSize: 11, background: "rgba(212,175,55,0.06)",
+                }}
+                data-testid={`rf-watch-chip-${w.id}`}>
+                <Link to={`/bookings/${w.booking_id}`} style={{ textDecoration: "none" }}>
+                  {w.booking_ref}
+                </Link>
+                {w.trigger_count > 0 && (
+                  <span style={{ fontSize: 10, opacity: 0.7 }} title={`${w.trigger_count} alert(s) fired`}>· {w.trigger_count}×</span>
+                )}
+                <span style={{ cursor: "pointer", color: "#e57373" }} onClick={() => removeWatch(w.booking_id)}>×</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1141,6 +1330,9 @@ function AdminBulkPayouts({ toast }) {
   const [csvPreview, setCsvPreview] = useState(null);   // { matched, ambiguous, unmatched }
   const [csvBusy, setCsvBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [bankPresets, setBankPresets] = useState([]);
+  const [activePresetId, setActivePresetId] = useState("");
+  const [presetPickerName, setPresetPickerName] = useState("");
 
   const load = async () => {
     try {
@@ -1197,19 +1389,62 @@ function AdminBulkPayouts({ toast }) {
     .reduce((s, r) => s + parseFloat(r.pay_amount || r.outstanding || 0), 0);
 
   // ── CSV import handlers ──────────────────────────────────────────
+  const loadBankPresets = () => api.get("/admin/payouts/bank-presets")
+    .then((r) => setBankPresets(r.data?.items || []))
+    .catch(() => setBankPresets([]));
+  useEffect(() => { loadBankPresets(); }, []);
+
   const uploadCsv = async (file) => {
     if (!file) return;
     const fd = new FormData();
     fd.append("file", file);
+    const url = activePresetId
+      ? `/admin/payouts/batch-preview?preset_id=${encodeURIComponent(activePresetId)}`
+      : "/admin/payouts/batch-preview";
     setCsvBusy(true);
     try {
-      const r = await api.post("/admin/payouts/batch-preview", fd, {
+      const r = await api.post(url, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setCsvPreview(r.data);
-      toast(`Parsed ${r.data.parsed_rows} rows · ${r.data.matched.length} auto-matched`, "success");
+      const withPreset = r.data.preset ? ` · using ${r.data.preset.bank_name}` : "";
+      toast(`Parsed ${r.data.parsed_rows} rows · ${r.data.matched.length} auto-matched${withPreset}`, "success");
+      if (activePresetId) loadBankPresets(); // refresh usage counter
     } catch (e) { toast(formatApiError(e), "error"); }
     setCsvBusy(false);
+  };
+
+  const saveBankPreset = async () => {
+    if (!presetPickerName.trim()) { toast("Enter the bank name first", "error"); return; }
+    // Extract the header names from the last parsed CSV as a starter mapping.
+    // If nothing parsed yet, save an empty mapping the admin can fill later.
+    const headers = csvPreview?.parsed_rows ? Object.keys((csvPreview.matched[0]?.raw || csvPreview.unmatched[0]?.raw || {})) : [];
+    // Auto-detect columns using simple contains rules so the first import is not a chore.
+    const guess = (needles) => headers.filter((h) => needles.some((n) => h.toLowerCase().includes(n)));
+    const mapping = {
+      amount: guess(["amount", "debit", "credit"]),
+      utr: guess(["utr", "ref", "txn", "transaction"]),
+      ref_hint: guess(["narration", "description", "remark", "particular"]),
+      paid_on: guess(["date"]),
+    };
+    try {
+      const r = await api.post("/admin/payouts/bank-presets", {
+        bank_name: presetPickerName.trim(),
+        mapping,
+      });
+      setBankPresets((bs) => [r.data.preset, ...bs]);
+      setPresetPickerName("");
+      toast(`Saved bank preset "${r.data.preset.bank_name}"`, "success");
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  const deleteBankPreset = async (id) => {
+    if (!window.confirm("Delete this bank preset?")) return;
+    try {
+      await api.delete(`/admin/payouts/bank-presets/${id}`);
+      setBankPresets((bs) => bs.filter((b) => b.id !== id));
+      if (activePresetId === id) setActivePresetId("");
+    } catch (e) { toast(formatApiError(e), "error"); }
   };
 
   const applyCsvMatched = async () => {
@@ -1283,6 +1518,44 @@ function AdminBulkPayouts({ toast }) {
 
       {/* CSV drag-drop importer */}
       <div style={{ padding: "0 14px 12px" }}>
+        {/* Bank preset picker */}
+        <div className="flex-between mb-8" style={{ flexWrap: "wrap", gap: 8 }} data-testid="bp-bank-presets">
+          <div className="text-muted fs-11">
+            Bank preset (column mapping) — pick one to auto-recognise headers
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <select
+              className="input"
+              value={activePresetId}
+              onChange={(e) => setActivePresetId(e.target.value)}
+              style={{ minWidth: 160 }}
+              data-testid="bp-bank-preset-select">
+              <option value="">Auto-detect (default)</option>
+              {bankPresets.map((b) => (
+                <option key={b.id} value={b.id}>{b.bank_name}{b.usage_count ? ` · ${b.usage_count}×` : ""}</option>
+              ))}
+            </select>
+            {activePresetId && (
+              <button className="btn btn-ghost btn-sm" onClick={() => deleteBankPreset(activePresetId)} data-testid="bp-bank-preset-delete">
+                🗑 Delete
+              </button>
+            )}
+            <input
+              className="input" style={{ width: 140 }}
+              placeholder="New bank name…"
+              value={presetPickerName}
+              onChange={(e) => setPresetPickerName(e.target.value)}
+              data-testid="bp-bank-preset-name" />
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={saveBankPreset}
+              disabled={!presetPickerName.trim()}
+              data-testid="bp-bank-preset-save">
+              💾 Save as bank preset
+            </button>
+          </div>
+        </div>
+
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}

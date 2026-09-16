@@ -4197,6 +4197,9 @@ async def startup():
     # Refund SLA Slack alerts — 48h counter-party ack breach sweep.
     from routes.req_batch_4 import refund_sla_loop as _rsla  # noqa
     asyncio.create_task(_rsla(db))
+    # Refund SLA escalation ladder — 72h / 96h tiers.
+    from routes.req_batch_5 import escalation_loop as _resc  # noqa
+    asyncio.create_task(_resc(db))
     # Iter 90 — One-shot KYC status backfill (align all 3 collections
     # to artist_profiles.kyc_status). Idempotent, safe every boot.
     try:
@@ -4586,6 +4589,10 @@ app.include_router(make_req_batch_3_router(db, get_current_user, admin_only), pr
 # Feb-2026 requirement batch 4 — CSV payout import + refund SLA + preset stats + saved views
 from routes.req_batch_4 import make_req_batch_4_router  # noqa: E402
 app.include_router(make_req_batch_4_router(db, get_current_user, admin_only), prefix="/api")
+
+# Feb-2026 requirement batch 5 — bank presets + SLA escalation + preset recs + timeline badges + watchlists
+from routes.req_batch_5 import make_req_batch_5_router  # noqa: E402
+app.include_router(make_req_batch_5_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user
