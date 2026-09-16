@@ -317,3 +317,71 @@ Everything else — check the systemd journal:
 ```bash
 sudo journalctl -u booktalent-backend --since "1 hour ago" -f
 ```
+
+---
+
+## 🆕 Iter 99 additions — Nginx + Backups (production-hardened)
+
+Iter 99 shipped two ready-to-drop-in files under this same folder. Use them instead of hand-writing your own nginx/cron.
+
+### A. Nginx config (`deploy/nginx-booktalent.conf`)
+
+Includes everything the security audit + upload flow requires:
+
+- `client_max_body_size 20M` — required for 4 MB chunked video/doc uploads to pass
+- Per-endpoint rate-limit zones (auth: 5 r/s, general: 30 r/s, uploads: 10 r/s)
+- WebSocket upgrade path for live chat (`/api/ws/`)
+- HSTS + X-Content-Type-Options + Referrer-Policy security headers
+- Immutable-cache for React hashed assets
+
+```bash
+sudo cp /app/deploy/nginx-booktalent.conf /etc/nginx/sites-available/booktalent.in.conf
+sudo ln -s /etc/nginx/sites-available/booktalent.in.conf /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d booktalent.in -d www.booktalent.in
+```
+
+### B. Nightly MongoDB backup (`deploy/backup_mongo.sh` + `deploy/booktalent-backup.cron`)
+
+- Runs at **02:30 UTC daily** via `/etc/cron.d/booktalent-backup`
+- Dumps `booktalent` DB to `.archive.gz` on a **separate volume** (`/mnt/backups/booktalent`)
+- Retention: **14 days** (configurable)
+- Integrity self-check with `gunzip -t`
+- Slack alert on failure
+- Optional rclone offsite copy to S3 / R2 / B2
+- Failure paths surface in `/var/log/booktalent-backup.log`
+
+Install:
+
+```bash
+# 1. Script + cron
+sudo cp /app/deploy/backup_mongo.sh    /usr/local/bin/booktalent-backup
+sudo chmod +x                           /usr/local/bin/booktalent-backup
+sudo cp /app/deploy/booktalent-backup.cron /etc/cron.d/booktalent-backup
+
+# 2. Overrides (Slack, retention, backup dir)
+sudo tee /etc/default/booktalent-backup >/dev/null <<'EOF'
+BACKUP_DIR=/mnt/backups/booktalent
+RETENTION_DAYS=14
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+# S3_REMOTE=s3-backup:booktalent-backups/    # requires `rclone config` first
+EOF
+
+# 3. Verify a manual run
+sudo /usr/local/bin/booktalent-backup
+ls -lh /mnt/backups/booktalent/
+```
+
+Restore in an incident:
+
+```bash
+mongorestore \
+  --uri="mongodb://localhost:27017" \
+  --gzip \
+  --archive=/mnt/backups/booktalent/booktalent-<TIMESTAMP>.archive.gz \
+  --drop
+```
+
+⚠️ **Mount `/mnt/backups` from a SEPARATE disk** (not `/`) so a full-disk incident doesn't take your last backup with it. Any cloud provider block volume works.
+
