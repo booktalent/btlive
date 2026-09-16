@@ -1374,7 +1374,11 @@ import tempfile
 _VIDEO_TMP_ROOT = os.path.join(tempfile.gettempdir(), "bt_uploads")
 os.makedirs(_VIDEO_TMP_ROOT, exist_ok=True)
 _MAX_VIDEO_BYTES = 1024 * 1024 * 1024  # 1 GB per file
-_MAX_CHUNK_BYTES = 8 * 1024 * 1024      # 8 MB per chunk
+# Iter 99.2 — Chunk size reduced from 8 MB to 4 MB so uploads work on VPS
+# setups with default nginx `client_max_body_size` (often 1 MB out of the
+# box; 4 MB slots comfortably under the common 10 MB cap admins bump to).
+# VPS operators still need to set: `client_max_body_size 20M;` in nginx.
+_MAX_CHUNK_BYTES = 4 * 1024 * 1024      # 4 MB per chunk
 
 
 class VideoUploadStartBody(BaseModel):
