@@ -2256,7 +2256,13 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
     }
     await db.bookings.insert_one(doc)
 
-    # Coupon redemption ledger + counters
+    # Iter 99 — Stamp the artist's commercial deal onto the booking so
+    # future rate changes never retroactively affect old bookings' payouts.
+    try:
+        from routes.req_batch_6 import stamp_deal_snapshot_on_booking
+        await stamp_deal_snapshot_on_booking(db, bid, body.artist_id)
+    except Exception as _e:  # noqa: BLE001
+        log.warning("deal snapshot failed for %s: %s", bid, _e)
     if coupon_doc and coupon_discount > 0:
         await db.coupon_redemptions.insert_one({
             "id": new_id(),
@@ -4593,6 +4599,10 @@ app.include_router(make_req_batch_4_router(db, get_current_user, admin_only), pr
 # Feb-2026 requirement batch 5 — bank presets + SLA escalation + preset recs + timeline badges + watchlists
 from routes.req_batch_5 import make_req_batch_5_router  # noqa: E402
 app.include_router(make_req_batch_5_router(db, get_current_user, admin_only), prefix="/api")
+
+# Feb-2026 requirement batch 6 — commercial-deal page + deal snapshot + chat redaction + deal history
+from routes.req_batch_6 import make_req_batch_6_router  # noqa: E402
+app.include_router(make_req_batch_6_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user

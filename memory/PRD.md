@@ -2486,3 +2486,38 @@ Fixed by:
 - Backend edited: `routes/kyc.py` (deal fields), `routes/req_batch_2.py` (watchlist hooks), `routes/req_batch_4.py` (mapping-aware CSV matcher, bank-preset param), `server.py` (router + escalation loop wiring).
 - Frontend edited: `pages/AdminDashboard.jsx` (KycApproveModal + bank-preset picker + watchlist toggles + summary strip), `pages/manager/ManagerCRM.jsx` (top-3 recommendations strip), `pages/CustomerDashboard.jsx::BookingsTable` (lifecycle chip).
 
+
+---
+
+## Iter 99 — Requirement Batch 6 (5 items) · Feb 2026
+
+All 5 items verified end-to-end via curl + a live-preview screenshot showing the new Commercial Deals admin page rendering the seeded artist roster with Aarav (Service · 10%) alongside the 5 Normal artists.
+
+### 1. Commercial Deal Admin Page (`💼 Commercial Deals`)
+- `routes/req_batch_6.py::list_commercial_deals` — `GET /api/admin/artists/commercial-deals` (filters `q`, `type_filter`, limit; returns `items[]` + `totals` KPIs).
+- Frontend `AdminDashboard.jsx::AdminCommercialDeals` — new sidebar tab, 4-tile KPI header (Total / Service / Normal / Avg %), searchable table with inline Edit (type + %) hitting `PATCH /admin/artists/{id}/commercial-deal` and per-row 🕒 History drawer.
+
+### 2. Booking-Time Deal Snapshot
+- `routes/req_batch_6.py::build_deal_snapshot` + `stamp_deal_snapshot_on_booking` — idempotent helper that stamps `{artist_type, is_service_artist, percentage_deal, profile_deal_set_at, snapshot_at}` onto every new booking.
+- Wired into both booking-creation paths: `server.py::create_booking` (customer flow, line 2259) and `routes/req_batch.py::manager_create_booking` (manager-on-behalf flow). Old bookings' commissions are now frozen — future rate changes never retroactively affect them.
+
+### 3. Contact-Masking Enforcer
+- `routes/req_batch_6.py::redact_contact_info` + `redact_and_alert` — regex-based redaction of Indian mobiles (contiguous, 4-6, 5-5, 3-3-4 splits), emails, and messaging URLs (wa.me / whatsapp.com / t.me / instagram.com/direct). URL rule runs first to avoid double-matching phone numbers inside links.
+- `should_enforce_masking` — checks the booking's `deal_snapshot` first, then falls back to the live `artist_profile.is_service_artist`. Ensures old bookings pinned to Service stay masked even after re-approval flips them to Normal.
+- `routes/crm_pay.py::send_message` — every managed-thread message now goes through `redact_and_alert` regardless of sender role (customer / artist / manager). Hits fire a Slack `:mask:` alert and write an `audit_logs` row with `action="chat.contact_masked"` and hit previews.
+- Verified: service-artist thread masks phone+email; normal-artist thread leaves messages untouched.
+
+### 4. Deal Change Audit Log
+- Backed by existing `audit_logs` rows (`action` ∈ `artist.commercial_deal_updated`, `kyc.approved_with_deal`).
+- New endpoint `GET /api/admin/artists/{id}/deal-history` returns those rows in reverse-chronological order with hydrated actor emails.
+- Frontend history drawer inside `AdminCommercialDeals` renders `when · action · type · % · by` — verified with a 10→12→10 % round-trip that produced 2 history rows.
+
+### 5. Bank Preset Column Mapper UI
+- Reuses `PATCH /admin/payouts/bank-presets/{id}` from Iter 98 — no new backend endpoint needed.
+- Frontend `AdminBulkPayouts::BankPresetMapperModal` — visual chip-picker for the 4 BookTalent fields (`amount`, `utr`, `ref_hint`, `paid_on`); multi-select CSV headers with a "📄 Load sample" fallback so admins fine-tune HDFC/ICICI mappings without touching JSON. Opened via the new **🎯 Edit columns** button next to the bank-preset dropdown.
+
+### Files touched
+- Backend new: `routes/req_batch_6.py`.
+- Backend edited: `server.py` (router + snapshot call), `routes/req_batch.py` (snapshot call), `routes/crm_pay.py::send_message` (uses redact_and_alert).
+- Frontend edited: `pages/AdminDashboard.jsx` (SIDEBAR row + effectiveTab branch + AdminCommercialDeals + BankPresetMapperModal + mappingEditor state + Edit-columns button).
+

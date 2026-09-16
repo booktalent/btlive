@@ -628,13 +628,28 @@ def make_crm_pay_router(db: AsyncIOMotorDatabase, get_current_user, require_admi
         thread = await db.chat_v2_threads.find_one({"id": body.thread_id})
         if not thread:
             raise HTTPException(404, "Thread not found")
-        # Sec 24 — For managed threads, redact contact info before
-        # persisting the customer-visible copy so it never leaks even if
-        # the customer scrolls back or exports the chat.
+        # Iter 99 — Contact-masking enforcer.
+        # For every managed thread (i.e. tied to a Service artist booking)
+        # we now mask leaked phone/email/URL contact hints from ANY sender
+        # (not just the artist) and fire a Slack alert if we caught
+        # anything. This uses the shared helper in routes/req_batch_6
+        # which also writes an audit log.
         visible_body = body.body
         raw_body = body.body
-        if thread.get("is_managed") and user["id"] == thread.get("artist_id"):
-            visible_body = _redact_contact_info(body.body)
+        booking_id = thread.get("booking_id")
+        if thread.get("is_managed") and booking_id:
+            try:
+                from routes.req_batch_6 import redact_and_alert
+                visible_body, _hits = await redact_and_alert(
+                    db, booking_id=booking_id,
+                    sender_id=user["id"], sender_role=user.get("role"),
+                    body_original=body.body,
+                )
+            except Exception:  # noqa: BLE001
+                # Fall back to the legacy sender-specific redactor if the
+                # new helper misbehaves — we never want a chat write to fail.
+                if user["id"] == thread.get("artist_id"):
+                    visible_body = _redact_contact_info(body.body)
         msg = {
             "id": str(uuid.uuid4()),
             "thread_id": body.thread_id,

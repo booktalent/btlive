@@ -332,6 +332,12 @@ def make_req_batch_router(db: AsyncIOMotorDatabase, get_current_user, require_ad
             "created_at": utcnow(),
         }
         await db.bookings.insert_one(booking)
+        # Iter 99 — Deal snapshot so future rate changes don't break payouts.
+        try:
+            from routes.req_batch_6 import stamp_deal_snapshot_on_booking
+            await stamp_deal_snapshot_on_booking(db, bid, body.artist_id)
+        except Exception:
+            pass
         # Emit first-class timeline events so BookingTimeline shows real dates.
         try:
             from routes.req_batch_2 import emit_booking_event

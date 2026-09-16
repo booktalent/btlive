@@ -41,6 +41,7 @@ const SIDEBAR = [
   { id: "refunds",          label: "↩️ Refunds",               perm: "payments.refund" },
   { id: "refund-audit",     label: "🔎 Refund Auditor",         perm: "payments.refund" },
   { id: "bulk-payouts",     label: "📦 Bulk Payouts",           perm: "payments.view" },
+  { id: "commercial-deals", label: "💼 Commercial Deals",       perm: "payments.refund" },
   { id: "coupons",          label: "🎫 Coupons",               perm: "cms.manage" },
   { id: "subscriptions",    label: "💳 Subscriptions",         perm: "subscriptions.manage" },
   { id: "users",            label: "👥 Users",                 perm: "users.view" },
@@ -182,6 +183,7 @@ export default function AdminDashboard() {
           {effectiveTab === "refunds" && <AdminRefunds toast={toast} />}
           {effectiveTab === "refund-audit" && <AdminRefundAuditor toast={toast} />}
           {effectiveTab === "bulk-payouts" && <AdminBulkPayouts toast={toast} />}
+          {effectiveTab === "commercial-deals" && <AdminCommercialDeals toast={toast} />}
           {effectiveTab === "coupons" && <AdminCoupons toast={toast} />}
           {effectiveTab === "subscriptions" && <AdminSubscriptions toast={toast} />}
           {effectiveTab === "admins" && <AdminAdmins toast={toast} />}
@@ -1333,6 +1335,7 @@ function AdminBulkPayouts({ toast }) {
   const [bankPresets, setBankPresets] = useState([]);
   const [activePresetId, setActivePresetId] = useState("");
   const [presetPickerName, setPresetPickerName] = useState("");
+  const [mappingEditor, setMappingEditor] = useState(null); // {id, bank_name, mapping, headers}
 
   const load = async () => {
     try {
@@ -1536,9 +1539,20 @@ function AdminBulkPayouts({ toast }) {
               ))}
             </select>
             {activePresetId && (
-              <button className="btn btn-ghost btn-sm" onClick={() => deleteBankPreset(activePresetId)} data-testid="bp-bank-preset-delete">
-                🗑 Delete
-              </button>
+              <>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    const p = bankPresets.find((b) => b.id === activePresetId);
+                    if (p) setMappingEditor({ ...p, mapping: p.mapping || {}, headers: [] });
+                  }}
+                  data-testid="bp-bank-preset-edit-mapping">
+                  🎯 Edit columns
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => deleteBankPreset(activePresetId)} data-testid="bp-bank-preset-delete">
+                  🗑 Delete
+                </button>
+              </>
             )}
             <input
               className="input" style={{ width: 140 }}
@@ -1683,6 +1697,328 @@ function AdminBulkPayouts({ toast }) {
           ))}
         </tbody>
       </table>
+
+      {mappingEditor && (
+        <BankPresetMapperModal
+          preset={mappingEditor}
+          existingHeaders={csvPreview ? Object.keys(
+            (csvPreview.matched[0]?.raw)
+            || (csvPreview.unmatched[0]?.raw)
+            || (csvPreview.ambiguous[0]?.raw)
+            || {}
+          ) : []}
+          onCancel={() => setMappingEditor(null)}
+          onSave={async (nextMapping) => {
+            try {
+              await api.patch(`/admin/payouts/bank-presets/${mappingEditor.id}`, {
+                bank_name: mappingEditor.bank_name,
+                mapping: nextMapping,
+              });
+              toast(`Updated columns for ${mappingEditor.bank_name}`, "success");
+              setMappingEditor(null);
+              loadBankPresets();
+            } catch (e) { toast(formatApiError(e), "error"); }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// BankPresetMapperModal — visual CSV-header ↔ BookTalent-field mapper.
+// ────────────────────────────────────────────────────────────────────────
+function BankPresetMapperModal({ preset, existingHeaders = [], onCancel, onSave }) {
+  const FIELDS = [
+    { key: "amount",   label: "Amount",       hint: "e.g. Debit, Credit, Amount" },
+    { key: "utr",      label: "UTR / Ref no", hint: "e.g. UTR, Reference No, Txn ID" },
+    { key: "ref_hint", label: "Reference hint", hint: "Free-text field that contains the booking ref — e.g. Narration, Description" },
+    { key: "paid_on",  label: "Paid on",      hint: "Date column — e.g. Value Date, Txn Date" },
+  ];
+  const [mapping, setMapping] = useState(() => {
+    const m = {};
+    FIELDS.forEach((f) => { m[f.key] = (preset.mapping || {})[f.key] || []; });
+    return m;
+  });
+  const [headers, setHeaders] = useState(existingHeaders);
+
+  const parseHeaders = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const line = String(e.target.result || "").split(/\r?\n/)[0] || "";
+      setHeaders(line.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean));
+    };
+    reader.readAsText(file);
+  };
+
+  const toggle = (field, header) => {
+    setMapping((m) => {
+      const cur = new Set(m[field]);
+      if (cur.has(header)) cur.delete(header);
+      else cur.add(header);
+      return { ...m, [field]: Array.from(cur) };
+    });
+  };
+
+  return (
+    <div
+      data-testid="bp-mapper-modal"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,4,20,0.82)",
+        display: "grid", placeItems: "center", zIndex: 900, padding: 16,
+        backdropFilter: "blur(6px)",
+      }}
+      onClick={onCancel}>
+      <div className="card card-pad" style={{ maxWidth: 720, width: "100%", background: "#0F0F1B", maxHeight: "88vh", overflow: "auto" }}
+        onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-serif fw-700 fs-18 mb-4">🎯 Column mapping — {preset.bank_name}</h3>
+        <p className="text-muted fs-12 mb-12">
+          Tick which CSV headers hold each BookTalent field. Multi-select is fine — the parser tries them in order.
+        </p>
+
+        <div className="field-label mb-4">CSV headers</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+          {headers.length === 0 && <span className="text-muted fs-11">No headers loaded yet — pick a sample CSV to detect them</span>}
+          {headers.map((h) => (
+            <span key={h} style={{
+              fontSize: 11, padding: "3px 10px", borderRadius: 999,
+              background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+            }}>{h}</span>
+          ))}
+          <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer" }}>
+            📄 Load sample
+            <input type="file" accept=".csv" style={{ display: "none" }}
+              onChange={(e) => e.target.files?.[0] && parseHeaders(e.target.files[0])}
+              data-testid="bp-mapper-sample" />
+          </label>
+        </div>
+
+        {FIELDS.map((f) => (
+          <div key={f.key} className="mb-12" data-testid={`bp-mapper-field-${f.key}`}>
+            <div className="fw-700 fs-13">{f.label}</div>
+            <div className="text-muted fs-11 mb-4">{f.hint}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {headers.length === 0 && (mapping[f.key] || []).map((h) => (
+                <span key={h} className="pill pill-gold" style={{ fontSize: 11 }}>{h} ✓</span>
+              ))}
+              {headers.map((h) => {
+                const on = (mapping[f.key] || []).includes(h);
+                return (
+                  <span key={h}
+                    onClick={() => toggle(f.key, h)}
+                    style={{
+                      cursor: "pointer",
+                      fontSize: 11, padding: "3px 10px", borderRadius: 999,
+                      border: `1px solid ${on ? "rgba(212,175,55,0.6)" : "rgba(255,255,255,0.12)"}`,
+                      background: on ? "rgba(212,175,55,0.14)" : "rgba(255,255,255,0.03)",
+                      fontWeight: on ? 700 : 400,
+                    }}
+                    data-testid={`bp-mapper-${f.key}-${h}`}>
+                    {on ? "✓ " : ""}{h}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost btn-sm" onClick={onCancel} data-testid="bp-mapper-cancel">Cancel</button>
+          <button className="btn btn-gold btn-sm" onClick={() => onSave(mapping)} data-testid="bp-mapper-save">Save mapping</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+// ────────────────────────────────────────────────────────────────────────
+// Admin Commercial Deals page — every artist's Normal/Service + % status
+// with inline edit and per-artist deal-change history drawer.
+// ────────────────────────────────────────────────────────────────────────
+function AdminCommercialDeals({ toast }) {
+  const [items, setItems] = useState([]);
+  const [totals, setTotals] = useState({});
+  const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(null);      // artist_id being edited
+  const [historyFor, setHistoryFor] = useState(null); // {artist_id, name}
+  const [historyRows, setHistoryRows] = useState([]);
+
+  const load = async () => {
+    setBusy(true);
+    try {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (typeFilter) params.set("type_filter", typeFilter);
+      const r = await api.get(`/admin/artists/commercial-deals?${params.toString()}`);
+      setItems(r.data?.items || []);
+      setTotals(r.data?.totals || {});
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setBusy(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [typeFilter]);
+
+  const openHistory = async (artist) => {
+    setHistoryFor(artist);
+    try {
+      const r = await api.get(`/admin/artists/${artist.artist_id}/deal-history`);
+      setHistoryRows(r.data?.items || []);
+    } catch (e) { toast(formatApiError(e), "error"); setHistoryRows([]); }
+  };
+
+  const saveDeal = async (row, patch) => {
+    try {
+      const body = {
+        artist_type: patch.artist_type ?? row.artist_type,
+        percentage_deal: patch.percentage_deal ?? row.percentage_deal,
+      };
+      await api.patch(`/admin/artists/${row.artist_id}/commercial-deal`, body);
+      toast(`Updated deal for ${row.name}`, "success");
+      setEditing(null);
+      load();
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+
+  return (
+    <div className="card" data-testid="admin-commercial-deals">
+      <div className="card-head">
+        <div className="card-title">💼 Commercial Deals ({items.length})</div>
+        <div className="text-muted fs-12">
+          Every live artist's commercial terms. Edit inline for audit-safe adjustments.
+        </div>
+      </div>
+
+      <div className="kpi-grid" style={{ padding: "10px 14px" }}>
+        <Kpi icon="🎭" cls="kpi-icon-blue" num={totals.count || 0} label="Total Artists" />
+        <Kpi icon="⭐" cls="kpi-icon-gold" num={totals.service_count || 0} label="Service Artists" />
+        <Kpi icon="👤" cls="kpi-icon-violet" num={totals.normal_count || 0} label="Normal Artists" />
+        <Kpi icon="📈" cls="kpi-icon-green" num={`${totals.avg_service_pct || 0}%`} label="Avg. Service %" />
+      </div>
+
+      <div style={{ padding: "8px 14px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input
+          className="input"
+          placeholder="Search name / email / city"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && load()}
+          data-testid="cd-q"
+          style={{ minWidth: 220 }}
+        />
+        <select className="input" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} data-testid="cd-type">
+          <option value="">All types</option>
+          <option value="service">BookTalent Service only</option>
+          <option value="normal">Normal only</option>
+        </select>
+        <button className="btn btn-gold btn-sm" onClick={load} disabled={busy} data-testid="cd-apply">
+          {busy ? "Loading…" : "Apply"}
+        </button>
+      </div>
+
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Artist</th><th>City</th><th>Type</th><th>Commission %</th>
+            <th>KYC</th><th>Set On</th><th>By</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 && <tr><td colSpan={8} className="empty">No artists match</td></tr>}
+          {items.map((row) => {
+            const isEditing = editing === row.artist_id;
+            return (
+              <tr key={row.artist_id} data-testid={`cd-row-${row.artist_id}`}>
+                <td>
+                  <div className="fw-700 fs-13">{row.name}</div>
+                  <div className="text-muted fs-11">{row.email}</div>
+                </td>
+                <td>{row.city || "—"}</td>
+                <td>
+                  {isEditing ? (
+                    <select
+                      defaultValue={row.artist_type}
+                      onChange={(e) => saveDeal(row, { artist_type: e.target.value, percentage_deal: e.target.value === "normal" ? 0 : row.percentage_deal })}
+                      data-testid={`cd-type-${row.artist_id}`}
+                      className="input" style={{ padding: "3px 6px" }}>
+                      <option value="normal">Normal</option>
+                      <option value="service">Service</option>
+                    </select>
+                  ) : (
+                    <span className={`pill ${row.is_service_artist ? "pill-green" : "pill-violet"}`}>
+                      {row.is_service_artist ? "Service" : "Normal"}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  {isEditing && row.artist_type === "service" ? (
+                    <input
+                      type="number" min="0" max="50" step="0.5"
+                      defaultValue={row.percentage_deal}
+                      onBlur={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (v !== row.percentage_deal) saveDeal(row, { percentage_deal: v });
+                      }}
+                      data-testid={`cd-pct-${row.artist_id}`}
+                      className="input" style={{ width: 70, padding: "3px 6px" }} />
+                  ) : (
+                    row.is_service_artist ? <b>{row.percentage_deal}%</b> : "—"
+                  )}
+                </td>
+                <td><span className="pill pill-blue">{row.kyc_status}</span></td>
+                <td className="fs-11">{(row.commercial_deal_set_at || "").slice(0, 10) || "—"}</td>
+                <td className="fs-11 text-muted">{row.commercial_deal_set_by || "—"}</td>
+                <td>
+                  {isEditing ? (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)} data-testid={`cd-done-${row.artist_id}`}>Done</button>
+                  ) : (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button className="btn btn-gold btn-sm" onClick={() => setEditing(row.artist_id)} data-testid={`cd-edit-${row.artist_id}`}>✎ Edit</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => openHistory(row)} data-testid={`cd-hist-${row.artist_id}`}>🕒 History</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      {historyFor && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(6,4,20,0.8)",
+          display: "grid", placeItems: "center", zIndex: 900, padding: 16,
+        }} onClick={() => setHistoryFor(null)} data-testid="cd-history-modal">
+          <div className="card card-pad" style={{ maxWidth: 640, width: "100%", maxHeight: "80vh", overflow: "auto", background: "#0F0F1B" }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-serif fw-700 fs-18 mb-4">📜 Deal history — {historyFor.name}</h3>
+            <p className="text-muted fs-12 mb-12">Every change to this artist's commercial deal.</p>
+            {historyRows.length === 0 ? (
+              <div className="text-muted fs-13">No historical changes recorded — deal was set once during KYC approval.</div>
+            ) : (
+              <table className="tbl">
+                <thead><tr><th>When</th><th>Action</th><th>Type</th><th>%</th><th>By</th></tr></thead>
+                <tbody>
+                  {historyRows.map((h) => (
+                    <tr key={h.id} data-testid={`cd-hist-row-${h.id}`}>
+                      <td>{(h.created_at || "").slice(0, 19).replace("T", " ")}</td>
+                      <td className="fs-11 text-muted">{h.action}</td>
+                      <td>{h.metadata?.artist_type || "—"}</td>
+                      <td>{h.metadata?.percentage_deal ?? "—"}</td>
+                      <td className="fs-11">{h.actor_email || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ textAlign: "right", marginTop: 12 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setHistoryFor(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
