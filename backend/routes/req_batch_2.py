@@ -77,6 +77,11 @@ class ManagerPresetBody(BaseModel):
     city: str = Field(default="", max_length=80)
     default_package_fee: float = 0.0
     notes_template: str = Field(default="", max_length=1000)
+    shared: bool = False
+
+
+class ManagerPresetSharePatch(BaseModel):
+    shared: bool
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -290,9 +295,26 @@ def make_req_batch_2_router(db: AsyncIOMotorDatabase, get_current_user, require_
     @r.get("/manager/booking-presets")
     async def list_presets(user: dict = Depends(get_current_user)):
         await _require_manager(user)
+        # Return the manager's own presets + team-shared presets from others.
         rows = await db.manager_booking_presets.find(
-            {"manager_id": user["id"]}, {"_id": 0},
-        ).sort("created_at", -1).to_list(200)
+            {"$or": [{"manager_id": user["id"]}, {"shared": True}]},
+            {"_id": 0},
+        ).sort("created_at", -1).to_list(500)
+        # Annotate `owned` and lookup owner names for shared rows.
+        owner_ids = {r.get("manager_id") for r in rows if r.get("manager_id") != user["id"]}
+        owners: Dict[str, str] = {}
+        if owner_ids:
+            async for u in db.users.find(
+                {"id": {"$in": list(owner_ids)}},
+                {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "email": 1},
+            ):
+                owners[u["id"]] = (
+                    f"{u.get('first_name','')} {u.get('last_name','')}".strip() or u.get("email") or u["id"]
+                )
+        for row in rows:
+            row["owned"] = row.get("manager_id") == user["id"]
+            if not row["owned"]:
+                row["owner_name"] = owners.get(row.get("manager_id"), "Team")
         return {"items": rows, "count": len(rows)}
 
     @r.post("/manager/booking-presets")
@@ -308,20 +330,39 @@ def make_req_batch_2_router(db: AsyncIOMotorDatabase, get_current_user, require_
             "city": body.city,
             "default_package_fee": body.default_package_fee,
             "notes_template": body.notes_template,
+            "shared": bool(body.shared),
             "created_at": utcnow(),
         }
         await db.manager_booking_presets.insert_one(doc)
         doc.pop("_id", None)
+        doc["owned"] = True
         return {"ok": True, "preset": doc}
+
+    @r.patch("/manager/booking-presets/{preset_id}/share")
+    async def toggle_share(preset_id: str, body: ManagerPresetSharePatch,
+                            user: dict = Depends(get_current_user)):
+        await _require_manager(user)
+        # Only the preset owner (or admin) can flip the shared flag.
+        row = await db.manager_booking_presets.find_one({"id": preset_id})
+        if not row:
+            raise HTTPException(404, "Preset not found")
+        if row.get("manager_id") != user["id"] and user.get("role") not in ("admin", "subadmin"):
+            raise HTTPException(403, "Only the preset owner can share/unshare it")
+        await db.manager_booking_presets.update_one(
+            {"id": preset_id}, {"$set": {"shared": bool(body.shared)}},
+        )
+        return {"ok": True, "shared": bool(body.shared)}
 
     @r.delete("/manager/booking-presets/{preset_id}")
     async def delete_preset(preset_id: str, user: dict = Depends(get_current_user)):
         await _require_manager(user)
-        r_out = await db.manager_booking_presets.delete_one(
-            {"id": preset_id, "manager_id": user["id"]},
-        )
+        # Manager can delete only their own; admin can delete any.
+        filt = {"id": preset_id}
+        if user.get("role") == "manager":
+            filt["manager_id"] = user["id"]
+        r_out = await db.manager_booking_presets.delete_one(filt)
         if r_out.deleted_count == 0:
-            raise HTTPException(404, "Preset not found")
+            raise HTTPException(404, "Preset not found or not yours")
         return {"ok": True}
 
     # ═══════════════════════════════════════════════════════════════

@@ -39,6 +39,8 @@ const SIDEBAR = [
   { id: "category-requests", label: "🎼 Category Requests",     perm: "artists.moderate" },
   { id: "city-requests",    label: "📍 City Requests",         perm: "artists.moderate" },
   { id: "refunds",          label: "↩️ Refunds",               perm: "payments.refund" },
+  { id: "refund-audit",     label: "🔎 Refund Auditor",         perm: "payments.refund" },
+  { id: "bulk-payouts",     label: "📦 Bulk Payouts",           perm: "payments.view" },
   { id: "coupons",          label: "🎫 Coupons",               perm: "cms.manage" },
   { id: "subscriptions",    label: "💳 Subscriptions",         perm: "subscriptions.manage" },
   { id: "users",            label: "👥 Users",                 perm: "users.view" },
@@ -178,6 +180,8 @@ export default function AdminDashboard() {
           {effectiveTab === "category-requests" && <AdminCategoryRequests toast={toast} />}
           {effectiveTab === "city-requests" && <AdminCityRequests toast={toast} />}
           {effectiveTab === "refunds" && <AdminRefunds toast={toast} />}
+          {effectiveTab === "refund-audit" && <AdminRefundAuditor toast={toast} />}
+          {effectiveTab === "bulk-payouts" && <AdminBulkPayouts toast={toast} />}
           {effectiveTab === "coupons" && <AdminCoupons toast={toast} />}
           {effectiveTab === "subscriptions" && <AdminSubscriptions toast={toast} />}
           {effectiveTab === "admins" && <AdminAdmins toast={toast} />}
@@ -933,3 +937,264 @@ function AdminDisputes({ toast }) {
     </div>
   );
 }
+
+
+// ────────────────────────────────────────────────────────────────────────
+// Refund Auditor — lists every mutual-refund row with filters + one-click
+// CSV / PDF export for finance / audit.
+// ────────────────────────────────────────────────────────────────────────
+function AdminRefundAuditor({ toast }) {
+  const [status, setStatus] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [q, setQ] = useState("");
+  const [items, setItems] = useState([]);
+  const [totals, setTotals] = useState({});
+  const [loading, setLoading] = useState(false);
+
+  const qs = () => {
+    const p = new URLSearchParams();
+    if (status) p.set("status", status);
+    if (from) p.set("from_date", from);
+    if (to) p.set("to_date", to);
+    if (q) p.set("q", q);
+    return p.toString();
+  };
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get(`/admin/refunds/audit?${qs()}`);
+      setItems(r.data?.items || []);
+      setTotals(r.data?.totals || {});
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const dl = (kind) => {
+    const url = `${api.defaults.baseURL}/admin/refunds/audit/export.${kind}?${qs()}`;
+    const token = localStorage.getItem("token") || "";
+    // Use fetch to attach the Authorization header and then trigger a download.
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.blob();
+      })
+      .then((blob) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `refund-audit.${kind}`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch((e) => toast(`Export failed: ${e.message}`, "error"));
+  };
+
+  return (
+    <div className="card" data-testid="admin-refund-auditor">
+      <div className="card-head">
+        <div className="card-title">🔎 Refund Auditor ({items.length})</div>
+        <div className="text-muted fs-12">Every customer/artist mutual-refund request. Filter, then export CSV/PDF for finance.</div>
+      </div>
+
+      {/* Totals summary */}
+      <div className="kpi-grid" style={{ padding: "10px 14px" }}>
+        <Kpi icon="🧾" cls="kpi-icon-blue" num={totals.count || 0} label="Total Rows" />
+        <Kpi icon="⏳" cls="kpi-icon-amber" num={fmtINRFull(totals.amount_pending || 0)} label="₹ Pending" />
+        <Kpi icon="✅" cls="kpi-icon-green" num={fmtINRFull(totals.amount_accepted || 0)} label="₹ Accepted" />
+        <Kpi icon="✋" cls="kpi-icon-red" num={fmtINRFull(totals.amount_rejected || 0)} label="₹ Rejected" />
+      </div>
+
+      {/* Filters */}
+      <div style={{ padding: "8px 14px 14px", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+        <div>
+          <div className="field-label">Status</div>
+          <select className="input" value={status} onChange={(e) => setStatus(e.target.value)} data-testid="rf-status">
+            <option value="">All</option>
+            <option value="pending_counter_ack">Pending</option>
+            <option value="accepted">Accepted</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+        <div><div className="field-label">From</div><input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} data-testid="rf-from" /></div>
+        <div><div className="field-label">To</div><input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} data-testid="rf-to" /></div>
+        <div style={{ flex: 1, minWidth: 200 }}><div className="field-label">Search (ref / email)</div><input className="input" value={q} onChange={(e) => setQ(e.target.value)} data-testid="rf-q" /></div>
+        <button className="btn btn-gold btn-sm" onClick={load} disabled={loading} data-testid="rf-apply">{loading ? "Loading…" : "Apply"}</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => dl("csv")} data-testid="rf-csv">⬇ CSV</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => dl("pdf")} data-testid="rf-pdf">📄 PDF</button>
+      </div>
+
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>Booking</th><th>Event</th><th>Amount</th><th>Status</th>
+            <th>Requested By</th><th>Customer</th><th>Artist</th><th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 && <tr><td colSpan={8} className="empty">No refund requests match your filters</td></tr>}
+          {items.map((h) => (
+            <tr key={h.id} data-testid={`rf-row-${h.id}`}>
+              <td><Link to={`/bookings/${h.booking_id}`}>{h.booking_ref}</Link></td>
+              <td>{h.event_date || "—"}</td>
+              <td>{fmtINRFull(h.amount)}</td>
+              <td><span className={`pill pill-${h.status === "accepted" ? "green" : h.status === "rejected" ? "red" : "gold"}`}>{h.status}</span></td>
+              <td>{h.requested_by_role}</td>
+              <td title={h.customer_email}>{h.customer_name || h.customer_email}</td>
+              <td title={h.artist_email}>{h.artist_name || h.artist_email}</td>
+              <td>{(h.created_at || "").slice(0, 10)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────────
+// Bulk Payout Marker — select multiple pending payouts, enter UTRs, mark
+// all as paid in a single call.
+// ────────────────────────────────────────────────────────────────────────
+function AdminBulkPayouts({ toast }) {
+  const [rows, setRows] = useState([]);
+  const [selected, setSelected] = useState({});
+  const [defaultMethod, setDefaultMethod] = useState("neft");
+  const [defaultPaidOn, setDefaultPaidOn] = useState(new Date().toISOString().slice(0, 10));
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await api.get("/admin/payouts/pending-list?limit=200");
+      setRows(r.data?.items || []);
+      setSelected({});
+    } catch (e) { toast(formatApiError(e), "error"); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const toggle = (id) => setSelected((s) => ({ ...s, [id]: !s[id] }));
+  const selectAll = () => {
+    const all = {};
+    rows.forEach((r) => { all[r.booking_id] = true; });
+    setSelected(all);
+  };
+  const clearAll = () => setSelected({});
+
+  const updateRow = (bid, patch) => setRows((rs) => rs.map((r) => r.booking_id === bid ? { ...r, ...patch } : r));
+
+  const submit = async () => {
+    const chosen = rows.filter((r) => selected[r.booking_id]);
+    if (chosen.length === 0) { toast("Select at least one row", "error"); return; }
+    const payload = {
+      default_method: defaultMethod,
+      default_paid_on: defaultPaidOn,
+      rows: chosen.map((r) => ({
+        booking_id: r.booking_id,
+        amount: parseFloat(r.pay_amount || r.outstanding),
+        method: r.pay_method || defaultMethod,
+        utr: r.pay_utr || "",
+        notes: r.pay_notes || "",
+        paid_on: r.pay_paid_on || defaultPaidOn,
+      })),
+    };
+    if (!window.confirm(`Mark ${chosen.length} payout(s) as paid — total ₹${payload.rows.reduce((s, r) => s + r.amount, 0).toLocaleString("en-IN")}?`)) return;
+    setBusy(true);
+    try {
+      const r = await api.post("/admin/payouts/bulk-mark-paid", payload);
+      const failed = (r.data?.results || []).filter((x) => !x.ok);
+      if (failed.length) {
+        toast(`Marked ${r.data.succeeded}/${r.data.processed}. ${failed.length} failed — check console`, "warning");
+        console.warn("bulk payout failures", failed);
+      } else {
+        toast(`✅ Marked ${r.data.succeeded} payouts paid · ₹${(r.data.total_amount || 0).toLocaleString("en-IN")}`, "success");
+      }
+      load();
+    } catch (e) { toast(formatApiError(e), "error"); }
+    setBusy(false);
+  };
+
+  const chosenCount = Object.values(selected).filter(Boolean).length;
+  const chosenTotal = rows.filter((r) => selected[r.booking_id])
+    .reduce((s, r) => s + parseFloat(r.pay_amount || r.outstanding || 0), 0);
+
+  return (
+    <div className="card" data-testid="admin-bulk-payouts">
+      <div className="card-head">
+        <div className="card-title">📦 Bulk Payout Marker ({rows.length} pending)</div>
+        <div className="text-muted fs-12">
+          Pick payouts you've settled through your bank portal, drop in a UTR, and mark them all paid at once.
+        </div>
+      </div>
+
+      <div style={{ padding: "8px 14px 12px", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+        <div>
+          <div className="field-label">Default Method</div>
+          <select className="input" value={defaultMethod} onChange={(e) => setDefaultMethod(e.target.value)} data-testid="bp-method">
+            <option value="neft">NEFT</option>
+            <option value="imps">IMPS</option>
+            <option value="upi">UPI</option>
+            <option value="cash">Cash</option>
+            <option value="cheque">Cheque</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <div className="field-label">Default Paid On</div>
+          <input type="date" className="input" value={defaultPaidOn} onChange={(e) => setDefaultPaidOn(e.target.value)} data-testid="bp-paidon" />
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={selectAll} data-testid="bp-select-all">Select All</button>
+        <button className="btn btn-ghost btn-sm" onClick={clearAll} data-testid="bp-clear">Clear</button>
+        <div style={{ flex: 1 }} />
+        <div className="text-muted fs-12">Selected: <b className="text-good">{chosenCount}</b> · ₹{chosenTotal.toLocaleString("en-IN")}</div>
+        <button className="btn btn-gold btn-sm" onClick={submit} disabled={busy || chosenCount === 0} data-testid="bp-submit">
+          {busy ? "Processing…" : `Mark ${chosenCount || ""} Paid`}
+        </button>
+      </div>
+
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th style={{ width: 30 }}></th>
+            <th>Booking</th><th>Event</th><th>Artist</th>
+            <th>Outstanding</th><th>Amount</th><th>UTR / Ref</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={7} className="empty">No pending payouts — everyone's been paid ✨</td></tr>}
+          {rows.map((r) => (
+            <tr key={r.booking_id} data-testid={`bp-row-${r.booking_id}`}>
+              <td><input type="checkbox" checked={!!selected[r.booking_id]} onChange={() => toggle(r.booking_id)} data-testid={`bp-check-${r.booking_id}`} /></td>
+              <td><Link to={`/bookings/${r.booking_id}`}>{r.booking_ref}</Link></td>
+              <td>{r.event_date || "—"}</td>
+              <td title={r.artist_email}>{r.artist_name || r.artist_email}</td>
+              <td>{fmtINRFull(r.outstanding)}</td>
+              <td>
+                <input
+                  type="number"
+                  className="input"
+                  style={{ width: 110 }}
+                  placeholder={String(r.outstanding)}
+                  value={r.pay_amount ?? ""}
+                  onChange={(e) => updateRow(r.booking_id, { pay_amount: e.target.value })}
+                  data-testid={`bp-amt-${r.booking_id}`}
+                />
+              </td>
+              <td>
+                <input
+                  className="input"
+                  style={{ width: 160 }}
+                  placeholder="UTR / txn id"
+                  value={r.pay_utr ?? ""}
+                  onChange={(e) => updateRow(r.booking_id, { pay_utr: e.target.value })}
+                  data-testid={`bp-utr-${r.booking_id}`}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+

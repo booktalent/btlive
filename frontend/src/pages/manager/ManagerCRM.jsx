@@ -378,6 +378,7 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
   const [busy, setBusy] = useState(false);
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetName, setPresetName] = useState("");
+  const [presetShared, setPresetShared] = useState(false);
 
   useEffect(() => {
     api.get(`/manager/customers?q=${encodeURIComponent(q)}&limit=20`)
@@ -419,12 +420,22 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
         city: form.city,
         default_package_fee: parseFloat(form.package_fee || 0),
         notes_template: form.notes,
+        shared: presetShared,
       });
       setPresets((ps) => [r.data.preset, ...ps]);
       setPresetName("");
-      toast("Preset saved ✓", "success");
+      setPresetShared(false);
+      toast(presetShared ? "Preset saved & shared with team ✓" : "Preset saved ✓", "success");
     } catch (e) { toast(fmt(e), "error"); }
     setSavingPreset(false);
+  };
+
+  const toggleShare = async (p) => {
+    try {
+      const r = await api.patch(`/manager/booking-presets/${p.id}/share`, { shared: !p.shared });
+      setPresets((ps) => ps.map((x) => x.id === p.id ? { ...x, shared: r.data.shared } : x));
+      toast(r.data.shared ? "Preset shared with the team" : "Preset set back to private");
+    } catch (e) { toast(fmt(e), "error"); }
   };
 
   const removePreset = async (pid) => {
@@ -515,18 +526,31 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
             {/* Preset picker + save */}
             {presets.length > 0 && (
               <div className="mb-8" style={{ background: "rgba(255,255,255,0.03)", padding: 8, borderRadius: 8 }}>
-                <div className="text-muted fs-11 mb-4">Load a saved preset</div>
+                <div className="text-muted fs-11 mb-4">Load a saved preset (your own + team-shared)</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} data-testid="mgr-preset-list">
                   {presets.map((p) => (
                     <span key={p.id}
+                      title={p.owned ? "Your preset" : `Shared by ${p.owner_name || "team"}`}
                       style={{
                         display: "inline-flex", gap: 6, alignItems: "center",
-                        border: "1px solid rgba(212,175,55,0.35)", borderRadius: 999,
-                        padding: "3px 10px", fontSize: 11, background: "rgba(212,175,55,0.06)",
+                        border: `1px solid ${p.shared ? "rgba(110,231,168,0.45)" : "rgba(212,175,55,0.35)"}`,
+                        borderRadius: 999, padding: "3px 10px", fontSize: 11,
+                        background: p.shared ? "rgba(110,231,168,0.06)" : "rgba(212,175,55,0.06)",
                       }}
                       data-testid={`mgr-preset-${p.id}`}>
-                      <span style={{ cursor: "pointer" }} onClick={() => applyPreset(p)}>{p.name}</span>
-                      <span style={{ cursor: "pointer", color: "#e57373" }} onClick={() => removePreset(p.id)}>×</span>
+                      <span style={{ cursor: "pointer" }} onClick={() => applyPreset(p)}>
+                        {p.shared && !p.owned && "👥 "}{p.name}
+                      </span>
+                      {p.owned && (
+                        <span
+                          onClick={() => toggleShare(p)}
+                          style={{ cursor: "pointer", fontSize: 10, color: p.shared ? "#6ee7a8" : "rgba(240,238,255,0.5)" }}
+                          data-testid={`mgr-preset-share-${p.id}`}
+                          title={p.shared ? "Shared with team — click to unshare" : "Only you — click to share with team"}>
+                          {p.shared ? "shared" : "private"}
+                        </span>
+                      )}
+                      {p.owned && <span style={{ cursor: "pointer", color: "#e57373" }} onClick={() => removePreset(p.id)}>×</span>}
                     </span>
                   ))}
                 </div>
@@ -569,7 +593,7 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
               value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="mgr-book-notes" />
 
             <div className="flex gap-8 mt-12" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <input
                   className="input" style={{ minWidth: 150 }}
                   placeholder="Preset name"
@@ -577,6 +601,16 @@ export function CreateBookingOnBehalfModal({ onClose, toast }) {
                   onChange={(e) => setPresetName(e.target.value)}
                   data-testid="mgr-preset-name"
                 />
+                <label style={{ display: "flex", gap: 4, alignItems: "center", fontSize: 12, cursor: "pointer" }}
+                        data-testid="mgr-preset-shared-wrap">
+                  <input
+                    type="checkbox"
+                    checked={presetShared}
+                    onChange={(e) => setPresetShared(e.target.checked)}
+                    data-testid="mgr-preset-shared"
+                  />
+                  Share with team
+                </label>
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={savePreset}

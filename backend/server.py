@@ -2611,12 +2611,20 @@ async def booking_action(bid: str, body: BookingStatusUpdate, user: dict = Depen
             artist_p = await db.artist_profiles.find_one({"user_id": doc["artist_id"]}) or {}
             artist_u = await db.users.find_one({"id": doc["artist_id"]}) or {}
             artist_name = artist_p.get("stage_name") or f"{artist_u.get('first_name', '')} {artist_u.get('last_name', '')}".strip()
+            # Build compact timeline snippet for the email body.
+            try:
+                from routes.req_batch_3 import build_email_timeline_html, fetch_booking_events
+                _events = await fetch_booking_events(db, doc["id"])
+                timeline_html = build_email_timeline_html(doc, _events)
+            except Exception:
+                timeline_html = ""
             await send_booking_confirmation_email(
                 doc.get("customer_email") or "",
                 doc.get("customer_name") or "",
                 doc.get("ref", ""),
                 artist_name,
                 doc.get("event_date", ""),
+                timeline_html=timeline_html,
             )
             # Smart notification: confirm both parties + admin via dispatcher
             await notify_dispatch(db, user_id=doc["customer_id"], event="booking.confirmed",
@@ -3052,6 +3060,13 @@ async def _send_reminder_for_booking(doc: dict):
     map_link = _map_link(doc.get("venue") or "", doc.get("city") or "")
 
     tasks = []
+    # Build a compact timeline snippet once for both audiences.
+    try:
+        from routes.req_batch_3 import build_email_timeline_html, fetch_booking_events
+        _events = await fetch_booking_events(db, doc.get("id") or "")
+        timeline_html = build_email_timeline_html(doc, _events)
+    except Exception:
+        timeline_html = ""
     cust_email = doc.get("customer_email") or customer_u.get("email")
     if cust_email:
         tasks.append(send_event_reminder_email(
@@ -3059,6 +3074,7 @@ async def _send_reminder_for_booking(doc: dict):
             artist_name, doc.get("event_date") or "", doc.get("event_time") or "",
             load_in, doc.get("venue") or "", doc.get("city") or "",
             map_link, doc.get("ref") or "",
+            timeline_html=timeline_html,
         ))
     if artist_u.get("email"):
         tasks.append(send_event_reminder_email(
@@ -3066,6 +3082,7 @@ async def _send_reminder_for_booking(doc: dict):
             artist_name, doc.get("event_date") or "", doc.get("event_time") or "",
             load_in, doc.get("venue") or "", doc.get("city") or "",
             map_link, doc.get("ref") or "",
+            timeline_html=timeline_html,
         ))
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -4558,6 +4575,10 @@ app.include_router(make_req_batch_router(db, get_current_user, admin_only), pref
 # Feb-2026 requirement batch 2 — mutual refunds + presets + timeline + service-artist seeder
 from routes.req_batch_2 import make_req_batch_2_router  # noqa: E402
 app.include_router(make_req_batch_2_router(db, get_current_user, admin_only), prefix="/api")
+
+# Feb-2026 requirement batch 3 — refund auditor + bulk payout + email timeline helper
+from routes.req_batch_3 import make_req_batch_3_router  # noqa: E402
+app.include_router(make_req_batch_3_router(db, get_current_user, admin_only), prefix="/api")
 
 # Iter52 — Agency CRM (offline artists/clients/events/staff/finance).
 # Note: the persistent Booking Cart shipped in Iter 52 was removed at user

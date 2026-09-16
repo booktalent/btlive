@@ -292,7 +292,7 @@ async def send_welcome_email(to_email: str, name: str, role: str, base_url: str 
     return await asyncio.to_thread(_send_sync, to_email, subject, html, text)
 
 
-async def send_booking_confirmation_email(to_email: str, name: str, booking_ref: str, artist_name: str, event_date: str) -> dict:
+async def send_booking_confirmation_email(to_email: str, name: str, booking_ref: str, artist_name: str, event_date: str, timeline_html: str = "") -> dict:
     subject = f"Booking Confirmed — {booking_ref}"
     html = f"""<!doctype html><html><body style="margin:0;padding:0;background:#09090F;font-family:-apple-system,sans-serif;color:#F0EEFF;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#09090F;padding:32px 0;"><tr><td align="center">
@@ -302,6 +302,7 @@ async def send_booking_confirmation_email(to_email: str, name: str, booking_ref:
     <h2 style="font-family:'Times New Roman',serif;font-size:28px;color:#F0EEFF;margin:0 0 8px;">Booking <span style="color:#D4AF37;">Confirmed</span></h2>
     <p style="color:rgba(240,238,255,0.7);font-size:14px;line-height:1.6;">Hi {name}, your booking with <b>{artist_name}</b> on <b>{event_date}</b> is confirmed.</p>
     <p style="color:rgba(240,238,255,0.7);font-size:14px;">Booking Reference: <code style="color:#F1D17A;background:rgba(212,175,55,0.12);padding:3px 9px;border-radius:6px;">{booking_ref}</code></p>
+    {timeline_html or ""}
   </td></tr>
 </table></td></tr></table></body></html>"""
     text = f"Hi {name}, your booking with {artist_name} on {event_date} is confirmed. Reference: {booking_ref}"
@@ -311,7 +312,7 @@ async def send_booking_confirmation_email(to_email: str, name: str, booking_ref:
 # ─── Event-day reminder ────────────────────────────────────────────────
 def _reminder_html(name: str, role: str, artist_name: str, event_date: str,
                    event_time: str, load_in_time: str, venue: str, city: str,
-                   map_link: str, booking_ref: str) -> str:
+                   map_link: str, booking_ref: str, timeline_html: str = "") -> str:
     intro = (
         f"Today's the day, {name or 'there'}! Your event with <b>{artist_name}</b> is happening this evening."
         if role == "customer"
@@ -371,6 +372,7 @@ def _reminder_html(name: str, role: str, artist_name: str, event_date: str,
             </p>
           </div>
         </td></tr>
+        <tr><td style="padding:8px 40px 0;">{timeline_html or ""}</td></tr>
         <tr><td style="padding:0 40px 28px;">
           <div style="height:1px;background:rgba(255,255,255,0.08);margin:20px 0 12px;"></div>
           <p style="font-size:11px;color:rgba(240,238,255,0.4);margin:0;text-align:center;">
@@ -385,13 +387,14 @@ def _reminder_html(name: str, role: str, artist_name: str, event_date: str,
 
 async def send_event_reminder_email(to_email: str, name: str, role: str, artist_name: str,
                                      event_date: str, event_time: str, load_in_time: str,
-                                     venue: str, city: str, map_link: str, booking_ref: str) -> dict:
+                                     venue: str, city: str, map_link: str, booking_ref: str,
+                                     timeline_html: str = "") -> dict:
     """Sent the morning of an event to both customer and artist."""
     if not to_email:
         return {"sent": False, "mock": True, "error": "no_email"}
     subject = f"Today at {event_time or ''} — your event with {artist_name}".strip()
     html = _reminder_html(name, role, artist_name, event_date, event_time,
-                          load_in_time, venue, city, map_link, booking_ref)
+                          load_in_time, venue, city, map_link, booking_ref, timeline_html)
     text = (
         f"Event reminder — {event_date}\n"
         f"Show time: {event_time}\nLoad-in: {load_in_time}\n"
