@@ -1695,7 +1695,9 @@ async def artists_search(
     page: int = 1,
     limit: int = 12,
 ):
-    query: dict = {"suspended": {"$ne": True}}
+    # Only LIVE artists appear in public search (KYC + T&C + Agreement complete).
+    # Non-live/kyc-pending artists must be invisible to customers.
+    query: dict = {"suspended": {"$ne": True}, "kyc_status": "live"}
     if category:
         query["category"] = category
     if city:
@@ -1745,7 +1747,8 @@ async def artists_search(
 
 @api.get("/artists/featured")
 async def artists_featured(limit: int = 8):
-    base = {"suspended": {"$ne": True}}
+    # LIVE-only gate: featured strip is public, so keep same rule as search.
+    base = {"suspended": {"$ne": True}, "kyc_status": "live"}
     docs = await db.artist_profiles.find({**base, "$or": [{"is_featured": True}, {"is_boosted": True}]}).limit(limit).to_list(limit)
     if len(docs) < limit:
         extra = await db.artist_profiles.find({**base, "is_featured": {"$ne": True}}).sort("rating_avg", -1).limit(limit - len(docs)).to_list(limit)
@@ -1772,6 +1775,10 @@ async def artist_detail(user_id: str):
     # Iter 52.8 — suspended artists must not be reachable via the public
     # profile URL either (deep-links, share links, cached SEO cards).
     if prof.get("suspended"):
+        raise HTTPException(404, "Artist not found")
+    # LIVE-only gate for public detail page. Non-live artists (kyc pending,
+    # T&C not accepted, agreement not generated) must 404 on the public URL.
+    if prof.get("kyc_status") != "live":
         raise HTTPException(404, "Artist not found")
     # increment view counter (best-effort)
     await db.artist_profiles.update_one({"user_id": user_id}, {"$inc": {"profile_views": 1}})
@@ -2100,6 +2107,17 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
     # Iter 52.5 — enforce Terms & Conditions declaration from the Review step.
     if not body.tnc_accepted:
         raise HTTPException(400, "Please accept the Terms & Conditions before proceeding")
+
+    # Iter 99 — LIVE-only gate for booking creation.
+    # A booking must never be created against an artist who has not completed
+    # KYC → T&C → Agreement (i.e. `kyc_status != "live"`). This complements
+    # the search/detail 404 gate so the state machine is enforced end-to-end.
+    artist_profile = await db.artist_profiles.find_one({"user_id": body.artist_id}) or {}
+    if not artist_profile:
+        raise HTTPException(404, "Artist not found")
+    if artist_profile.get("suspended") or artist_profile.get("kyc_status") != "live":
+        raise HTTPException(400, "This artist is not currently accepting bookings.")
+
     pkg = await db.packages.find_one({"id": body.package_id, "artist_id": body.artist_id})
     if not pkg:
         raise HTTPException(404, "Package not found")
@@ -2107,8 +2125,11 @@ async def create_booking(body: BookingCreate, user: dict = Depends(get_current_u
     artist = await db.users.find_one({"id": body.artist_id})
     if not artist:
         raise HTTPException(404, "Artist not found")
-    # Load artist profile once for outstation detection + suggestions below.
-    artist_profile = await db.artist_profiles.find_one({"user_id": body.artist_id}) or {}
+    # LIVE-only gate: booking creation must fail for non-live artists so that
+    # KYC-pending / T&C-pending / agreement-pending artists can never be booked
+    # (matches the "not visible / not bookable" business rule).
+    if artist_profile.get("suspended") or artist_profile.get("kyc_status") != "live":
+        raise HTTPException(400, "This artist is not currently accepting bookings.")
     # Warm the city-alias cache on first use — subsequent bookings reuse it.
     if not _CITY_ALIAS_MAP:
         await _refresh_city_aliases()

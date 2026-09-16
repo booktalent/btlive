@@ -995,21 +995,40 @@ export default function BookingFlow() {
                   <div className="flex justify-between mb-8 fs-11" style={{ marginLeft: 12 }} data-testid="summary-artist-addons"><span className="text-muted">  + Artist add-ons {fmtINRFull(Math.round(artistAddonsTotal))}</span></div>
                 )}
                 <div className="divider" style={{ margin: "8px 0" }} />
-                <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee ({feePercent}%)</span><span>{fmtINRFull(platformFee)}</span></div>
-                {quoteMeta?.is_service_artist && (
+                {quoteMeta?.is_service_artist ? (
                   <>
-                    <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-waiver">
-                      <span className="text-good">Platform Fee Waived</span>
-                      <span className="text-good">−{fmtINRFull(platformFee)}</span>
-                    </div>
-                    <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-payable">
-                      <span className="text-muted">Platform Fee Payable</span>
-                      <span>{fmtINRFull(0)}</span>
-                    </div>
-                    <div className="text-good fs-11 mb-8" style={{ paddingLeft: 4 }}>
-                      ✨ {quoteMeta.waiver_message}
-                    </div>
+                    {/* Service artists: show the notional 5% fee, waiver line and payable=0
+                        so the customer clearly understands they're getting a waiver worth ₹X. */}
+                    {(() => {
+                      const notionalPct = feePercent || 5;
+                      const notionalFee = Math.round((artistFee * notionalPct) / 100);
+                      return (
+                        <>
+                          <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-notional">
+                            <span className="text-muted">Platform Service Fee ({notionalPct}%)</span>
+                            <span style={{ textDecoration: "line-through", opacity: 0.6 }}>{fmtINRFull(notionalFee)}</span>
+                          </div>
+                          <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-waiver">
+                            <span className="text-good">Platform Fee Waiver</span>
+                            <span className="text-good">−{fmtINRFull(notionalFee)}</span>
+                          </div>
+                          <div className="flex justify-between mb-8 fs-13" data-testid="summary-fee-payable">
+                            <span className="text-muted">Platform Fee Payable</span>
+                            <span>{fmtINRFull(0)}</span>
+                          </div>
+                          <div
+                            className="text-good fs-12 mb-8"
+                            data-testid="summary-fee-waiver-banner"
+                            style={{ padding: "8px 10px", borderRadius: 8, background: "rgba(46,204,113,0.08)", border: "1px solid rgba(46,204,113,0.25)", marginTop: 4 }}
+                          >
+                            🎉 Your 5% Platform Fee has been waived for this artist.
+                          </div>
+                        </>
+                      );
+                    })()}
                   </>
+                ) : (
+                  <div className="flex justify-between mb-8 fs-13"><span className="text-muted">Platform Service Fee ({feePercent}%)</span><span>{fmtINRFull(platformFee)}</span></div>
                 )}
                 {gstVisible && (
                   <div className="flex justify-between mb-8 fs-13"><span className="text-muted">GST ({gstPercent}% on {quoteMeta?.is_service_artist ? "Artist Fee" : "Artist Fee + Platform Fee"})</span><span>{fmtINRFull(gst)}</span></div>

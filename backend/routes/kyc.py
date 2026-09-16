@@ -258,13 +258,23 @@ def make_router(
             )
 
         target_user = await db.users.find_one({"id": body.artist_id})
+        # Iter 99 — R3 fix: KYC approval message MUST explicitly prompt the
+        # artist to complete Terms & Conditions on their dashboard so they can
+        # progress to the "live" state (agreement generation + go-live).
+        # Both email and WhatsApp use the same T&C prompt copy.
+        _tnc_prompt = (
+            "Congratulations! Your KYC has been approved and your Verified "
+            "Badge is now active. Please log in to your Artist Dashboard and "
+            "accept the Terms & Conditions to receive your Agreement and go "
+            "LIVE on BookTalent."
+        )
         titles = {
-            "approved": "✓ KYC Approved — Verified Badge Activated",
+            "approved": "✓ KYC Approved — Accept T&C to Go LIVE",
             "rejected": "✗ KYC Rejected",
             "needs_resubmission": "↻ KYC — Resubmission Requested",
         }
         bodies = {
-            "approved": "Congratulations! Your identity has been verified. Your profile now displays a Verified Badge.",
+            "approved": _tnc_prompt,
             "rejected": f"Your KYC was rejected. Reason: {body.reason or 'documents did not meet our standards'}.",
             "needs_resubmission": f"Please resubmit your KYC. Reason: {body.reason or 'we need a clearer copy of your documents'}.",
         }

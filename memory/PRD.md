@@ -1,6 +1,39 @@
 # BookTalent — Product Requirements Document
 
 
+## 🔒 Iter 99 — LIVE-only Public Gate + KYC→T&C→Agreement Enforcement (2026-09-16)
+
+**User pushback**: The 5-stage process (KYC → T&C accept → Agreement PDF → LIVE → visible/bookable) was documented but not enforced end-to-end. Non-live artists were leaking into public search / detail / booking creation.
+
+### Fixes shipped
+1. **R2/R6 — LIVE-only public gate** (`backend/server.py`)
+   - `/artists/search`, `/artists/featured`, `/artists/{id}` all now filter `kyc_status == "live"` (in addition to `suspended`). Non-live artists 404 on public detail URL.
+   - `POST /bookings` new gate BEFORE package check: rejects with `400 "This artist is not currently accepting bookings."` if artist is not live.
+2. **R3 — KYC-approval notification unified** (`backend/routes/kyc.py`)
+   - Title: `"✓ KYC Approved — Accept T&C to Go LIVE"`
+   - Body: explicit prompt to log in and accept T&C so Agreement is generated and artist goes LIVE.
+   - Same copy sent via email + WhatsApp (wachatsender live) via `notify_dispatch(channels=["in_app","email","whatsapp"])`.
+3. **R1 — Checkout fee-waiver line items** (`frontend/src/pages/BookingFlow.jsx`)
+   - For Service artists checkout now shows the notional fee struck-through + waiver line + payable=₹0 + banner "🎉 Your 5% Platform Fee has been waived for this artist." matching spec verbatim.
+4. **Data migration**: 6 legacy demo artists (Priya, Rohit, Kavya, Aamir, Deepika, Aarav) flipped to `kyc_status="live"` with `tnc_accepted_at`, `agreement_generated_at`, `went_live_at` timestamps + `legacy_migrated_iter_99` marker. Any post-Iter-99 signup must go through the real flow.
+5. **Commercial Deals inline edit UX** (`frontend/src/pages/AdminDashboard.jsx`)
+   - Replaced auto-save-on-change with explicit Save/Cancel buttons.
+   - Type dropdown + % input render together in edit mode (not one-at-a-time).
+   - Validates Service artist must have %>0 before submit.
+
+### E2E verified (curl + screenshot)
+- `GET /artists/search?limit=20` → returns only 6 live artists; 10 kyc_pending demo artists correctly hidden.
+- `GET /artists/{kyc_pending_id}` → HTTP 404.
+- `POST /bookings` with kyc_pending artist_id → `400 "not currently accepting bookings"`.
+- Service artist checkout screenshot shows exact line-item spec (₹5,000 struck-through, −₹5,000 waiver, ₹0 payable, banner).
+- Admin Commercial Deals: Edit → Type=Service + %=12.5 → Save → row updates, toast fires, KPIs refresh.
+
+### Open followups
+- Aamir's profile has an inconsistency (search returned 6, not 7 live artists) — worth investigating separately; likely a `is_hidden` flag or missing package.
+- WhatsApp T&C prompt: wachatsender template must be text-mode or approved with body placeholder → content field maps to field_1 (operational, not code).
+
+
+
 ## 📊 Iter 92 — Analytics Dashboard + Public Trust Page + Notification Preferences (2026-09-15)
 
 ### 1. Admin Analytics Dashboard (`/admin?tab=analytics`)
