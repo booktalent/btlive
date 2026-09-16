@@ -632,7 +632,13 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         limit: int = 24,
         request: Request = None,
     ):
-        filt: Dict[str, Any] = {}
+        # Iter 99 — LIVE-only public gate. Only artists who completed
+        # KYC → T&C acceptance → Agreement generation → went live are
+        # discoverable. Suspended profiles also hidden.
+        filt: Dict[str, Any] = {
+            "suspended": {"$ne": True},
+            "kyc_status": "live",
+        }
         if category:
             # Iter 62.6 — Dropdown sends catalog labels like "Singers & Vocalists"
             # or slugs like "singer" but profiles store free-text ("Bollywood
@@ -691,7 +697,10 @@ def make_router(db, get_current_user, admin_only) -> APIRouter:
         if featured_only:
             filt["is_featured"] = True
         if verified_only:
-            filt["kyc_status"] = "approved"
+            # Iter 99 — "verified" now means fully live (KYC + T&C + agreement).
+            # Since the base filter already enforces kyc_status=="live", this is
+            # effectively a no-op but kept for API compatibility.
+            filt["kyc_status"] = "live"
         if premium_only:
             filt["premium_badge"] = True
         if instant_available:
