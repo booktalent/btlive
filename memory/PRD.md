@@ -1,6 +1,36 @@
 # BookTalent — Product Requirements Document
 
 
+## 🚀 Iter 99.1 — Deployment Readiness (2026-09-16)
+
+### Blockers cleared
+1. **Destructive DB startup drop removed** (`backend/server.py:4801`): the `_iter7_startup` handler was dropping `wallets` and `withdrawals` collections on every boot, which would wipe live data on every K8s restart. Replaced with a no-op comment.
+2. **.gitignore updated** (`.gitignore:82-87`): `.env`, `.env.*`, `*.env` broad excludes replaced with `.env.local` / `.env.*.local` so Emergent deploy can update the tracked `.env` files with production values.
+
+### Deployment audit verdict
+- ✅ Compilation passes
+- ✅ Env files well-formed
+- ✅ Frontend uses relative `/api` paths (works in preview + prod)
+- ✅ Backend URLs come from env only
+- ✅ CORS regex allows production origin
+- ✅ Supervisor config valid (uvicorn backend, yarn frontend)
+- ✅ No destructive startup, no ML/blockchain deps, no hardcoded secrets in code
+- ✅ MongoDB-only (Emergent managed DB)
+- ✅ `load_dotenv(override=False)` — K8s env vars override .env files
+
+### Smoke tests (all pass)
+| Check | Result |
+|---|---|
+| Public search returns 7 live artists | ✅ HTTP 200, total=7 |
+| Featured artists | ✅ HTTP 200 |
+| Admin login | ✅ Token issued |
+| Customer login | ✅ Token issued |
+| Service artist finance quote | ✅ `is_service_artist=true, waiver_message` set |
+| Supervisor status | ✅ backend/frontend/mongodb all RUNNING |
+
+**Project is ready for live deployment via Emergent's Deploy button.**
+
+
 ## 🔒 Iter 99 — LIVE-only Public Gate + KYC→T&C→Agreement Enforcement (2026-09-16)
 
 **User pushback**: The 5-stage process (KYC → T&C accept → Agreement PDF → LIVE → visible/bookable) was documented but not enforced end-to-end. Non-live artists were leaking into public search / detail / booking creation.

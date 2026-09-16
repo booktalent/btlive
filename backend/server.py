@@ -4799,15 +4799,11 @@ async def _iter7_startup():
         log.info("Backfilled artist_fee on %d legacy bookings", migrated)
 
     # 2. Business-model pivot (Iter 36): BookTalent is a lead-generation
-    # marketplace only. Drop any legacy wallet / withdrawal collections so
-    # the system never references them again.
-    try:
-        for legacy_coll in ("wallets", "withdrawals"):
-            if legacy_coll in await db.list_collection_names():
-                await db[legacy_coll].drop()
-                log.info("Dropped legacy collection: %s", legacy_coll)
-    except Exception as _e:
-        log.warning("Legacy wallet/withdrawal cleanup skipped: %s", _e)
+    # marketplace only. Legacy wallet/withdrawal collections are no longer
+    # referenced by any code path — no need to drop them on every boot.
+    # Iter 99 deployment audit: removed destructive startup drop that would
+    # wipe collections on production reboot. If cleanup is ever needed, run
+    # it as a one-off migration script, not on startup.
 
     # 3. Iter 45 — spotlight impression dedup index.
     try:

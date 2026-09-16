@@ -80,9 +80,10 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
-.env
-.env.*
-*.env
+# Iter 99 deployment audit: .env files must be tracked so Emergent
+# deploy can replace placeholders. Local overrides go into .env.local.
+.env.local
+.env.*.local
 credentials.json
 *.key
 .credentials
